@@ -1,5 +1,6 @@
 *.png
 *.txt
+!nouns.txt
 Todo.md
 data-dir/
 __pycache__/
