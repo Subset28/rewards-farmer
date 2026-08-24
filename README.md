@@ -12,11 +12,11 @@ Clone the repository.
 git clone https://github.com/User0332/rewards-farmer
 ```
 
-Enter the root directory of the repository and create a wordlist named `nouns.txt` which will contain seed words for the LLM to complete 20 searches. The wordlist should be separated by newline
+A sample `nouns.txt` file is included in the project root and can be modified by the user to contain seed words for the LLM to complete 20 searches. The wordlist should be separated by newline.
 
 ```sh
 cd rewards-farmer
-cp /path/to/my_amazing_wordlist.txt nouns.txt
+# Edit the included nouns.txt file to add or replace words as needed
 ```
 
 You should also have an Ollama account created (for the LLM), the `ollama` tool installed, and you should have signed in to the Ollama CLI via the command line using `ollama signin`. This project will use a minimal amount of Ollama cloud usage using `gemma4:cloud`. If you wish to use a different model, please change the `model` parameter in the `get_ollama_response` function in `src/llm_utils.py`.
