@@ -15,6 +15,8 @@ import mouse_trajectory
 import mimic_typing
 import element_selectors
 
+VISUAL_SEARCH_IMAGE_PATH = os.path.abspath("keypress_times.png")
+
 class RewardsTaskUtils:
 	def __init__(self, driver: webdriver.Edge):
 		self.driver = driver
@@ -119,7 +121,7 @@ class RewardsTaskUtils:
 
 		file_input = self.wait_for_element(self.elements.get_visual_search_file_input)
 
-		file_input.send_keys(os.path.abspath("keypress_times.png"))
+		file_input.send_keys(VISUAL_SEARCH_IMAGE_PATH)
 
 		time.sleep(random.uniform(3, 5))
 
