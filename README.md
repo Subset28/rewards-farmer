@@ -4,6 +4,8 @@ Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.
 
 # Running Instructions
 
+IMPORTANT: Use at your own risk. Microsoft may take action against your account for using automated scripts to gain rewards points. The YouTube video contains more details about the techniques implemented to avoid detection of this script.
+
 Clone the repository.
 
 ```sh
