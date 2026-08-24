@@ -113,30 +113,30 @@ class ElementSelectionUtils:
 		raise NoSuchElementException("sidebar section not found")
 
 	# ------------------------------------------------------------------
-	# daily set (only present in older / some regional variants)
+	# daily set
 	# ------------------------------------------------------------------
 
-	def get_daily_set_section(self):
-		"""The dedicated Daily Set section.
+	def _streaks_button(self, index: int) -> WebElement:
+		"""Positional fallback inside the streaks section.
 
-		The current UI folds these cards into `moreactivities` instead, so this
-		raises when the variant has no separate section.
+		Same node the original absolute XPath pointed at, but anchored on the
+		section id so an extra section earlier in the page cannot shift it.
 		"""
-		for section in self.driver.find_elements(By.TAG_NAME, "section"):
-			try:
-				identifier = (section.get_dom_attribute("id") or "").lower()
+		streaks = self.driver.find_element(By.ID, "streaks")
 
-				if "dailyset" in identifier or "daily-set" in identifier:
-					return section
-			except StaleElementReferenceException:
-				continue
-
-		raise NoSuchElementException("no dedicated daily set section in this UI variant")
+		return streaks.find_element(By.XPATH, f"./div/div[2]/div/div/button[{index}]")
 
 	def get_open_daily_set_button(self):
-		return self._button_containing("daily set", self.get_daily_set_section())
+		# Lives in the streaks section, not in a section of its own. Match on
+		# "daily set streak" rather than "daily set", because the level up
+		# section also has "Complete the Daily Set for 7 days in a row".
+		try:
+			return self._button_containing("daily set streak")
+		except NoSuchElementException:
+			return self._streaks_button(3)
 
 	def get_daily_set_elements(self):
+		# The first link in the opened panel is the progress row, not an activity.
 		return self.get_sidebar_section().find_elements(By.TAG_NAME, "a")[1:]
 
 	# ------------------------------------------------------------------
@@ -156,7 +156,15 @@ class ElementSelectionUtils:
 	# ------------------------------------------------------------------
 
 	def get_open_visual_search_sidebar(self):
-		return self._button_containing("visual search")
+		for needle in ("visual search", "image search"):
+			try:
+				return self._button_containing(needle)
+			except NoSuchElementException:
+				continue
+
+		# Not every layout ships this entry point, and where it does the label is
+		# not confirmed, so fall back to the original position in streaks.
+		return self._streaks_button(5)
 
 	def get_search_now_link_from_visual_search_sidebar(self):
 		sidebar = self.get_sidebar_section()
@@ -286,16 +294,28 @@ return (
 
 	def get_claim_bonus_points_button(self):
 		sidebar = self.get_sidebar_section()
+		buttons = sidebar.find_elements(By.TAG_NAME, "button")
 
-		try:
-			return self._button_containing("claim", sidebar)
-		except NoSuchElementException:
-			buttons = sidebar.find_elements(By.TAG_NAME, "button")
+		# Prefer the button whose whole label is the action. A substring match
+		# would hit the "Ready to claim" heading before the actual Claim button.
+		for button in buttons:
+			try:
+				if (button.text or "").strip().lower() == "claim":
+					return button
+			except StaleElementReferenceException:
+				continue
 
-			if len(buttons) < 3:
-				raise NoSuchElementException("bonus sidebar has no claim button")
+		for button in buttons:
+			try:
+				if "claim" in (button.text or "").lower():
+					return button
+			except StaleElementReferenceException:
+				continue
 
-			return buttons[2]
+		if len(buttons) < 3:
+			raise NoSuchElementException("bonus sidebar has no claim button")
+
+		return buttons[2]
 
 	def get_generic_sidebar_close_button(self):
 		sidebar = self.get_sidebar_section()
