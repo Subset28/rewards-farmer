@@ -15,7 +15,7 @@ import mouse_trajectory
 import mimic_typing
 import element_selectors
 
-VISUAL_SEARCH_IMAGE_PATH = os.path.abspath("keypress_times.png")
+VISUAL_SEARCH_IMAGE_PATH = os.path.abspath("random_image.png")
 
 class RewardsTaskUtils:
 	def __init__(self, driver: webdriver.Edge):
