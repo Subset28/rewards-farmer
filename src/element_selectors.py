@@ -22,7 +22,9 @@ class Labels:
 	CLAIM = "claim"                      # exact label preferred, substring as fallback
 	DAILY_SET_STREAK = "daily set streak"
 	CARD_COMPLETED = "completed"
-	VISUAL_SEARCH = ("visual search", "image search")
+	# The full streak label on purpose: plain "visual search" also matches an
+	# element on the dashboard, which can go stale mid-interaction.
+	VISUAL_SEARCH_STREAK = "visual search streak"
 
 
 class ElementSelectionUtils:
@@ -175,15 +177,12 @@ class ElementSelectionUtils:
 	# ------------------------------------------------------------------
 
 	def get_open_visual_search_sidebar(self):
-		for needle in Labels.VISUAL_SEARCH:
-			try:
-				return self._button_containing(needle)
-			except NoSuchElementException:
-				continue
-
-		# Not every layout ships this entry point, and where it does the label is
-		# not confirmed, so fall back to the original position in streaks.
-		return self._streaks_button(5)
+		try:
+			return self._button_containing(Labels.VISUAL_SEARCH_STREAK)
+		except NoSuchElementException:
+			# Not every layout ships this entry point. Where it does but the
+			# label differs, fall back to the original position in streaks.
+			return self._streaks_button(5)
 
 	def get_search_now_link_from_visual_search_sidebar(self):
 		sidebar = self.get_sidebar_section()

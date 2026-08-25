@@ -314,12 +314,41 @@ class MouseUtils:
 	def move_to_element(self, element: WebElement, visualize: bool=True):
 		# The pointer is moved to viewport coordinates, so an element below the
 		# fold yields a target outside the window and the driver rejects the move
-		# with MoveTargetOutOfBoundsException. Bring it into view first.
-		self.driver.execute_script(
-			"arguments[0].scrollIntoView({block: 'center', inline: 'center'});",
-			element
-		)
-		time.sleep(0.4)
+		# with MoveTargetOutOfBoundsException. Bring it into view first, but only
+		# when it actually is out of view: unconditionally re-centering visible
+		# elements is what caused the page to jump between tasks. When scrolling
+		# is needed it is smooth, and since smooth scrolling is asynchronous, the
+		# rect is polled until it stops moving before the path is computed.
+		fully_in_view = self.driver.execute_script("""
+			var r = arguments[0].getBoundingClientRect();
+			return (
+				r.top >= 0 && r.left >= 0 &&
+				r.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+				r.right <= (window.innerWidth || document.documentElement.clientWidth)
+			);
+		""", element)
+
+		if not fully_in_view:
+			self.driver.execute_script(
+				"arguments[0].scrollIntoView({block: 'center', inline: 'center', behavior: 'smooth'});",
+				element
+			)
+
+			last_rect = None
+
+			for _ in range(20):
+				time.sleep(0.15)
+
+				rect = self.driver.execute_script(
+					"var r = arguments[0].getBoundingClientRect();"
+					"return [Math.round(r.top), Math.round(r.left)];",
+					element
+				)
+
+				if rect == last_rect:
+					break
+
+				last_rect = rect
 
 		current_mouse_position = self.get_current_mouse_position()
 
