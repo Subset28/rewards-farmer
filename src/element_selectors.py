@@ -6,6 +6,25 @@ from selenium.common.exceptions import NoSuchElementException, StaleElementRefer
 from selenium import webdriver
 
 
+class Labels:
+	"""Visible labels the selectors match on.
+
+	The Rewards markup carries no stable hooks for these controls, so they have
+	to be found by their text. That makes the lookups language dependent even
+	though they are market independent: a Rewards UI rendered in another
+	language needs these translated, and there is exactly one place to do it.
+
+	Matching is case insensitive and by substring unless noted.
+	"""
+
+	POINTS_BREAKDOWN = "points breakdown"
+	READY_TO_CLAIM = "ready to claim"
+	CLAIM = "claim"                      # exact label preferred, substring as fallback
+	DAILY_SET_STREAK = "daily set streak"
+	CARD_COMPLETED = "completed"
+	VISUAL_SEARCH = ("visual search", "image search")
+
+
 class ElementSelectionUtils:
 	"""Selectors for the Rewards UI.
 
@@ -131,7 +150,7 @@ class ElementSelectionUtils:
 		# "daily set streak" rather than "daily set", because the level up
 		# section also has "Complete the Daily Set for 7 days in a row".
 		try:
-			return self._button_containing("daily set streak")
+			return self._button_containing(Labels.DAILY_SET_STREAK)
 		except NoSuchElementException:
 			return self._streaks_button(3)
 
@@ -156,7 +175,7 @@ class ElementSelectionUtils:
 	# ------------------------------------------------------------------
 
 	def get_open_visual_search_sidebar(self):
-		for needle in ("visual search", "image search"):
+		for needle in Labels.VISUAL_SEARCH:
 			try:
 				return self._button_containing(needle)
 			except NoSuchElementException:
@@ -210,7 +229,7 @@ class ElementSelectionUtils:
 		except NoSuchElementException:
 			return False
 
-		return "completed" in (status or "").lower()
+		return Labels.CARD_COMPLETED in (status or "").lower()
 
 	def get_card_point_value(self, card: WebElement):
 		try:
@@ -244,7 +263,7 @@ return (
 	# ------------------------------------------------------------------
 
 	def get_points_breakdown_button(self):
-		return self._button_containing("points breakdown")
+		return self._button_containing(Labels.POINTS_BREAKDOWN)
 
 	def get_close_button_on_points_breakdown(self):
 		return self.get_generic_sidebar_close_button()
@@ -290,7 +309,7 @@ return (
 	# ------------------------------------------------------------------
 
 	def get_bonus_button_on_dashboard(self):
-		return self._button_containing("ready to claim")
+		return self._button_containing(Labels.READY_TO_CLAIM)
 
 	def get_claim_bonus_points_button(self):
 		sidebar = self.get_sidebar_section()
@@ -300,14 +319,14 @@ return (
 		# would hit the "Ready to claim" heading before the actual Claim button.
 		for button in buttons:
 			try:
-				if (button.text or "").strip().lower() == "claim":
+				if (button.text or "").strip().lower() == Labels.CLAIM:
 					return button
 			except StaleElementReferenceException:
 				continue
 
 		for button in buttons:
 			try:
-				if "claim" in (button.text or "").lower():
+				if Labels.CLAIM in (button.text or "").lower():
 					return button
 			except StaleElementReferenceException:
 				continue

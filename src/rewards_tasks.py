@@ -85,8 +85,11 @@ class RewardsTaskUtils:
 		explore_on_bing_links = self.elements.get_explore_on_bing_elements()
 
 		if not explore_on_bing_links:
-			print("[INFO] No Explore on Bing section in this UI variant, skipping.")
-			return
+			# Raise rather than return, so complete_all_tasks reports this as
+			# [SKIP]. Returning quietly made it print [OK] for a task that never
+			# ran, which is exactly the kind of false success a scheduled run
+			# must not produce.
+			raise NoSuchElementException("no Explore on Bing section in this UI variant")
 
 		for card in explore_on_bing_links:
 			desc = self.elements.extract_card_descriptions(card)
