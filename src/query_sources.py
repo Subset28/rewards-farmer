@@ -130,6 +130,24 @@ def suggestions(seed: str) -> list[str]:
 	return [_clean(s) for s in payload[1] if _clean(s)]
 
 
+def wordlist_queries(count: int) -> list[str]:
+	"""Seeds from nouns.txt, the last resort when nothing is reachable.
+
+	Read here rather than borrowed from llm_utils so that a trends-only install
+	never has to import the model client.
+	"""
+	try:
+		with open("nouns.txt", encoding="utf-8") as handle:
+			nouns = [line.strip().lower() for line in handle if len(line.strip()) >= 3]
+	except OSError:
+		return []
+
+	if not nouns:
+		return []
+
+	return random.sample(nouns, min(count, len(nouns)))
+
+
 def _clean(text: str) -> str:
 	"""Strip markup, collapse whitespace and drop punctuation Bing does not need."""
 	text = re.sub(r"<[^>]+>", " ", text or "")

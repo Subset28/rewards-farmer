@@ -66,4 +66,47 @@ EU Users: you may have to accept a consent banner once on `rewards.bing.com` and
 
 Close all webdriver browser instances. Run `main.py` again; the automation should start working.
 
+# Running more than one account
+
+Rewards is per Microsoft account and the browser profile holds the sign-in, so an account here is a profile directory. `REWARDS_ACCOUNTS` takes a comma separated list, and each name gets its own directory under `data-dir`:
+
+```sh
+REWARDS_ACCOUNTS=personal,spare python src/main.py
+```
+
+Each is signed in once by hand, the same way as the single profile, using its own directory:
+
+```
+msedge --user-data-dir="<repo>\data-dir\personal" --profile-directory=Default https://rewards.bing.com
+```
+
+They run one after another, and a profile that fails to start is reported and skipped rather than ending the run. Leave `REWARDS_ACCOUNTS` unset and everything behaves exactly as before, using the single profile in `data-dir`.
+
+# Docker
+
+Runs the bot without installing Edge, a driver or Python on the host.
+
+```sh
+docker compose build
+docker compose run --rm rewards-farmer
+```
+
+The container defaults to `QUERY_SOURCE=trends`, so it needs no Ollama account and no model. Set `QUERY_SOURCE=llm` and `OLLAMA_HOST` to a reachable address to use a model instead.
+
+**Sign in first.** The profile in `data-dir` starts logged out and the container has no display to sign in with, so do it once on the host with a normal Edge window and let the volume carry it in:
+
+```
+msedge --user-data-dir="<repo>\data-dir" --profile-directory=Default https://rewards.bing.com
+```
+
+Close every window of that profile afterwards. Chromium allows one process per profile directory, so a window left open on the host stops the container from starting.
+
+Multiple accounts work the same way in the container:
+
+```sh
+REWARDS_ACCOUNTS=personal,spare docker compose run --rm rewards-farmer
+```
+
+`REWARDS_HEADLESS=1` is set in the image. It also works on the host if you want a run with no visible window; the pointer code needs an explicit window size in that mode, which `main.py` sets.
+
 Please open up a GitHub issue if you run into any difficulties.

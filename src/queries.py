@@ -13,8 +13,13 @@ Bing, and Bing's own autosuggest answers that question directly.
 
 import os
 
-import llm_utils
 import query_sources
+
+# llm_utils is imported inside the llm branch rather than here. It imports
+# ollama at module scope, so importing it eagerly would make the ollama package
+# a hard requirement even for a run that never touches a model, which is the
+# opposite of the point. A trends-only install, the Docker image for instance,
+# does not ship it.
 
 LLM = "llm"
 TRENDS = "trends"
@@ -45,6 +50,8 @@ def search_query_for_task(task_description: str) -> str:
 
 		return task_description.lower()
 
+	import llm_utils
+
 	return llm_utils.get_search_query_from_task_description(task_description)
 
 
@@ -59,6 +66,8 @@ def related_queries(count: int):
 		print("[WARNING] No query source reachable, falling back to the wordlist.")
 
 		# nouns.txt is already in the repo for exactly this kind of seed.
-		return [llm_utils.get_random_noun() for _ in range(count)]
+		return query_sources.wordlist_queries(count)
+
+	import llm_utils
 
 	return llm_utils.get_related_search_queries(llm_utils.get_random_noun(), num_queries=count)

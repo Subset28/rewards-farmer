@@ -1,0 +1,29 @@
+# docker compose run --rm rewards-farmer
+#
+# Sign-in has to happen once by hand before this is useful: the profile in
+# data-dir starts logged out. See the Docker section of the README.
+
+services:
+  rewards-farmer:
+    build: .
+    image: rewards-farmer
+    # Chromium wants more than the default 64MB of shared memory and crashes
+    # partway through a page without it.
+    shm_size: 1gb
+    environment:
+      # trends needs no account or model, which is why it is the default here.
+      # To use a model instead, set QUERY_SOURCE=llm and give OLLAMA_HOST an
+      # address the container can reach: localhost inside a container is the
+      # container, so ollama running on the host is host.docker.internal, and
+      # 0.0.0.0 is a bind address that cannot be dialled at all.
+      #
+      #   QUERY_SOURCE=llm OLLAMA_HOST=host.docker.internal:11434 docker compose run --rm rewards-farmer
+      QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      REWARDS_HEADLESS: "1"
+      # Comma separated, one profile directory each. Leave unset for a single
+      # profile in data-dir, which is the existing behaviour.
+      REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+    volumes:
+      # Keeps the sign-in across container rebuilds.
+      - ./data-dir:/app/data-dir
