@@ -15,7 +15,7 @@ from PIL import Image
 API_URL = "https://commons.wikimedia.org/w/api.php"
 
 OUTPUT_FILE = Path("visual_search.jpg")
-METADATA_FILE = Path("random_image.json")
+METADATA_FILE = Path("visual_search.json")
 
 MAX_ATTEMPTS = 10
 

@@ -1,6 +1,8 @@
 *.png
+*.jpg
+*.jpeg
 *.txt
-random_image.json
+visual_search.json
 !nouns.txt
 Todo.md
 data-dir/
