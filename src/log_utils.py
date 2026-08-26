@@ -7,6 +7,7 @@ before this runs, so import order does not matter.
 
 import logging
 import os
+import re
 import sys
 
 LEVEL_ENV_VAR = "REWARDS_FARMER_LOG_LEVEL"
@@ -20,6 +21,36 @@ DEFAULT_LEVEL = "INFO"
 # this because it never touched logging at all, so leaving these at their
 # default would make the output noisier than what it replaces.
 NOISY_LIBRARIES = ("httpx", "httpcore", "urllib3", "selenium")
+
+# Longest a one-line exception summary may get before it is cut. Long enough
+# for any real selenium message, short enough that a pathological one cannot
+# push a whole screen of text into a single record.
+MAX_SUMMARY_LENGTH = 300
+
+_SESSION_INFO = re.compile(r"\s*\(Session info:[^)]*\)")
+
+
+def exception_summary(exc: BaseException) -> str:
+	"""One short line describing an exception, safe to put in a log record.
+
+	str() on a selenium exception is multi-line: the message, then a session
+	info line, then the whole msedgedriver stacktrace. Only the first line is
+	worth showing in a per-task summary, and the full detail is still attached
+	as a traceback when the level is debug.
+	"""
+	text = str(exc).strip()
+
+	if not text:
+		return ""
+
+	text = _SESSION_INFO.sub("", text.splitlines()[0]).strip()
+
+	if len(text) > MAX_SUMMARY_LENGTH:
+		# ASCII, because this can land on a Windows console whose encoding
+		# cannot represent an ellipsis character.
+		text = text[:MAX_SUMMARY_LENGTH - 3].rstrip() + "..."
+
+	return text
 
 # CRITICAL is the longest level name at 8 characters, so pad to that and the
 # message column stays aligned no matter what is being logged.

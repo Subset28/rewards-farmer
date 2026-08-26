@@ -33,7 +33,7 @@ document.dispatchEvent(new Event('visibilitychange'));
 				self.driver.switch_to.window(handle)
 
 				if self.driver.current_url in GHOST_TAB_URLS:
-					logger.info("Found ghost tab with handle %s and URL %s.", handle, self.driver.current_url)
+					logger.debug("Found ghost tab with handle %s and URL %s.", handle, self.driver.current_url)
 					continue
 
 				self.ensure_focus()
@@ -50,14 +50,18 @@ document.dispatchEvent(new Event('visibilitychange'));
 				self.driver.switch_to.window(handle)
 
 				if self.driver.current_url in GHOST_TAB_URLS:
-					logger.info("Found ghost tab with handle %s and URL %s, not closing.", handle, self.driver.current_url)
+					logger.debug("Found ghost tab with handle %s and URL %s, not closing.", handle, self.driver.current_url)
 					continue
 
 				tab_url = self.driver.current_url
 
 				try:
 					self.driver.close()
-					logger.info("Closed tab with handle %s and URL %s.", handle, tab_url)
+					# Routine bookkeeping, one line per tab. At info it drowned
+					# the task summary: 19 of the 33 records in a full run were
+					# these. The warning below stays at warning, a tab that will
+					# not close is a real problem.
+					logger.debug("Closed tab with handle %s and URL %s.", handle, tab_url)
 
 				except WebDriverException:
 					logger.warning("Could not close tab with handle %s and URL %s.", handle, tab_url)

@@ -1,4 +1,5 @@
 import logging
+import log_utils
 import os
 import random
 import time
@@ -284,12 +285,8 @@ class RewardsTaskUtils:
 			except (NoSuchElementException, TimeoutException) as exc:
 				logger.warning("[SKIP] %s: not available in this UI variant (%s)", name, type(exc).__name__)
 			except Exception as exc:
-				# A selenium exception carries the whole msedgedriver stacktrace
-				# in str(), tens of lines of it, so keep the summary to the
-				# first line and let the traceback on debug hold the rest.
-				message = str(exc).strip().splitlines()
 				logger.error(
-					"[FAIL] %s: %s: %s", name, type(exc).__name__, message[0] if message else "",
+					"[FAIL] %s: %s: %s", name, type(exc).__name__, log_utils.exception_summary(exc),
 					exc_info=logger.isEnabledFor(logging.DEBUG)
 				)
 
