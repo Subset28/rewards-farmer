@@ -19,6 +19,22 @@ cd rewards-farmer
 # Edit the included nouns.txt file to add or replace words as needed
 ```
 
+# Where search queries come from
+
+The bot needs short strings to type into Bing. Two backends produce them, set with `QUERY_SOURCE`:
+
+| `QUERY_SOURCE` | Needs | Notes |
+| --- | --- | --- |
+| `llm` (default) | Ollama account + model | Current behaviour, unchanged |
+| `trends` | nothing | Google Trends, Wikipedia and Bing autosuggest |
+
+```sh
+QUERY_SOURCE=trends python src/main.py          # bash
+$env:QUERY_SOURCE="trends"; python src/main.py  # PowerShell
+```
+
+`trends` needs no account, no API key and no model download, so the Ollama setup below is optional if you use it. If every feed is unreachable it falls back to `nouns.txt` rather than failing the run.
+
 You should also have an Ollama account created (for the LLM), the `ollama` tool installed, and you should have signed in to the Ollama CLI via the command line using `ollama signin`. This project will use a minimal amount of Ollama cloud usage using `gemma4:cloud`. If you wish to use a different model, please change the `model` parameter in the `get_ollama_response` function in `src/llm_utils.py`.
 
 You must also provide an image for the script to upload to complete the visual search task. Currently, this image is named `keypress_times.png` and is located in the root directory of the project (yes, I used a random image from my keyboard analysis to do this). You may provide an image of your own, just ensure that the absolute path of the image is placed in the `VISUAL_SEARCH_IMAGE_PATH` constant at the top of `rewards_tasks.py`.

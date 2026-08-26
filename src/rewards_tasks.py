@@ -10,7 +10,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
 import tab_utils
-import llm_utils
+import queries
 import mouse_trajectory
 import mimic_typing
 import element_selectors
@@ -93,7 +93,7 @@ class RewardsTaskUtils:
 
 		for card in explore_on_bing_links:
 			desc = self.elements.extract_card_descriptions(card)
-			query = llm_utils.get_search_query_from_task_description(desc)
+			query = queries.search_query_for_task(desc)
 
 			self.move_to_and_click(card)
 			self.tab_utils.switch_to_other_tab()
@@ -220,9 +220,7 @@ class RewardsTaskUtils:
 		# search bar should be auto-focused
 
 		for i, query in enumerate(
-			llm_utils.get_related_search_queries(
-				llm_utils.get_random_noun(), num_queries=count
-			)
+			queries.related_queries(count)
 		):
 			self.keyboard.send_keys(f"{query} -noai{Keys.ENTER}")
 
