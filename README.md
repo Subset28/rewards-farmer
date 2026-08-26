@@ -24,7 +24,9 @@ You should also have an Ollama account created (for the LLM), the `ollama` tool 
 You must also provide an image for the script to upload to complete the visual search task. Currently, this image is named `keypress_times.png` and is located in the root directory of the project (yes, I used a random image from my keyboard analysis to do this). You may provide an image of your own, just ensure that the absolute path of the image is placed in the `VISUAL_SEARCH_IMAGE_PATH` constant at the top of `rewards_tasks.py`.
 
 Activate the virtual environment & install dependencies (you may have to use `python -m poetry` instead of `poetry`).
-You must have Python 3.14+ and Poetry installed.
+You must have Python 3.12+ and Poetry installed.
+
+If `iex (poetry env activate)` fails with *"Cannot bind argument to parameter 'Command' because it is null"*, `poetry install` did not create an environment. Run `python --version` first: an older Python leaves poetry with nothing to activate, and the message explaining that goes to stderr rather than into `iex`.
 
 Windows (PowerShell)
 ```sh
