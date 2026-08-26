@@ -14,7 +14,7 @@ from PIL import Image
 
 API_URL = "https://commons.wikimedia.org/w/api.php"
 
-OUTPUT_FILE = Path("random_image.png")
+OUTPUT_FILE = Path("visual_search.jpg")
 METADATA_FILE = Path("random_image.json")
 
 MAX_ATTEMPTS = 10
@@ -154,27 +154,34 @@ def download_image(url):
 
 
 # ============================================================
-# PNG CONVERSION
+# JPEG CONVERSION
 # ============================================================
 
-def convert_to_png(image_data):
-    """Convert downloaded image bytes to PNG."""
+def convert_to_jpeg(image_data):
+    """Convert downloaded image bytes to JPEG."""
 
     try:
         with Image.open(
             io.BytesIO(image_data)
         ) as image:
 
-            # Handle JPEG, WebP, PNG, etc.
-            #
-            # RGBA preserves transparency where possible.
-            png_image = image.convert("RGBA")
+            # JPEG does not support alpha (transparency).
+            # If the image has transparency (RGBA or LA), paste it over a white background.
+            if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                if image.mode == "P":
+                    image = image.convert("RGBA")
+                background.paste(image, mask=image.split()[-1])
+                jpeg_image = background
+            else:
+                jpeg_image = image.convert("RGB")
 
             output = io.BytesIO()
 
-            png_image.save(
+            jpeg_image.save(
                 output,
-                format="PNG",
+                format="JPEG",
+                quality=90,
                 optimize=True,
             )
 
@@ -182,7 +189,7 @@ def convert_to_png(image_data):
 
     except Exception as e:
         print(
-            f"PNG conversion failed: {e}"
+            f"JPEG conversion failed: {e}"
         )
         return None
 
@@ -393,25 +400,25 @@ def get_random_image():
             continue
 
         # ----------------------------------------------------
-        # CONVERT TO PNG
+        # CONVERT TO JPEG
         # ----------------------------------------------------
 
-        print("Converting to PNG...")
+        print("Converting to JPEG...")
 
-        png_data = convert_to_png(
+        jpeg_data = convert_to_jpeg(
             image_data
         )
 
-        if png_data is None:
+        if jpeg_data is None:
             continue
 
         # ----------------------------------------------------
-        # SAVE PNG
+        # SAVE JPEG
         # ----------------------------------------------------
 
         try:
             OUTPUT_FILE.write_bytes(
-                png_data
+                jpeg_data
             )
 
         except OSError as e:
@@ -427,7 +434,7 @@ def get_random_image():
         metadata = {
             "title": title,
             "source": "Wikimedia Commons",
-            "output_format": "PNG",
+            "output_format": "JPEG",
 
             "width": width,
             "height": height,
@@ -436,8 +443,8 @@ def get_random_image():
 
             "original_size": size,
 
-            "png_size": len(
-                png_data
+            "jpeg_size": len(
+                jpeg_data
             ),
 
             "original_url": (
@@ -483,7 +490,7 @@ def get_random_image():
         )
         print(
             f"Size: "
-            f"{len(png_data) / 1024:.1f} KB"
+            f"{len(jpeg_data) / 1024:.1f} KB"
         )
         print(
             f"Source: {title}"
