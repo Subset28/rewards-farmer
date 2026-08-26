@@ -44,7 +44,7 @@ session = requests.Session()
 
 session.headers.update({
     "User-Agent": (
-        "RandomVisualSearchImage/1.0 "
+        "RandomVisualSearchImage/1.1 "
         "(contact: 12345rfdz@gmail.com)"
     )
 })
