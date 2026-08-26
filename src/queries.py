@@ -11,6 +11,7 @@ The LLM's whole job in this project is producing short strings to type into
 Bing, and Bing's own autosuggest answers that question directly.
 """
 
+import logging
 import os
 
 import query_sources
@@ -20,6 +21,8 @@ import query_sources
 # a hard requirement even for a run that never touches a model, which is the
 # opposite of the point. A trends-only install, the Docker image for instance,
 # does not ship it.
+
+logger = logging.getLogger(__name__)
 
 LLM = "llm"
 TRENDS = "trends"
@@ -46,7 +49,7 @@ def search_query_for_task(task_description: str) -> str:
 
 		# Every feed was unreachable. The description still contains the topic,
 		# so a trimmed version beats skipping the card entirely.
-		print("[WARNING] No query source reachable, using the task description as written.")
+		logger.warning("No query source reachable, using the task description as written.")
 
 		return task_description.lower()
 
@@ -63,7 +66,7 @@ def related_queries(count: int):
 		if queries:
 			return queries
 
-		print("[WARNING] No query source reachable, falling back to the wordlist.")
+		logger.warning("No query source reachable, falling back to the wordlist.")
 
 		# nouns.txt is already in the repo for exactly this kind of seed.
 		return query_sources.wordlist_queries(count)

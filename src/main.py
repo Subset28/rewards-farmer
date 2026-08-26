@@ -1,6 +1,8 @@
+import logging
 import os
 import sys
 
+import log_utils
 import accounts
 import rewards_tasks
 import mouse_trajectory
@@ -9,6 +11,8 @@ from selenium import webdriver
 from selenium.common.exceptions import SessionNotCreatedException
 
 HEADLESS = os.environ.get("REWARDS_HEADLESS", "").strip().lower() in ("1", "true", "yes")
+
+logger = logging.getLogger(__name__)
 
 
 def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
@@ -41,11 +45,11 @@ def run_account(account: accounts.Account) -> bool:
 		# is already open the driver's copy exits during startup, and selenium
 		# reports it as the browser crashing with a message that names neither
 		# the profile nor the other window.
-		print(f"[FAIL] {account.name}: could not start Edge with this profile.")
-		print(f"       profile directory: {account.user_data_dir}")
-		print("       The usual cause is that this profile is already open in another")
-		print("       Edge window, including one left over from a previous run.")
-		print(f"       driver said: {str(exc).strip().splitlines()[0]}")
+		logger.error("[FAIL] %s: could not start Edge with this profile.", account.name)
+		logger.error("       profile directory: %s", account.user_data_dir)
+		logger.error("       The usual cause is that this profile is already open in another")
+		logger.error("       Edge window, including one left over from a previous run.")
+		logger.error("       driver said: %s", log_utils.exception_summary(exc))
 
 		return False
 
@@ -62,10 +66,12 @@ def run_account(account: accounts.Account) -> bool:
 
 
 def main() -> int:
+	log_utils.setup_logging()
+
 	try:
 		configured = accounts.configured()
 	except ValueError as exc:
-		print(f"[FAIL] {exc}")
+		logger.error("[FAIL] %s", exc)
 
 		return 2
 
@@ -73,13 +79,13 @@ def main() -> int:
 
 	for account in configured:
 		if len(configured) > 1:
-			print(f"\n=== account: {account.name} ===")
+			logger.info("=== account: %s ===", account.name)
 
 		if run_account(account):
 			started += 1
 
 	if len(configured) > 1:
-		print(f"\n{started}/{len(configured)} accounts ran")
+		logger.info("%s/%s accounts ran", started, len(configured))
 
 	# Nothing is watching a container, and stdin is not a terminal there.
 	if not HEADLESS:

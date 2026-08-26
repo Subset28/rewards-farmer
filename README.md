@@ -108,5 +108,25 @@ REWARDS_ACCOUNTS=personal,spare docker compose run --rm rewards-farmer
 ```
 
 `REWARDS_HEADLESS=1` is set in the image. It also works on the host if you want a run with no visible window; the pointer code needs an explicit window size in that mode, which `main.py` sets.
+# Logging
+
+The script logs to the console. Two optional environment variables change that:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `REWARDS_FARMER_LOG_LEVEL` | `INFO` | Set to `DEBUG` to also attach the full stack trace to every `[FAIL]` line. |
+| `REWARDS_FARMER_LOG_FILE` | unset | Path to also write the log to, useful for unattended runs. |
+
+Windows (PowerShell)
+```sh
+$env:REWARDS_FARMER_LOG_LEVEL="DEBUG"; $env:REWARDS_FARMER_LOG_FILE="run.log"; python src/main.py
+```
+
+*nix (Bash)
+```sh
+REWARDS_FARMER_LOG_LEVEL=DEBUG REWARDS_FARMER_LOG_FILE=run.log python src/main.py
+```
+
+If you are opening an issue about a crash, running with `REWARDS_FARMER_LOG_LEVEL=DEBUG` and attaching the log is the most useful thing you can include.
 
 Please open up a GitHub issue if you run into any difficulties.
