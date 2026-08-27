@@ -57,24 +57,39 @@ class RewardsTaskUtils:
 		elem = self.wait_for_element(element_getter, timeout)
 		self.move_to_and_click(elem)
 
-	def complete_bing_daily_set(self):
+	def complete_bing_daily_set(self, expected_activities: int = 3):
 		self.switch_to_earn_page()
 
 		self.wait_for_then_click(self.elements.get_open_daily_set_button)
 
-		daily_set_links = self.wait_for_element(self.elements.get_daily_set_elements)
+		# The panel hydrates progressively, so the first non-empty snapshot can
+		# hold fewer than 3 activities. wait_for_element returns on the first
+		# truthy result, so a 1-element list satisfied it and indexing [1] and
+		# [2] then raised IndexError, taking the whole task down. Wait for the
+		# full set instead, and if it never fills, work with what is there.
+		def full_activity_list():
+			activities = self.elements.get_daily_set_elements()
 
-		self.move_to_and_click(daily_set_links[0])
-		time.sleep(random.uniform(2, 3))
-		self.driver.switch_to.window(self.driver.current_window_handle) # refocus on the main tab
+			return activities if len(activities) >= expected_activities else False
 
-		self.move_to_and_click(daily_set_links[1])
-		time.sleep(random.uniform(2, 3))
-		self.driver.switch_to.window(self.driver.current_window_handle)
+		try:
+			daily_set_links = self.wait_for_element(full_activity_list, timeout=30)
+		except TimeoutException:
+			daily_set_links = self.elements.get_daily_set_elements()
 
-		self.move_to_and_click(daily_set_links[2])
-		time.sleep(random.uniform(2, 3))
-		self.driver.switch_to.window(self.driver.current_window_handle)
+			print(f"[WARNING] Daily set panel only shows {len(daily_set_links)} of {expected_activities} activities")
+
+		# Re-read the panel per index: clicking an activity can re-render it and
+		# stale the captured references.
+		for index in range(len(daily_set_links)):
+			activities = self.elements.get_daily_set_elements()
+
+			if index >= len(activities):
+				break
+
+			self.move_to_and_click(activities[index])
+			time.sleep(random.uniform(2, 3))
+			self.driver.switch_to.window(self.driver.current_window_handle) # refocus on the main tab
 
 		self.tab_utils.close_all_other_tabs()
 
@@ -192,9 +207,14 @@ class RewardsTaskUtils:
 	def read_search_points(self):
 		"""Open the points breakdown, read the Bing search row, close it again."""
 		self.switch_to_earn_page()
-		self.wait_for_then_click(self.elements.get_points_breakdown_button)
 
-		close_btn = self.wait_for_element(self.elements.get_close_button_on_points_breakdown)
+		# 30s rather than the default 10s: this runs after the earlier tasks have
+		# navigated away, so the earn page re-renders from scratch first and the
+		# breakdown button regularly needs longer than 10s to appear. Timing out
+		# here skipped the entire search task while points were still available.
+		self.wait_for_then_click(self.elements.get_points_breakdown_button, timeout=30)
+
+		close_btn = self.wait_for_element(self.elements.get_close_button_on_points_breakdown, timeout=15)
 
 		points_earned, max_pts = self.elements.get_points_earned_from_searches_on_points_breakdown()
 
