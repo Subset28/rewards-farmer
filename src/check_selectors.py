@@ -184,6 +184,18 @@ def main():
 		driver.execute_script("arguments[0].click();", elements.get_points_breakdown_button())
 		wait_until(lambda: elements.get_sidebar_section() is not None, 30)
 
+		# The section exists before it has content: the panel renders a
+		# "Loading..." placeholder inside it first, and that satisfies the
+		# presence check above immediately. Waiting only for the section leaves
+		# the two selectors below reading an empty panel, so they report FAILED
+		# for markup that is fine, on a page that is merely slow. Wait for the
+		# content itself. A selector that really is broken still reports FAILED,
+		# it just costs the timeout first.
+		wait_until(
+			lambda: elements.get_points_earned_from_searches_on_points_breakdown() is not None,
+			30,
+		)
+
 		report.check("get_sidebar_section", elements.get_sidebar_section)
 		report.check(
 			"get_points_earned_from_searches_on_points_breakdown",
