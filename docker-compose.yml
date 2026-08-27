@@ -27,3 +27,8 @@ services:
     volumes:
       # Keeps the sign-in across container rebuilds.
       - ./data-dir:/app/data-dir
+      # The visual search task uploads this file, which is gitignored and so is
+      # never in the image. Create it first with
+      # `python src/random_image_for_visual_search.py`; a path that does not
+      # exist yet is mounted as an empty directory rather than a file.
+      - ./visual_search.jpg:/app/visual_search.jpg:ro

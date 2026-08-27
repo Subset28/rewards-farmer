@@ -101,6 +101,14 @@ msedge --user-data-dir="<repo>\data-dir" --profile-directory=Default https://rew
 
 Close every window of that profile afterwards. Chromium allows one process per profile directory, so a window left open on the host stops the container from starting.
 
+**Provide the visual search image on the host too.** `visual_search.jpg` is not in the repository and is not built into the image, so create it once in the project root and the compose file mounts it in:
+
+```sh
+python src/random_image_for_visual_search.py
+```
+
+Without it every other task still runs; only the visual search one fails.
+
 Multiple accounts work the same way in the container:
 
 ```sh
@@ -108,6 +116,7 @@ REWARDS_ACCOUNTS=personal,spare docker compose run --rm rewards-farmer
 ```
 
 `REWARDS_HEADLESS=1` is set in the image. It also works on the host if you want a run with no visible window; the pointer code needs an explicit window size in that mode, which `main.py` sets.
+
 # Logging
 
 The script logs to the console. Two optional environment variables change that:
