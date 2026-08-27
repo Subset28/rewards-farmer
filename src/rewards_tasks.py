@@ -81,7 +81,10 @@ class RewardsTaskUtils:
 		except TimeoutException:
 			daily_set_links = self.elements.get_daily_set_elements()
 
-			print(f"[WARNING] Daily set panel only shows {len(daily_set_links)} of {expected_activities} activities")
+			logger.warning(
+				"Daily set panel only shows %s of %s activities",
+				len(daily_set_links), expected_activities
+			)
 
 		# Re-read the panel per index: clicking an activity can re-render it and
 		# stale the captured references.
