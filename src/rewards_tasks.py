@@ -7,7 +7,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
 import tab_utils
 import llm_utils
@@ -140,12 +139,8 @@ class RewardsTaskUtils:
 
 		misc_cards: list[WebElement] = self.wait_for_element(self.elements.get_all_misc_cards)
 
-		scroll_times = 0
-
 		for card in misc_cards:
-			while not self.elements.element_is_fully_in_viewport(card): # this should work for top-down iteration
-				ActionChains(self.driver).scroll_by_amount(0, 100).perform()
-				scroll_times+=1
+			self.mouse.wheel_scroll_element_into_view(card)
 
 			if not self.elements.card_is_complete(card) and self.elements.get_card_point_value(card) > 0:
 				self.move_to_and_click(card)
@@ -158,8 +153,7 @@ class RewardsTaskUtils:
 
 		self.tab_utils.close_all_other_tabs()
 
-		for i in range(scroll_times):
-			ActionChains(self.driver).scroll_by_amount(0, -100).perform() # scroll back to top of page
+		self.mouse.wheel_scroll_to_top()
 
 	def complete_required_searches(self, max_rounds: int = 6):
 		# Points per search are not fixed. Some markets award 3 rather than 5,

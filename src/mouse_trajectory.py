@@ -311,6 +311,57 @@ class MouseUtils:
 					self.driver.execute_script(f"window.moveVisualCursor({point[0]}, {point[1]});")
 
 
+	def wheel_scroll_element_into_view(self, element: WebElement, max_wheel_events: int = 60):
+		"""Scroll the element into the viewport with simulated wheel input.
+
+		Wheel steps of varying size with short pauses, the way a person scrolls,
+		instead of a fixed-size burst. The loop is bounded on purpose: an element
+		that never fits the viewport completely, for example one taller than the
+		window, must not hang the run forever. When the budget runs out the
+		caller proceeds with the element as visible as it got.
+		"""
+		for _ in range(max_wheel_events):
+			top, bottom, height = self.driver.execute_script(
+				"var r = arguments[0].getBoundingClientRect();"
+				"return [r.top, r.bottom, window.innerHeight];",
+				element
+			)
+
+			if top >= 0 and bottom <= height:
+				break
+
+			# Aim the element at the middle of the viewport, one notch at a time.
+			distance = (top + bottom) / 2 - height / 2
+			step = max(-320, min(320, distance))
+			step = int(step * random.uniform(0.6, 1.0))
+
+			if abs(step) < 40:
+				step = 40 if distance > 0 else -40
+
+			ActionChains(self.driver).scroll_by_amount(0, step).perform()
+
+			time.sleep(random.uniform(0.04, 0.12))
+
+	def wheel_scroll_to_top(self, max_wheel_events: int = 80):
+		"""Scroll back to the top of the page with simulated wheel input.
+
+		Reads the actual scroll position instead of unwinding a counted number
+		of steps, because the page height can change while cards update and a
+		symmetric unwind then lands in the wrong place.
+		"""
+		for _ in range(max_wheel_events):
+			offset = self.driver.execute_script("return window.scrollY || window.pageYOffset;")
+
+			if offset <= 0:
+				break
+
+			step = min(340, int(offset))
+			step = max(60, int(step * random.uniform(0.6, 1.0)))
+
+			ActionChains(self.driver).scroll_by_amount(0, -step).perform()
+
+			time.sleep(random.uniform(0.04, 0.12))
+
 	def move_to_element(self, element: WebElement, visualize: bool=True):
 		# The pointer is moved to viewport coordinates, so an element below the
 		# fold yields a target outside the window and the driver rejects the move
