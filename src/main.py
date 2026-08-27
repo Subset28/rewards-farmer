@@ -5,8 +5,6 @@ import sys
 import log_utils
 import accounts
 import rewards_tasks
-import mouse_trajectory
-import mimic_typing
 from selenium import webdriver
 from selenium.common.exceptions import SessionNotCreatedException
 
@@ -54,9 +52,6 @@ def run_account(account: accounts.Account) -> bool:
 		return False
 
 	try:
-		mouse = mouse_trajectory.MouseUtils(driver)
-		keyboard = mimic_typing.KeyboardUtils(driver)
-
 		rewards = rewards_tasks.RewardsTaskUtils(driver)
 		rewards.complete_all_tasks()
 	finally:

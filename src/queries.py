@@ -49,7 +49,7 @@ def search_query_for_task(task_description: str) -> str:
 
 		# Every feed was unreachable. The description still contains the topic,
 		# so a trimmed version beats skipping the card entirely.
-		logger.warning("No query source reachable, using the task description as written.")
+		logger.warning("No query source reachable, using the lowercased task description.")
 
 		return task_description.lower()
 

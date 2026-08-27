@@ -19,8 +19,14 @@ from constants import USER_DATA_DIR, PROFILE_NAME
 ENV_VAR = "REWARDS_ACCOUNTS"
 
 # Names become directory names, so keep them to something a filesystem and a
-# command line both handle without quoting.
+# command line both handle without quoting. The character set alone is not
+# enough: "." and ".." are made of allowed characters and still walk out of the
+# directory, so they are rejected by name below and the resolved path is
+# checked as well.
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+# Reserved by every filesystem that has directories at all.
+RESERVED_NAMES = {".", ".."}
 
 
 @dataclass(frozen=True)
@@ -40,9 +46,22 @@ def _named(name: str) -> Account:
 	# Each account gets its own directory under the configured one, so the
 	# existing data-dir stays where it is and the new ones sit beside the
 	# profile it already holds.
+	user_data_dir = os.path.join(USER_DATA_DIR, name)
+
+	# The name passed the character check, but that only constrains the
+	# characters, not where they end up pointing. Confirm against the resolved
+	# path, which is the thing Edge is actually handed.
+	root = os.path.abspath(USER_DATA_DIR)
+	resolved = os.path.abspath(user_data_dir)
+
+	if os.path.commonpath([root, resolved]) != root or resolved == root:
+		raise ValueError(
+			f"{ENV_VAR} entry {name!r} resolves outside the profile directory"
+		)
+
 	return Account(
 		name=name,
-		user_data_dir=os.path.join(USER_DATA_DIR, name),
+		user_data_dir=user_data_dir,
 		profile_name=PROFILE_NAME,
 	)
 
@@ -68,7 +87,7 @@ def configured() -> list[Account]:
 	accounts: list[Account] = []
 
 	for name in names:
-		if not SAFE_NAME.match(name):
+		if not SAFE_NAME.match(name) or name in RESERVED_NAMES:
 			raise ValueError(
 				f"{ENV_VAR} entry {name!r} is not usable as a directory name; "
 				"use letters, digits, dot, dash or underscore"
