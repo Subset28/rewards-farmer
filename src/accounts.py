@@ -50,9 +50,11 @@ def _named(name: str) -> Account:
 
 	# The name passed the character check, but that only constrains the
 	# characters, not where they end up pointing. Confirm against the resolved
-	# path, which is the thing Edge is actually handed.
-	root = os.path.abspath(USER_DATA_DIR)
-	resolved = os.path.abspath(user_data_dir)
+	# path, which is the thing Edge is actually handed. realpath rather than
+	# abspath, so a link or a junction under the profile directory is followed
+	# to where it really goes instead of being taken at face value.
+	root = os.path.realpath(USER_DATA_DIR)
+	resolved = os.path.realpath(user_data_dir)
 
 	if os.path.commonpath([root, resolved]) != root or resolved == root:
 		raise ValueError(
@@ -87,10 +89,15 @@ def configured() -> list[Account]:
 	accounts: list[Account] = []
 
 	for name in names:
-		if not SAFE_NAME.match(name) or name in RESERVED_NAMES:
+		# The trailing dot is not cosmetic. Win32 strips one off a path
+		# component and python's normalisation does not, so such a name means a
+		# different directory than it reads as: "work." is "work", and "..." is
+		# the profile directory itself. Either way two entries end up sharing
+		# one profile, which is the one thing this module exists to prevent.
+		if not SAFE_NAME.match(name) or name in RESERVED_NAMES or name.endswith("."):
 			raise ValueError(
 				f"{ENV_VAR} entry {name!r} is not usable as a directory name; "
-				"use letters, digits, dot, dash or underscore"
+				"use letters, digits, dot, dash or underscore, and do not end in a dot"
 			)
 
 		# Duplicates would run the same profile twice, which earns nothing the
