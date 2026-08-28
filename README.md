@@ -80,7 +80,7 @@ Each is signed in once by hand, the same way as the single profile, using its ow
 msedge --user-data-dir="<repo>\data-dir\personal" --profile-directory=Default https://rewards.bing.com
 ```
 
-They run one after another, and a profile that fails to start is reported and skipped rather than ending the run. Leave `REWARDS_ACCOUNTS` unset and everything behaves exactly as before, using the single profile in `data-dir`.
+They run one after another, and an account that fails is reported and skipped rather than ending the run, whether it fails to start or dies partway through. Leave `REWARDS_ACCOUNTS` unset and everything behaves exactly as before, using the single profile in `data-dir`.
 
 # Docker
 
