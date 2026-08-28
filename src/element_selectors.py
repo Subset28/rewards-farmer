@@ -157,8 +157,28 @@ class ElementSelectionUtils:
 			return self._streaks_button(3)
 
 	def get_daily_set_elements(self):
-		# The first link in the opened panel is the progress row, not an activity.
-		return self.get_sidebar_section().find_elements(By.TAG_NAME, "a")[1:]
+		"""The daily set activities in the opened panel.
+
+		Everything after the first link is not reliably an activity. The panel
+		also carries promotional links, a referral card and a Bing app promo have
+		both been observed sitting between the progress row and the activities.
+		Handing one of those back gets it clicked, which navigates away from
+		rewards.bing.com, and every element captured beforehand then goes stale.
+
+		Activities always point at a Bing search, so match on that rather than on
+		position. If nothing matches, return nothing: clicking a promo is worse
+		than skipping the task, and the caller already reports the shortfall.
+		"""
+		activities = []
+
+		for link in self.get_sidebar_section().find_elements(By.TAG_NAME, "a"):
+			try:
+				if "bing.com/search" in (link.get_dom_attribute("href") or ""):
+					activities.append(link)
+			except StaleElementReferenceException:
+				continue
+
+		return activities
 
 	# ------------------------------------------------------------------
 	# explore on bing (absent in en-US, present in some other markets)
