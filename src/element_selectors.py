@@ -154,7 +154,24 @@ class ElementSelectionUtils:
 		try:
 			return self._button_containing(Labels.DAILY_SET_STREAK)
 		except NoSuchElementException:
-			return self._streaks_button(3)
+			pass
+
+		# The positional fallback only helps if what sits there really is the
+		# daily set entry. On a partially rendered streaks section it is not:
+		# observed returning the mobile app entry, and clicking that opens the
+		# app store page instead of the panel, which is what the reports in #45
+		# and #46 describe. Check before handing it back, and skip the task
+		# rather than click the wrong streak.
+		candidate = self._streaks_button(3)
+		label = (candidate.text or "").strip()
+
+		if "daily set" not in label.lower():
+			raise NoSuchElementException(
+				"daily set opener not found by label, and position 3 holds "
+				f"{label.splitlines()[0] if label else '<empty>'!r} instead"
+			)
+
+		return candidate
 
 	def get_daily_set_elements(self):
 		"""The daily set activities in the opened panel.
