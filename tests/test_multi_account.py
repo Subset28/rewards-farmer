@@ -1,49 +1,51 @@
-"""Checks for REWARDS_ACCOUNTS.
+"""Tests for running more than one account in a single run.
 
-Five layers, cheapest first:
+Names become directory names, so most of these are about refusing one that
+would resolve somewhere other than where it reads: `..`, an absolute path, and
+the trailing dot Win32 strips but Python's normalisation does not. The rest
+cover the run loop, where one account failing used to end the batch and take
+the remaining accounts with it.
 
-    1. which accounts a configuration produces
-    2. the flags each one hands Edge
-    3. the run loop's ordering, skip-on-failure and exit codes
-    4. one account failing every way it can, without ending the batch
-    5. two real Edge profiles holding two independent, persistent identities
+None of these need a browser. The last case does, and starts Edge twice to show
+that two profiles hold two independent, persistent identities, so it is opt in:
 
-Layers 1 to 4 are pure and need nothing installed. Layer 4 drives the real
-run loop with a stand-in for the browser, so the code under test is the
-shipped one and only selenium is replaced. Layer 5 starts Edge twice and
-reaches bing.com, so it is opt in:
-
-    python tests/test_multi_account.py            # layers 1-4
-    python tests/test_multi_account.py --browser  # all five
-
-Layer 5 is the one that answers "does multi-account work". Two profiles must
-end up with two different identities, and each must keep its own across a
-restart, because that is what a per-account sign-in is made of. It uses
-bing.com's own MUID cookie rather than an injected one: a cookie added through
-webdriver is not written to the profile the way a Set-Cookie is, so it proves
-nothing about a sign-in surviving.
+	python -m unittest discover -s tests
+	REWARDS_BROWSER_TESTS=1 python -m unittest discover -s tests
 """
 
 import logging
 import os
 import shutil
 import sys
+import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-FAILURES = []
+from selenium.common.exceptions import (
+	NoSuchDriverException,
+	SessionNotCreatedException,
+	WebDriverException,
+)
 
+import accounts
+import main
+from constants import USER_DATA_DIR
 
-def check(label, got, want):
-	if got == want:
-		print(f"  ok    {label}")
-
-		return True
-
-	print(f"  FAIL  {label}\n          got  {got!r}\n          want {want!r}")
-	FAILURES.append(label)
-
-	return False
+# Names that have to be refused, with the reason each one is not simply a
+# directory sitting under data-dir.
+REFUSED_NAMES = [
+	# relative traversal
+	"..", ".", "../escape", "..\\escape", "a/b", "a\\b",
+	# absolute, drive relative and UNC
+	"/etc", "\\", "/", "C:", "C:\\Windows", "\\\\server\\share",
+	# expanded by a shell somewhere else, not here
+	"~", "%TEMP%", "$HOME",
+	# Win32 strips a trailing dot from a path component and Python does not, so
+	# "personal." is the "personal" directory and "..." is data-dir itself
+	"...", "....", "personal.", "personal..",
+	# shell and filesystem metacharacters
+	"a b", "a:b", "a;b", "a|b", "a*b", "a?b", "a<b",
+]
 
 
 def accounts_for(value):
@@ -56,202 +58,155 @@ def accounts_for(value):
 	return accounts.configured()
 
 
-# --------------------------------------------------------------------------
-# 1. which accounts a configuration produces
-# --------------------------------------------------------------------------
+class EnvironmentTestCase(unittest.TestCase):
+	"""Restores everything these tests reach into, so ordering cannot matter."""
 
-def test_configuration():
-	print("\n[1] account configuration")
-
-	default = accounts_for(None)
-	check("unset gives one account", [a.name for a in default], ["default"])
-	check("unset uses the existing profile directory", default[0].user_data_dir, USER_DATA_DIR)
-	check("unset is the default profile", default[0].is_default, True)
-
-	check("two names, in order", [a.name for a in accounts_for("personal,spare")], ["personal", "spare"])
-	check("surrounding whitespace ignored", [a.name for a in accounts_for(" personal , spare ")], ["personal", "spare"])
-	check("empty entries dropped", [a.name for a in accounts_for("personal,,spare,")], ["personal", "spare"])
-	check("blank value falls back to default", [a.name for a in accounts_for("   ")], ["default"])
-	check("duplicates collapse, case insensitively", [a.name for a in accounts_for("personal,PERSONAL,spare")], ["personal", "spare"])
-
-	# Names become directory names. Anything that resolves outside the profile
-	# directory, or onto a directory another entry already owns, has to be
-	# refused rather than quietly writing somewhere else.
-	refused = [
-		# relative traversal
-		"..", ".", "../escape", "..\\escape", "a/b", "a\\b",
-		# absolute, drive-relative and UNC
-		"/etc", "\\", "/", "C:", "C:\\Windows", "\\\\server\\share",
-		# expanded elsewhere, not here
-		"~", "%TEMP%", "$HOME",
-		# Win32 strips trailing dots, so these are not the directories they read
-		# as: "personal." is "personal", and "..." is data-dir itself
-		"...", "....", "personal.", "personal..",
-		# shell and filesystem metacharacters
-		"a b", "a:b", "a;b", "a|b", "a*b", "a?b", "a<b",
-	]
-
-	for name in refused:
-		try:
-			accounts_for(f"good,{name}")
-			rejected = False
-		except ValueError:
-			rejected = True
-
-		check(f"refused as a directory name: {name!r}", rejected, True)
-
-	# The leading dot is fine, it is only the trailing one that moves.
-	check("a leading dot is still a usable name", [a.name for a in accounts_for(".hidden")], [".hidden"])
-
-	named = accounts_for("personal,spare")
-	check("one directory per account", len({a.user_data_dir for a in named}), 2)
-
-	# Distinct strings are not enough. Two names can spell one directory, which
-	# is what the trailing dot did, so compare where the paths actually land.
-	check(
-		"one directory per account after the filesystem resolves them",
-		len({os.path.realpath(a.user_data_dir) for a in named}), 2
-	)
-
-	root = os.path.realpath(USER_DATA_DIR)
-	inside = all(
-		os.path.commonpath([root, os.path.realpath(a.user_data_dir)]) == root
-		and os.path.realpath(a.user_data_dir) != root
-		for a in named
-	)
-	check("every directory sits under the profile directory", inside, True)
-	check("named accounts are not the default profile", [a.is_default for a in named], [False, False])
+	def setUp(self):
+		self.addCleanup(os.environ.pop, accounts.ENV_VAR, None)
 
 
-# --------------------------------------------------------------------------
-# 2. the flags each one hands Edge
-# --------------------------------------------------------------------------
+class TestAccountConfiguration(EnvironmentTestCase):
+	def test_unset_is_the_existing_single_profile(self):
+		configured = accounts_for(None)
 
-def test_options():
-	print("\n[2] the flags Edge is handed")
+		self.assertEqual([a.name for a in configured], ["default"])
+		self.assertEqual(configured[0].user_data_dir, USER_DATA_DIR)
+		self.assertTrue(configured[0].is_default)
 
-	seen = []
+	def test_blank_falls_back_to_the_single_profile(self):
+		self.assertEqual([a.name for a in accounts_for("   ")], ["default"])
 
-	for account in accounts_for("personal,spare"):
-		args = main.build_options(account).arguments
-		user_data = [a for a in args if a.startswith("--user-data-dir=")]
-		profile = [a for a in args if a.startswith("--profile-directory=")]
+	def test_names_are_taken_in_order(self):
+		self.assertEqual([a.name for a in accounts_for("personal,spare")], ["personal", "spare"])
 
-		check(f"{account.name}: exactly one --user-data-dir", len(user_data), 1)
-		check(f"{account.name}: exactly one --profile-directory", len(profile), 1)
-		seen.append(user_data[0])
+	def test_surrounding_whitespace_and_empty_entries_are_ignored(self):
+		self.assertEqual([a.name for a in accounts_for(" personal , spare ")], ["personal", "spare"])
+		self.assertEqual([a.name for a in accounts_for("personal,,spare,")], ["personal", "spare"])
 
-	check("the two profiles differ on the command line", len(set(seen)), 2)
+	def test_duplicates_collapse_case_insensitively(self):
+		# Running the same profile twice earns nothing the second time and
+		# doubles the length of the run.
+		self.assertEqual(
+			[a.name for a in accounts_for("personal,PERSONAL,spare")], ["personal", "spare"]
+		)
+
+	def test_unusable_directory_names_are_refused(self):
+		for name in REFUSED_NAMES:
+			with self.subTest(name=name):
+				with self.assertRaises(ValueError):
+					accounts_for(f"good,{name}")
+
+	def test_a_leading_dot_is_still_usable(self):
+		# Only the trailing dot moves the directory.
+		self.assertEqual([a.name for a in accounts_for(".hidden")], [".hidden"])
+
+	def test_each_account_gets_its_own_directory(self):
+		named = accounts_for("personal,spare")
+
+		self.assertEqual(len({a.user_data_dir for a in named}), 2)
+		# Distinct strings are not enough: two names can spell one directory,
+		# which is what the trailing dot did, so compare where they land.
+		self.assertEqual(len({os.path.realpath(a.user_data_dir) for a in named}), 2)
+
+	def test_every_directory_sits_under_the_profile_directory(self):
+		root = os.path.realpath(USER_DATA_DIR)
+
+		for account in accounts_for("personal,spare"):
+			with self.subTest(account=account.name):
+				resolved = os.path.realpath(account.user_data_dir)
+
+				self.assertEqual(os.path.commonpath([root, resolved]), root)
+				self.assertNotEqual(resolved, root)
+				self.assertFalse(account.is_default)
 
 
-# --------------------------------------------------------------------------
-# 3. the run loop
-# --------------------------------------------------------------------------
+class TestEdgeOptions(EnvironmentTestCase):
+	def test_each_account_is_handed_its_own_profile(self):
+		seen = []
 
-def test_run_loop():
-	print("\n[3] the run loop")
+		for account in accounts_for("personal,spare"):
+			arguments = main.build_options(account).arguments
+			user_data = [a for a in arguments if a.startswith("--user-data-dir=")]
+			profile = [a for a in arguments if a.startswith("--profile-directory=")]
 
-	accounts_for("personal,spare")
-	os.environ["REWARDS_HEADLESS"] = "1"
-	main.HEADLESS = True  # so main() does not wait on input()
+			with self.subTest(account=account.name):
+				self.assertEqual(len(user_data), 1)
+				self.assertEqual(len(profile), 1)
 
-	real = main.run_account
-	calls = []
+			seen.append(user_data[0])
 
-	try:
-		# The first profile fails to start; the second must still run.
-		main.run_account = lambda a: (calls.append(a.name), a.name != "personal")[1]
-		code = main.main()
+		self.assertEqual(len(set(seen)), 2)
 
-		check("every account attempted, in order", calls, ["personal", "spare"])
-		check("a profile that fails to start does not end the run", len(calls), 2)
-		check("exit code 0 while at least one ran", code, 0)
 
-		calls.clear()
-		main.run_account = lambda a: (calls.append(a.name), False)[1]
-		check("exit code 1 when none ran", main.main(), 1)
+class RunLoopTestCase(EnvironmentTestCase):
+	"""main() drives real browsers, so both entry points are replaced here."""
 
-		calls.clear()
-		main.run_account = lambda a: (calls.append(a.name), True)[1]
+	def setUp(self):
+		super().setUp()
+
+		# main() waits on input() when it is not headless, which would hang.
+		headless = main.HEADLESS
+		main.HEADLESS = True
+		self.addCleanup(setattr, main, "HEADLESS", headless)
+
+		# main() reports per account at info, and the failure paths at error, by
+		# design. The assertions are what reports the outcome here, so keep the
+		# suite's own output to what unittest prints.
+		logging.disable(logging.CRITICAL)
+		self.addCleanup(logging.disable, logging.NOTSET)
+
+
+class TestRunLoop(RunLoopTestCase):
+	def setUp(self):
+		super().setUp()
+
+		self.calls = []
+		real = main.run_account
+		self.addCleanup(setattr, main, "run_account", real)
+
+	def _record(self, started):
+		def run_account(account):
+			self.calls.append(account.name)
+
+			return started(account.name)
+
+		main.run_account = run_account
+
+	def test_a_profile_that_fails_to_start_does_not_end_the_run(self):
+		accounts_for("personal,spare")
+		self._record(lambda name: name != "personal")
+
+		self.assertEqual(main.main(), 0)
+		self.assertEqual(self.calls, ["personal", "spare"])
+
+	def test_exit_code_is_one_when_no_account_ran(self):
+		accounts_for("personal,spare")
+		self._record(lambda name: False)
+
+		self.assertEqual(main.main(), 1)
+		self.assertEqual(self.calls, ["personal", "spare"])
+
+	def test_unset_still_runs_the_single_profile(self):
 		accounts_for(None)
-		check("unset still runs the single profile", (main.main(), calls), (0, ["default"]))
-	finally:
-		main.run_account = real
+		self._record(lambda name: True)
+
+		self.assertEqual(main.main(), 0)
+		self.assertEqual(self.calls, ["default"])
 
 
-# --------------------------------------------------------------------------
-# 4. one account failing, without ending the batch
-# --------------------------------------------------------------------------
+class TestFailureIsolation(RunLoopTestCase):
+	"""One account failing, every way it can, without ending the batch.
 
-def failing_run(fail_at, exc):
-	"""Three accounts through the real run loop, with the middle one failing.
-
-	Only selenium is replaced. run_account and main() are the shipped ones, so
-	what is measured is where their exception handling actually reaches.
+	Only selenium is replaced: run_account and main() are the shipped ones, so
+	what is measured is where their exception handling actually reaches. Before
+	this, only "profile already open" was handled by name and everything else
+	took the remaining accounts with it.
 	"""
-	started, quit_cleanly = [], []
 
-	def account_of(options):
-		flag = next(a for a in options.arguments if a.startswith("--user-data-dir="))
-
-		return os.path.basename(flag.split("=", 1)[1])
-
-	class Driver:
-		def __init__(self, options):
-			self.name = account_of(options)
-			started.append(self.name)
-
-			if self.name == "two" and fail_at == "start":
-				raise exc
-
-		def quit(self):
-			if self.name == "two" and fail_at == "quit":
-				raise exc
-
-			quit_cleanly.append(self.name)
-
-	class Tasks:
-		def __init__(self, driver):
-			self.driver = driver
-
-			if driver.name == "two" and fail_at == "connect":
-				raise exc
-
-		def complete_all_tasks(self):
-			if self.driver.name == "two" and fail_at == "tasks":
-				raise exc
-
-	real_edge, real_tasks = main.webdriver.Edge, main.rewards_tasks.RewardsTaskUtils
-	main.webdriver.Edge, main.rewards_tasks.RewardsTaskUtils = Driver, Tasks
-
-	try:
-		accounts_for("one,two,three")
-		outcome = main.main()
-	except BaseException as raised:  # noqa: BLE001 - the point is to notice it
-		outcome = f"raised {type(raised).__name__}"
-	finally:
-		main.webdriver.Edge, main.rewards_tasks.RewardsTaskUtils = real_edge, real_tasks
-
-	return started, quit_cleanly, outcome
-
-
-def test_failure_isolation():
-	print("\n[4] one account failing, without ending the batch")
-
-	os.environ["REWARDS_HEADLESS"] = "1"
-	main.HEADLESS = True
-
-	# Every way the middle account can go wrong. Only the first of these was
-	# handled by name; the rest reached main() and took account three with them.
-	from selenium.common.exceptions import (
-		NoSuchDriverException,
-		SessionNotCreatedException,
-		WebDriverException,
-	)
-
-	cases = [
+	# (label, where it fails, the exception raised)
+	CASES = [
 		("the profile is already open", "start", SessionNotCreatedException("profile in use")),
-		("the driver will not start", "start", WebDriverException("browser and driver version mismatch")),
+		("the driver will not start", "start", WebDriverException("driver version mismatch")),
 		("there is no driver installed", "start", NoSuchDriverException("msedgedriver not found")),
 		("the profile directory is unwritable", "start", PermissionError(13, "Permission denied")),
 		("the first page never loads", "connect", WebDriverException("net::ERR_NAME_NOT_RESOLVED")),
@@ -259,101 +214,130 @@ def test_failure_isolation():
 		("the browser will not shut down", "quit", WebDriverException("browser already gone")),
 	]
 
-	# The failure paths log at error level by design; the checks below are what
-	# reports the outcome, so keep the output readable.
-	logging.disable(logging.CRITICAL)
+	def setUp(self):
+		super().setUp()
 
-	try:
-		for label, fail_at, exc in cases:
-			started, quit_cleanly, outcome = failing_run(fail_at, exc)
+		edge, tasks = main.webdriver.Edge, main.rewards_tasks.RewardsTaskUtils
+		self.addCleanup(setattr, main.webdriver, "Edge", edge)
+		self.addCleanup(setattr, main.rewards_tasks, "RewardsTaskUtils", tasks)
 
-			check(f"{label}: the other accounts still run", started, ["one", "two", "three"])
-			check(f"{label}: main() still returns an exit code", outcome, 0)
+	def _install(self, fail_at, exc, started, quit_cleanly):
+		def account_of(options):
+			flag = next(a for a in options.arguments if a.startswith("--user-data-dir="))
 
-			# Whatever went wrong, the browsers that did start have to be shut
-			# down, or their profiles stay locked against the next run.
-			expected_quit = ["one", "three"] if fail_at in ("start", "quit") else ["one", "two", "three"]
-			check(f"{label}: every started browser was closed", quit_cleanly, expected_quit)
-	finally:
-		logging.disable(logging.NOTSET)
+			return os.path.basename(flag.split("=", 1)[1])
 
-	# A lone account is the unset, unchanged path. Its failure has nothing left
-	# to protect, so it must still come out as a failing exit code rather than
-	# being swallowed into a success.
-	accounts_for(None)
-	real = main.run_account
-	logging.disable(logging.CRITICAL)
+		class Driver:
+			def __init__(self, options):
+				self.name = account_of(options)
+				started.append(self.name)
 
-	try:
+				if self.name == "two" and fail_at == "start":
+					raise exc
+
+			def quit(self):
+				if self.name == "two" and fail_at == "quit":
+					raise exc
+
+				quit_cleanly.append(self.name)
+
+		class Tasks:
+			def __init__(self, driver):
+				self.driver = driver
+
+				if driver.name == "two" and fail_at == "connect":
+					raise exc
+
+			def complete_all_tasks(self):
+				if self.driver.name == "two" and fail_at == "tasks":
+					raise exc
+
+		main.webdriver.Edge = Driver
+		main.rewards_tasks.RewardsTaskUtils = Tasks
+
+	def test_the_remaining_accounts_still_run(self):
+		for label, fail_at, exc in self.CASES:
+			with self.subTest(case=label):
+				started, quit_cleanly = [], []
+				self._install(fail_at, exc, started, quit_cleanly)
+				accounts_for("one,two,three")
+
+				self.assertEqual(main.main(), 0)
+				self.assertEqual(started, ["one", "two", "three"])
+
+				# Whatever went wrong, a browser that started has to be shut
+				# down or its profile stays locked against the next run.
+				expected = ["one", "three"] if fail_at in ("start", "quit") else ["one", "two", "three"]
+				self.assertEqual(quit_cleanly, expected)
+
+	def test_a_lone_accounts_failure_is_still_a_failing_exit_code(self):
+		# The unset, unchanged path. Its failure has nothing left to protect, so
+		# it must not be swallowed into a success.
+		accounts_for(None)
+		real = main.run_account
+		self.addCleanup(setattr, main, "run_account", real)
+
 		def boom(_):
 			raise WebDriverException("chrome not reachable")
 
 		main.run_account = boom
-		check("a lone account's failure is still exit code 1", main.main(), 1)
-	finally:
-		main.run_account = real
-		logging.disable(logging.NOTSET)
+
+		self.assertEqual(main.main(), 1)
 
 
-# --------------------------------------------------------------------------
-# 5. two real profiles, two independent identities
-# --------------------------------------------------------------------------
+@unittest.skipUnless(
+	os.environ.get("REWARDS_BROWSER_TESTS"),
+	"starts Edge twice; set REWARDS_BROWSER_TESTS=1 to run",
+)
+class TestTwoRealProfiles(EnvironmentTestCase):
+	"""Two profiles, two independent identities, each surviving a restart.
 
-def identity_of(account):
-	"""bing.com's MUID for this profile: server set, and persistent."""
-	from selenium import webdriver
+	Keyed on bing.com's own MUID rather than an injected cookie: one added
+	through webdriver is not written to the profile the way a Set-Cookie is, so
+	it would prove nothing about a sign-in outliving the browser.
+	"""
 
-	driver = webdriver.Edge(options=main.build_options(account))
+	def setUp(self):
+		super().setUp()
 
-	try:
-		driver.get("https://www.bing.com")
-		cookie = driver.get_cookie("MUID")
+		self.first, self.second = accounts_for("mat_a,mat_b")
 
-		return cookie["value"] if cookie else None
-	finally:
-		driver.quit()
+		for account in (self.first, self.second):
+			self.addCleanup(shutil.rmtree, account.user_data_dir, ignore_errors=True)
 
+	def identity_of(self, account):
+		from selenium import webdriver
 
-def test_real_profiles():
-	print("\n[5] two real Edge profiles")
+		driver = webdriver.Edge(options=main.build_options(account))
 
-	first, second = accounts_for("mat_a,mat_b")
+		try:
+			driver.get("https://www.bing.com")
+			cookie = driver.get_cookie("MUID")
 
-	try:
-		a_before = identity_of(first)
-		b_before = identity_of(second)
+			return cookie["value"] if cookie else None
+		finally:
+			driver.quit()
 
-		check("first profile gets an identity", a_before is not None, True)
-		check("second profile gets an identity", b_before is not None, True)
-		check("the two profiles are different identities", a_before != b_before, True)
+	def test_two_profiles_hold_two_persistent_identities(self):
+		first_id = self.identity_of(self.first)
+		second_id = self.identity_of(self.second)
 
-		check("first profile keeps its identity across a restart", identity_of(first), a_before)
-		check("second profile keeps its identity across a restart", identity_of(second), b_before)
-		check("and they are still distinct", identity_of(first) != identity_of(second), True)
-		check("both directories exist", [os.path.isdir(a.user_data_dir) for a in (first, second)], [True, True])
-		check(
-			"and they are two directories, not one",
-			len({os.path.realpath(a.user_data_dir) for a in (first, second)}), 2
+		self.assertIsNotNone(first_id)
+		self.assertIsNotNone(second_id)
+		self.assertNotEqual(first_id, second_id)
+
+		# The point of a profile per account: the identity has to outlive the
+		# browser, or a sign-in would not either.
+		self.assertEqual(self.identity_of(self.first), first_id)
+		self.assertEqual(self.identity_of(self.second), second_id)
+
+		for account in (self.first, self.second):
+			self.assertTrue(os.path.isdir(account.user_data_dir))
+
+		self.assertEqual(
+			len({os.path.realpath(a.user_data_dir) for a in (self.first, self.second)}), 2
 		)
-	finally:
-		for account in (first, second):
-			shutil.rmtree(account.user_data_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
-	import accounts
-	import main
-	from constants import USER_DATA_DIR
-
-	test_configuration()
-	test_options()
-	test_run_loop()
-	test_failure_isolation()
-
-	if "--browser" in sys.argv:
-		test_real_profiles()
-	else:
-		print("\n[5] skipped, pass --browser to start Edge")
-
-	print("\n" + (f"{len(FAILURES)} failed: " + "; ".join(FAILURES) if FAILURES else "all checks passed"))
-	sys.exit(1 if FAILURES else 0)
+	unittest.main()
