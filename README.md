@@ -99,7 +99,7 @@ The container defaults to `QUERY_SOURCE=trends`, so it needs no Ollama account a
 msedge --user-data-dir="<repo>\data-dir" --profile-directory=Default https://rewards.bing.com
 ```
 
-Close every window of that profile afterwards. Chromium allows one process per profile directory, so a window left open on the host stops the container from starting.
+Close every window of that profile afterwards, and close them normally rather than killing the browser. Chromium allows one process per profile directory, so a window left open on the host stops the container from starting. A profile whose browser was killed is worse: it keeps a `SingletonLock` naming the machine that wrote it, the container reads that as the profile being open somewhere else, and it exits during startup with the same error a genuinely open window produces.
 
 **This does not work from a Windows host.** Chromium encrypts cookie values with a key held by the operating system, and on Windows that key is wrapped with DPAPI and tied to the Windows account that wrote it. The Linux container has no DPAPI, so it cannot unwrap the key and every cookie in the profile is unreadable to it. The volume carries the file in and the browser then ignores its contents: a profile signed in on the host reported 73 cookies on disk, of which Edge in the container could read 19 — the ones it had just set itself — while `.MSA.Auth` and `ANON`, the cookies the sign-in actually rests on, came back absent. The container starts, looks healthy and behaves as though it were logged out.
 
@@ -109,7 +109,9 @@ Sign-in has to happen wherever the container will read it, so on a Windows host 
 python src/main.py
 ```
 
-Only the Windows case is measured here. A Linux host is expected to work, since the container falls back to the same scheme when no keyring is present, and macOS is expected to fail the same way for the same reason as Windows — it wraps the key with the login Keychain, which the container also cannot reach. Neither was tested.
+**A Linux host does work.** With no keyring running Chromium falls back to a fixed key, which is the case both on a plain Linux host and inside the image, so the volume carries a working sign-in straight in. Measured: a profile signed in on the host opened in the container already on `rewards.bing.com/dashboard` and earned from it.
+
+macOS is expected to fail the way Windows does, since it wraps the key with the login Keychain and the container cannot reach that either, but that case was not tested.
 
 **Provide the visual search image on the host too.** `visual_search.jpg` is not in the repository and is not built into the image, so create it once in the project root and the compose file mounts it in:
 
