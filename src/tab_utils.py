@@ -38,27 +38,41 @@ document.dispatchEvent(new Event('visibilitychange'));
 
 	def close_all_other_tabs(self, exceptions: list[str] = None):
 		if exceptions is None:
-			exceptions = [self.driver.current_window_handle]
+			try:
+				exceptions = [self.driver.current_window_handle]
+			except WebDriverException:
+				handles = self.driver.window_handles
+				exceptions = [handles[0]] if handles else []
 
-		switch_back_to = exceptions[0]
+		switch_back_to = exceptions[0] if exceptions else None
 
-		for handle in self.driver.window_handles:
+		for handle in list(self.driver.window_handles):
 			if handle not in exceptions and handle not in self.problematic_tabs:
-				self.driver.switch_to.window(handle)
-
-				if self.driver.current_url in GHOST_TAB_URLS:
-					print(f"[INFO] Found ghost tab with handle {handle} and URL {self.driver.current_url}, not closing.")
-					continue
-
-				tab_url = self.driver.current_url
-
 				try:
+					self.driver.switch_to.window(handle)
+
+					if self.driver.current_url in GHOST_TAB_URLS:
+						print(f"[INFO] Found ghost tab with handle {handle} and URL {self.driver.current_url}, not closing.")
+						continue
+
+					tab_url = self.driver.current_url
+
 					self.driver.close()
 					print(f"[INFO] Closed tab with handle {handle} and URL {tab_url}.")
 
 				except WebDriverException:
-					print(f"[WARNING] Could not close tab with handle {handle} and URL {tab_url}.")
+					print(f"[WARNING] Could not close tab with handle {handle}.")
 					self.problematic_tabs.add(handle)
 					pass
 
-		self.driver.switch_to.window(switch_back_to)
+		handles = self.driver.window_handles
+		if switch_back_to and switch_back_to in handles:
+			try:
+				self.driver.switch_to.window(switch_back_to)
+			except WebDriverException:
+				if handles:
+					self.driver.switch_to.window(handles[0])
+		elif handles:
+			self.driver.switch_to.window(handles[0])
+
+		self.ensure_focus()
