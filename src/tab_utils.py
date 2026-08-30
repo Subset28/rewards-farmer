@@ -1,4 +1,4 @@
-from selenium.common.exceptions import WebDriverException, JavascriptException
+from selenium.common.exceptions import WebDriverException, JavascriptException, NoSuchWindowException
 from selenium import webdriver
 
 GHOST_TAB_URLS = (
@@ -56,7 +56,7 @@ document.dispatchEvent(new Event('visibilitychange'));
 					self.driver.close()
 					print(f"[INFO] Closed tab with handle {handle} and URL {tab_url}.")
 
-				except WebDriverException:
+				except (WebDriverException, NoSuchWindowException):
 					print(f"[WARNING] Could not close tab with handle {handle} and URL {tab_url}.")
 					self.problematic_tabs.add(handle)
 					pass
