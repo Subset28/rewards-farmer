@@ -182,20 +182,38 @@ class ElementSelectionUtils:
 		Handing one of those back gets it clicked, which navigates away from
 		rewards.bing.com, and every element captured beforehand then goes stale.
 
-		Activities always point at a Bing search, so match on that rather than on
-		position. If nothing matches, return nothing: clicking a promo is worse
-		than skipping the task, and the caller already reports the shortfall.
+		Matching on a Bing search alone was too narrow. "Turn referrals into
+		rewards" is a real daily set activity that awards points, and it points
+		at a rewards URL rather than a search. Three shapes have been observed:
+
+		1. `bing.com/search?q=...`, the classic search activity,
+		2. `bing.com/rewards/...`, seen on daily sets alongside the searches,
+		3. `rewards.bing.com/...`, the same activity written against the
+		   rewards host.
+
+		The Bing app promo behind #45 is on `bingapp.microsoft.com`, so it stays
+		out of all three, and so does anything else off those hosts. If nothing
+		matches, return nothing: clicking a promo is worse than skipping the
+		task, and the caller already reports the shortfall.
 		"""
 		activities = []
 
 		for link in self.get_sidebar_section().find_elements(By.TAG_NAME, "a"):
 			try:
-				if "bing.com/search" in (link.get_dom_attribute("href") or ""):
+				if self._is_daily_set_activity(link.get_dom_attribute("href") or ""):
 					activities.append(link)
 			except StaleElementReferenceException:
 				continue
 
 		return activities
+
+	@staticmethod
+	def _is_daily_set_activity(href: str) -> bool:
+		"""Whether an href in the daily set panel is an activity rather than a promo."""
+		return any(
+			marker in href
+			for marker in ("bing.com/search", "bing.com/rewards", "rewards.bing.com/")
+		)
 
 	# ------------------------------------------------------------------
 	# explore on bing (absent in en-US, present in some other markets)
