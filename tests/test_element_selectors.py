@@ -190,5 +190,59 @@ class DailySetOpener(unittest.TestCase):
 			selectors_for(driver).get_open_daily_set_button()
 
 
+class DailySetActivityUrls(unittest.TestCase):
+	"""Which hrefs in the panel count as activities and which are promos."""
+
+	def _links(self, *hrefs):
+		links = [FakeElement(text="activity", attributes={"href": h}) for h in hrefs]
+		panel = FakeElement(
+			attributes={"id": "react-aria-42"},
+			children={(By.TAG_NAME, "a"): links},
+		)
+
+		return FakeDriver(children={(By.TAG_NAME, "section"): [panel]})
+
+	def test_matches_a_plain_search_activity(self):
+		found = selectors_for(
+			self._links("https://www.bing.com/search?q=weather")
+		).get_daily_set_elements()
+
+		self.assertEqual(len(found), 1)
+
+	def test_matches_a_rewards_path_activity(self):
+		# "Turn referrals into rewards" awards points and is not a search.
+		found = selectors_for(
+			self._links("https://www.bing.com/rewards/panelflyout")
+		).get_daily_set_elements()
+
+		self.assertEqual(len(found), 1)
+
+	def test_matches_an_activity_on_the_rewards_host(self):
+		found = selectors_for(
+			self._links("https://rewards.bing.com/redeem/12345")
+		).get_daily_set_elements()
+
+		self.assertEqual(len(found), 1)
+
+	def test_skips_the_bing_app_promo(self):
+		# The link behind #45. Clicking it leaves the rewards host and every
+		# element captured beforehand goes stale.
+		found = selectors_for(
+			self._links("https://bingapp.microsoft.com/bing?adjust=14u4j3kz")
+		).get_daily_set_elements()
+
+		self.assertEqual(found, [])
+
+	def test_keeps_activities_and_drops_promos_from_the_same_panel(self):
+		found = selectors_for(self._links(
+			"https://bingapp.microsoft.com/bing?adjust=14u4j3kz",
+			"https://www.bing.com/search?q=news",
+			"https://www.bing.com/rewards/panelflyout",
+			"https://play.google.com/store/apps/details?id=com.microsoft.bing",
+		)).get_daily_set_elements()
+
+		self.assertEqual(len(found), 2)
+
+
 if __name__ == "__main__":
 	unittest.main()
