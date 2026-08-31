@@ -1,0 +1,15 @@
+data-dir/
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+.vscode/
+*.log
+*.png
+*.jpg
+poetry.lock
+README.md
+docs/

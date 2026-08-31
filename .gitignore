@@ -1,6 +1,7 @@
 *.png
 *.jpg
 *.txt
+*.log
 visual_search.json
 !nouns.txt
 Todo.md
