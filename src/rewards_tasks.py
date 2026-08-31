@@ -214,12 +214,18 @@ class RewardsTaskUtils:
 		# here skipped the entire search task while points were still available.
 		self.wait_for_then_click(self.elements.get_points_breakdown_button, timeout=30)
 
-		close_btn = self.wait_for_element(self.elements.get_close_button_on_points_breakdown, timeout=15)
+		# Wait for the search row, not for the panel's close button. The close
+		# button is incidental to reading the number, and waiting on it first
+		# meant a panel that rendered its content but not its button killed the
+		# whole search task while the number was already on screen.
+		points_earned, max_pts = self.wait_for_element(
+			self.elements.get_points_earned_from_searches_on_points_breakdown,
+			timeout=30
+		)
 
-		points_earned, max_pts = self.elements.get_points_earned_from_searches_on_points_breakdown()
-
+		# Closing is best effort, the panel does not block the next navigation.
 		try:
-			self.move_to_and_click(close_btn)
+			self.move_to_and_click(self.elements.get_generic_sidebar_close_button())
 		except Exception:
 			pass
 
