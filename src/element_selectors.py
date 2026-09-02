@@ -163,11 +163,66 @@ class ElementSelectionUtils:
 		try:
 			return self._button_containing(Labels.DAILY_SET_STREAK)
 		except NoSuchElementException:
-			return self._streaks_button(3)
+			pass
+
+		# The positional fallback only helps if what sits there really is the
+		# daily set entry. On a partially rendered streaks section it is not:
+		# observed returning the mobile app entry, and clicking that opens the
+		# app store page instead of the panel, which is what the reports in #45
+		# and #46 describe. Check before handing it back, and skip the task
+		# rather than click the wrong streak.
+		candidate = self._streaks_button(3)
+		label = (candidate.text or "").strip()
+
+		if "daily set" not in label.lower():
+			raise NoSuchElementException(
+				"daily set opener not found by label, and position 3 holds "
+				f"{label.splitlines()[0] if label else '<empty>'!r} instead"
+			)
+
+		return candidate
 
 	def get_daily_set_elements(self):
-		# The first link in the opened panel is the progress row, not an activity.
-		return self.get_sidebar_section().find_elements(By.TAG_NAME, "a")[1:]
+		"""The daily set activities in the opened panel.
+
+		Everything after the first link is not reliably an activity. The panel
+		also carries promotional links, a referral card and a Bing app promo have
+		both been observed sitting between the progress row and the activities.
+		Handing one of those back gets it clicked, which navigates away from
+		rewards.bing.com, and every element captured beforehand then goes stale.
+
+		Matching on a Bing search alone was too narrow. "Turn referrals into
+		rewards" is a real daily set activity that awards points, and it points
+		at a rewards URL rather than a search. Three shapes have been observed:
+
+		1. `bing.com/search?q=...`, the classic search activity,
+		2. `bing.com/rewards/...`, seen on daily sets alongside the searches,
+		3. `rewards.bing.com/...`, the same activity written against the
+		   rewards host.
+
+		The Bing app promo behind #45 is on `bingapp.microsoft.com`, so it stays
+		out of all three, and so does anything else off those hosts. If nothing
+		matches, return nothing: clicking a promo is worse than skipping the
+		task, and the caller already reports the shortfall.
+		"""
+		activities = []
+
+		for link in self.get_sidebar_section().find_elements(By.TAG_NAME, "a"):
+			try:
+				if self._is_daily_set_activity(link.get_dom_attribute("href") or ""):
+					activities.append(link)
+			except StaleElementReferenceException:
+				continue
+
+		return activities
+
+	@staticmethod
+	def _is_daily_set_activity(href: str) -> bool:
+		"""Whether an href in the daily set panel is an activity rather than a promo."""
+		return any(
+			marker in href
+			for marker in ("bing.com/search", "bing.com/rewards", "rewards.bing.com/")
+		)
 
 	def get_daily_set_element_by_index(self, index: int):
 		elements = self.get_daily_set_elements()

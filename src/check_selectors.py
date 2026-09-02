@@ -24,6 +24,9 @@ from constants import USER_DATA_DIR, PROFILE_NAME
 
 RENDER_TIMEOUT = 60
 
+# How many activities a fully rendered daily set panel holds.
+DAILY_SET_ACTIVITIES = 3
+
 
 def build_driver():
 	options = webdriver.EdgeOptions()
@@ -149,7 +152,15 @@ def main():
 			driver.execute_script("arguments[0].scrollIntoView({block:'center'});", opener)
 			time.sleep(1)
 			driver.execute_script("arguments[0].click();", opener)
-			wait_until(lambda: elements.get_sidebar_section() is not None, 30)
+
+			# Waiting for the section only tells you the panel opened, not that
+			# it filled. It hydrates progressively, so a check that runs on the
+			# first non-empty state reports whatever happened to be rendered at
+			# that moment, which is why this came out differently run to run.
+			# Same wait as complete_bing_daily_set: hold out for the full set,
+			# and report what is there if it never arrives.
+			wait_until(lambda: len(elements.get_daily_set_elements()) >= DAILY_SET_ACTIVITIES, 30)
+
 			report.check("get_daily_set_elements", elements.get_daily_set_elements)
 
 			try:

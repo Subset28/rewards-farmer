@@ -1,5 +1,8 @@
-from selenium.common.exceptions import WebDriverException, JavascriptException
+import logging
+from selenium.common.exceptions import WebDriverException, JavascriptException, NoSuchWindowException
 from selenium import webdriver
+
+logger = logging.getLogger(__name__)
 
 GHOST_TAB_URLS = (
 	"https://ntp.msn.com/edge/ntp?locale=en-US&title=New%20tab&fre=1&dsp=1&sp=Bing&feed_dis=always&en_widget_reg=false&prerender=1&PC=U531", # has fre
@@ -30,7 +33,7 @@ document.dispatchEvent(new Event('visibilitychange'));
 				self.driver.switch_to.window(handle)
 
 				if self.driver.current_url in GHOST_TAB_URLS:
-					print(f"[INFO] Found ghost tab with handle {handle} and URL {self.driver.current_url}.")
+					logger.debug("Found ghost tab with handle %s and URL %s.", handle, self.driver.current_url)
 					continue
 
 				self.ensure_focus()
@@ -48,20 +51,25 @@ document.dispatchEvent(new Event('visibilitychange'));
 
 		for handle in list(self.driver.window_handles):
 			if handle not in exceptions and handle not in self.problematic_tabs:
+				tab_url = None
 				try:
 					self.driver.switch_to.window(handle)
 
 					if self.driver.current_url in GHOST_TAB_URLS:
-						print(f"[INFO] Found ghost tab with handle {handle} and URL {self.driver.current_url}, not closing.")
+						logger.debug("Found ghost tab with handle %s and URL %s, not closing.", handle, self.driver.current_url)
 						continue
 
 					tab_url = self.driver.current_url
 
 					self.driver.close()
-					print(f"[INFO] Closed tab with handle {handle} and URL {tab_url}.")
+					# Routine bookkeeping, one line per tab. At info it drowned
+					# the task summary: 19 of the 33 records in a full run were
+					# these. The warning below stays at warning, a tab that will
+					# not close is a real problem.
+					logger.debug("Closed tab with handle %s and URL %s.", handle, tab_url)
 
-				except WebDriverException:
-					print(f"[WARNING] Could not close tab with handle {handle}.")
+				except (WebDriverException, NoSuchWindowException):
+					logger.warning("Could not close tab with handle %s and URL %s.", handle, tab_url)
 					self.problematic_tabs.add(handle)
 					pass
 
