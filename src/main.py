@@ -8,7 +8,11 @@ import rewards_tasks
 from selenium import webdriver
 from selenium.common.exceptions import SessionNotCreatedException
 
-HEADLESS = os.environ.get("REWARDS_HEADLESS", "").strip().lower() in ("1", "true", "yes")
+HEADLESS = os.environ.get("REWARDS_HEADLESS", "").strip().lower() in (
+	"1",
+	"true",
+	"yes",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +21,7 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options = webdriver.EdgeOptions()
 
 	options.add_experimental_option("excludeSwitches", ["enable-automation"])
-	options.add_experimental_option('useAutomationExtension', False)
+	options.add_experimental_option("useAutomationExtension", False)
 	options.add_argument("--disable-blink-features=AutomationControlled")
 	options.add_argument(f"--user-data-dir={account.user_data_dir}")
 	options.add_argument(f"--profile-directory={account.profile_name}")
@@ -45,7 +49,9 @@ def run_account(account: accounts.Account) -> bool:
 		# the profile nor the other window.
 		logger.error("[FAIL] %s: could not start Edge with this profile.", account.name)
 		logger.error("       profile directory: %s", account.user_data_dir)
-		logger.error("       The usual cause is that this profile is already open in another")
+		logger.error(
+			"       The usual cause is that this profile is already open in another"
+		)
 		logger.error("       Edge window, including one left over from a previous run.")
 		logger.error("       driver said: %s", log_utils.exception_summary(exc))
 
@@ -63,7 +69,8 @@ def run_account(account: accounts.Account) -> bool:
 			# own error, and the process it is meant to end is dead anyway.
 			logger.warning(
 				"%s: the driver did not shut down cleanly: %s",
-				account.name, log_utils.exception_summary(exc)
+				account.name,
+				log_utils.exception_summary(exc),
 			)
 
 	return True
@@ -97,8 +104,10 @@ def main() -> int:
 		except Exception as exc:
 			logger.error(
 				"[FAIL] %s: %s: %s",
-				account.name, type(exc).__name__, log_utils.exception_summary(exc),
-				exc_info=logger.isEnabledFor(logging.DEBUG)
+				account.name,
+				type(exc).__name__,
+				log_utils.exception_summary(exc),
+				exc_info=logger.isEnabledFor(logging.DEBUG),
 			)
 
 	if len(configured) > 1:
