@@ -66,6 +66,16 @@ class RewardsTaskUtils:
 	def __init__(self, driver: webdriver.Edge):
 		self.driver = driver
 
+		# Set headers to spoof the rewards app for the rewards only quests
+		self.driver.execute_cdp_cmd("Network.enable", {})
+
+		headers = {
+			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0 MSRewards/Desktop/1.1.0",
+			"X-Rewards-Source": "msrewards-desktop",
+		}
+
+		self.driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers})
+
 		self.driver.get("https://rewards.bing.com/")
 
 		self.tab_utils = tab_utils.TabUtils(driver)
