@@ -386,7 +386,7 @@ class RewardsTaskUtils:
 		):
 			self.keyboard.send_keys(f"{query} -noai{Keys.ENTER}")
 
-			time.sleep(random.uniform(0.5, 1))
+			time.sleep(random.uniform(5.5, 7.5))
 
 			try: self.wait_for_then_click(self.elements.get_clear_bing_search_query_button)
 			except StaleElementReferenceException:
