@@ -42,14 +42,6 @@ def run_account(account: accounts.Account) -> bool:
     """Work one account. Returns whether the browser started."""
     try:
         driver = webdriver.Edge(options=build_options(account))
-		# Set headers to spoof the rewards app for the rewards only quests
-        driver.execute_cdp_cmd("Network.enable", {})
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0 MSRewards/Desktop/1.1.0",
-            "X-Rewards-Source": "msrewards-desktop",
-        }
-
-        driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers})
     except SessionNotCreatedException as exc:
         # Chromium allows one process per user data directory. When the profile
         # is already open the driver's copy exits during startup, and selenium
