@@ -89,7 +89,7 @@ def get_search_query_from_task_description(task_description: str) -> str:
 		response = get_nonempty_ollama_response(messages)
 		return response.lower()
 	except Exception as exc:
-		print(f"[WARNING] Ollama is offline or unavailable ({exc}). Using fallback search query generator.")
+		logger.warning("Ollama is offline or unavailable (%s). Using fallback search query generator.", exc)
 		words = [w for w in re.sub(r"[^\w\s]", "", task_description).split() if len(w) > 3 and w.lower() not in {"search", "bing", "find", "about", "with", "from", "that", "this"}]
 		fallback_query = " ".join(words[:4]) if words else f"{get_random_noun()} search"
 		return fallback_query.lower()
@@ -126,7 +126,7 @@ def get_related_search_queries(seed_word: str, num_queries: int=20) -> Generator
 				})
 				continue
 			except Exception as exc:
-				print(f"[WARNING] Ollama is offline or unavailable ({exc}). Using built-in generator for remaining queries.")
+				logger.warning("Ollama is offline or unavailable (%s). Using built-in generator for remaining queries.", exc)
 				use_fallback = True
 
 		noun1 = get_random_noun()

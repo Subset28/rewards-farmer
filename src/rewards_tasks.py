@@ -91,8 +91,8 @@ class RewardsTaskUtils:
 			time.sleep(2)
 			url = self.driver.current_url.lower()
 			if "login.live.com" in url or "account.microsoft.com" in url or "signup" in url:
-				print("\n[WARNING] Microsoft Rewards is NOT signed in on rewards.bing.com for this profile!")
-				print("[WARNING] Please sign in once on rewards.bing.com in this Edge profile window.\n")
+				logger.warning("Microsoft Rewards is NOT signed in on rewards.bing.com for this profile!")
+				logger.warning("Please sign in once on rewards.bing.com in this Edge profile window.")
 		except Exception:
 			pass
 
@@ -203,7 +203,7 @@ class RewardsTaskUtils:
 			try:
 				self.move_to_and_click(get_activity_elem)
 			except Exception as exc:
-				print(f"[WARNING] Failed to click daily set activity {index + 1}: {exc}")
+				logger.warning("Failed to click daily set activity %d: %s", index + 1, exc)
 				continue
 
 			time.sleep(random.uniform(2, 3))
@@ -254,7 +254,7 @@ class RewardsTaskUtils:
 		self.switch_to_earn_page()
 
 		if not os.path.exists(VISUAL_SEARCH_IMAGE_PATH):
-			print("[INFO] visual_search.jpg not found. Generating visual search image...")
+			logger.info("visual_search.jpg not found. Generating visual search image...")
 			import random_image_for_visual_search
 			random_image_for_visual_search.get_random_image()
 
@@ -295,7 +295,7 @@ class RewardsTaskUtils:
 					time.sleep(random.uniform(1, 2))
 					self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 			except Exception as exc:
-				print(f"[WARNING] Misc Card [{index}] interaction failed: {exc}")
+				logger.warning("Misc Card [%d] interaction failed: %s", index, exc)
 				continue
 
 		for card in self.elements.get_all_misc_cards():

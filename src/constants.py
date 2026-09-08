@@ -6,4 +6,3 @@ USER_DATA_DIR = abspath("./data-dir")
 PROFILE_NAME = "Default"
 
 
-
