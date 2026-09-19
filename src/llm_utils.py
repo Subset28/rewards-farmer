@@ -40,20 +40,20 @@ USER_PROMPT_FOR_SEARCH_QUERY_CONTINUATION = """Generate the next search query.""
 
 MAX_EMPTY_RETRIES = 5
 
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter").strip().lower()
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local").strip().lower()
 
 def _get_llm_base_url() -> str:
 	if DEFAULT_LLM_PROVIDER in ("openrouter", "open-router"):
 		return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip().rstrip("/")
-	elif DEFAULT_LLM_PROVIDER in ("local", "localhost"):
+	elif DEFAULT_LLM_PROVIDER in ("local", "ollama"):
 		return os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1").strip().rstrip("/")
 
 	raise ValueError(f"Unsupported LLM_PROVIDER: {DEFAULT_LLM_PROVIDER}. Supported values are 'openrouter' and 'local'.")
 
 def _get_llm_model() -> str:
 	if DEFAULT_LLM_PROVIDER in ("openrouter", "open-router"):
-		return os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip()
-	elif DEFAULT_LLM_PROVIDER in ("local", "localhost"):
+		return os.getenv("OPENROUTER_MODEL", "openrouter/free").strip()
+	elif DEFAULT_LLM_PROVIDER in ("local", "ollama"):
 		return os.getenv("LOCAL_LLM_MODEL", "gemma4:cloud").strip()
 
 	raise ValueError(f"Unsupported LLM_PROVIDER: {DEFAULT_LLM_PROVIDER}. Supported values are 'openrouter' and 'local'.")
@@ -134,7 +134,7 @@ def get_search_query_from_task_description(task_description: str) -> str:
 		response = get_nonempty_llm_response(messages)
 		return response.lower()
 	except Exception as exc:
-		logger.warning("Ollama is offline or unavailable (%s). Using fallback search query generator.", exc)
+		logger.warning("LLM is offline or unavailable (%s). Using fallback search query generator.", exc)
 		words = [w for w in re.sub(r"[^\w\s]", "", task_description).split() if len(w) > 3 and w.lower() not in {"search", "bing", "find", "about", "with", "from", "that", "this"}]
 		fallback_query = " ".join(words[:4]) if words else f"{get_random_noun()} search"
 		return fallback_query.lower()
@@ -171,7 +171,7 @@ def get_related_search_queries(seed_word: str, num_queries: int=20) -> Generator
 				})
 				continue
 			except Exception as exc:
-				logger.warning("Ollama is offline or unavailable (%s). Using built-in generator for remaining queries.", exc)
+				logger.warning("LLM is offline or unavailable (%s). Using built-in generator for remaining queries.", exc)
 				use_fallback = True
 
 		noun1 = get_random_noun()
