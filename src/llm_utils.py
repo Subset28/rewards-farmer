@@ -3,9 +3,8 @@ import re
 from typing import Generator
 import logging
 import random
-import ollama
+import requests
 import os
-
 from constants import REPO_ROOT
 
 logger = logging.getLogger(__name__)
@@ -39,32 +38,75 @@ DEFAULT_USER_PROMPT_FOR_SEARCH_POINTS_WITHOUT_DESC = """Generate the first searc
 
 USER_PROMPT_FOR_SEARCH_QUERY_CONTINUATION = """Generate the next search query."""
 
-# Without an explicit timeout a stalled or cold ollama backend blocks the whole
-# run forever, which is fatal for an unattended scheduled run.
-_CLIENT = ollama.Client(timeout=180)
-
 MAX_EMPTY_RETRIES = 5
 
-DEFAULT_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:cloud")
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local").strip().lower()
 
-class OllamaOfflineException(Exception):
-	pass
+def _get_llm_base_url() -> str:
+	if DEFAULT_LLM_PROVIDER in ("openrouter", "open-router"):
+		return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip().rstrip("/")
+	elif DEFAULT_LLM_PROVIDER in ("local", "ollama"):
+		return os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1").strip().rstrip("/")
 
-def get_ollama_response(messages: list[dict[str, str]], model: str=DEFAULT_MODEL) -> str:
-	try:
-		response = _CLIENT.chat(
-			model=model,
-			messages=messages
-		)
-		return response.message.content
-	except Exception as exc:
-		raise OllamaOfflineException(f"Ollama service error: {exc}") from exc
+	raise ValueError(f"Unsupported LLM_PROVIDER: {DEFAULT_LLM_PROVIDER}. Supported values are 'openrouter' and 'local'.")
 
+def _get_llm_model() -> str:
+	if DEFAULT_LLM_PROVIDER in ("openrouter", "open-router"):
+		return os.getenv("OPENROUTER_MODEL", "openrouter/free").strip()
+	elif DEFAULT_LLM_PROVIDER in ("local", "ollama"):
+		return os.getenv("LOCAL_LLM_MODEL", "gemma4:cloud").strip()
 
-def get_nonempty_ollama_response(messages: list[dict[str, str]]) -> str:
+	raise ValueError(f"Unsupported LLM_PROVIDER: {DEFAULT_LLM_PROVIDER}. Supported values are 'openrouter' and 'local'.")
+
+def _get_llm_headers() -> dict[str, str]:
+	headers = {
+		"Content-Type": "application/json",
+	}
+
+	if DEFAULT_LLM_PROVIDER in {"openrouter", "open-router"}:
+		api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+		if not api_key:
+			raise RuntimeError("OPENROUTER_API_KEY is required when LLM_PROVIDER=openrouter")
+
+		headers["Authorization"] = f"Bearer {api_key}"
+		referer = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+		title = os.getenv("OPENROUTER_TITLE", "").strip()
+
+		if referer:
+			headers["HTTP-Referer"] = referer
+		if title:
+			headers["X-Title"] = title
+		return headers
+
+	api_key = os.getenv("LOCAL_LLM_API_KEY", "").strip()
+	if api_key:
+		headers["Authorization"] = f"Bearer {api_key}"
+
+	return headers
+
+def get_llm_response(messages: list[dict[str, str]]) -> str:
+	response = requests.post(
+		f"{_get_llm_base_url()}/chat/completions",
+		headers=_get_llm_headers(),
+		json={
+			"model": _get_llm_model(),
+			"messages": messages,
+		},
+		timeout=float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "60")),
+	)
+	response.raise_for_status()
+
+	content = response.json()["choices"][0]["message"]["content"]
+
+	if not isinstance(content, str):
+		raise RuntimeError(f"Unexpected LLM response content type: {type(content)!r}")
+
+	return content
+
+def get_nonempty_llm_response(messages: list[dict[str, str]]) -> str:
 	"""Retry a bounded number of times instead of spinning forever on empties."""
 	for attempt in range(MAX_EMPTY_RETRIES):
-		response = get_ollama_response(messages)
+		response = get_llm_response(messages)
 
 		if response and response.strip():
 			return response
@@ -72,7 +114,6 @@ def get_nonempty_ollama_response(messages: list[dict[str, str]]) -> str:
 		logger.warning("Empty LLM response, retry %s/%s", attempt + 1, MAX_EMPTY_RETRIES)
 
 	raise RuntimeError(f"LLM returned nothing usable after {MAX_EMPTY_RETRIES} attempts")
-
 
 def get_search_query_from_task_description(task_description: str) -> str:
 	# compat
@@ -90,10 +131,10 @@ def get_search_query_from_task_description(task_description: str) -> str:
 	]
 
 	try:
-		response = get_nonempty_ollama_response(messages)
+		response = get_nonempty_llm_response(messages)
 		return response.lower()
 	except Exception as exc:
-		logger.warning("Ollama is offline or unavailable (%s). Using fallback search query generator.", exc)
+		logger.warning("LLM is offline or unavailable (%s). Using fallback search query generator.", exc)
 		words = [w for w in re.sub(r"[^\w\s]", "", task_description).split() if len(w) > 3 and w.lower() not in {"search", "bing", "find", "about", "with", "from", "that", "this"}]
 		fallback_query = " ".join(words[:4]) if words else f"{get_random_noun()} search"
 		return fallback_query.lower()
@@ -116,7 +157,7 @@ def get_related_search_queries(seed_word: str, num_queries: int=20) -> Generator
 	for _ in range(num_queries):
 		if not use_fallback:
 			try:
-				response = get_nonempty_ollama_response(messages)
+				response = get_nonempty_llm_response(messages)
 				yield response.lower()
 
 				messages.append({
@@ -130,7 +171,7 @@ def get_related_search_queries(seed_word: str, num_queries: int=20) -> Generator
 				})
 				continue
 			except Exception as exc:
-				logger.warning("Ollama is offline or unavailable (%s). Using built-in generator for remaining queries.", exc)
+				logger.warning("LLM is offline or unavailable (%s). Using built-in generator for remaining queries.", exc)
 				use_fallback = True
 
 		noun1 = get_random_noun()
