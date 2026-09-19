@@ -1,60 +1,21 @@
 import logging
-import os
 import sys
 
 import log_utils
 import accounts
+import browser
 import rewards_tasks
-from selenium import webdriver
-from selenium.common.exceptions import SessionNotCreatedException
 
-HEADLESS = os.environ.get("REWARDS_HEADLESS", "").strip().lower() in (
-	"1",
-	"true",
-	"yes",
-)
+HEADLESS = browser.HEADLESS
 
 logger = logging.getLogger(__name__)
 
 
-def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
-	options = webdriver.EdgeOptions()
-
-	options.add_experimental_option("excludeSwitches", ["enable-automation"])
-	options.add_experimental_option("useAutomationExtension", False)
-	options.add_argument("--disable-blink-features=AutomationControlled")
-	options.add_argument(f"--user-data-dir={account.user_data_dir}")
-	options.add_argument(f"--profile-directory={account.profile_name}")
-
-	if HEADLESS:
-		# A container has no display. The window size is set explicitly because
-		# the pointer code works in viewport coordinates, and the default
-		# headless window is small enough to put cards out of reach.
-		options.add_argument("--headless=new")
-		options.add_argument("--window-size=1920,1080")
-		options.add_argument("--no-sandbox")
-		options.add_argument("--disable-dev-shm-usage")
-
-	return options
-
-
 def run_account(account: accounts.Account) -> bool:
 	"""Work one account. Returns whether the browser started."""
-	try:
-		driver = webdriver.Edge(options=build_options(account))
-	except SessionNotCreatedException as exc:
-		# Chromium allows one process per user data directory. When the profile
-		# is already open the driver's copy exits during startup, and selenium
-		# reports it as the browser crashing with a message that names neither
-		# the profile nor the other window.
-		logger.error("[FAIL] %s: could not start Edge with this profile.", account.name)
-		logger.error("       profile directory: %s", account.user_data_dir)
-		logger.error(
-			"       The usual cause is that this profile is already open in another"
-		)
-		logger.error("       Edge window, including one left over from a previous run.")
-		logger.error("       driver said: %s", log_utils.exception_summary(exc))
+	driver = browser.start_driver(account)
 
+	if driver is None:
 		return False
 
 	try:

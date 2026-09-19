@@ -3,6 +3,9 @@ from typing import Generator
 import logging
 import random
 import ollama
+import os
+
+from constants import REPO_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +138,7 @@ def get_related_search_queries(seed_word: str, num_queries: int=20) -> Generator
 
 
 NOUNS = [
-	noun.strip().lower() for noun in open("nouns.txt", "r").read().splitlines()
+	noun.strip().lower() for noun in open(os.path.join(REPO_ROOT, "nouns.txt"), "r", encoding="utf-8").read().splitlines()
 	if len(noun.strip()) >= 3
 ]
 

@@ -28,6 +28,7 @@ from selenium.common.exceptions import (
 )
 
 import accounts
+import browser
 import main
 from constants import USER_DATA_DIR
 
@@ -125,7 +126,7 @@ class TestEdgeOptions(EnvironmentTestCase):
 		seen = []
 
 		for account in accounts_for("personal,spare"):
-			arguments = main.build_options(account).arguments
+			arguments = browser.build_options(account).arguments
 			user_data = [a for a in arguments if a.startswith("--user-data-dir=")]
 			profile = [a for a in arguments if a.startswith("--profile-directory=")]
 
@@ -217,8 +218,8 @@ class TestFailureIsolation(RunLoopTestCase):
 	def setUp(self):
 		super().setUp()
 
-		edge, tasks = main.webdriver.Edge, main.rewards_tasks.RewardsTaskUtils
-		self.addCleanup(setattr, main.webdriver, "Edge", edge)
+		edge, tasks = browser.webdriver.Edge, main.rewards_tasks.RewardsTaskUtils
+		self.addCleanup(setattr, browser.webdriver, "Edge", edge)
 		self.addCleanup(setattr, main.rewards_tasks, "RewardsTaskUtils", tasks)
 
 	def _install(self, fail_at, exc, started, quit_cleanly):
@@ -228,7 +229,7 @@ class TestFailureIsolation(RunLoopTestCase):
 			return os.path.basename(flag.split("=", 1)[1])
 
 		class Driver:
-			def __init__(self, options):
+			def __init__(self, options, service=None):
 				self.name = account_of(options)
 				started.append(self.name)
 
@@ -252,7 +253,7 @@ class TestFailureIsolation(RunLoopTestCase):
 				if self.driver.name == "two" and fail_at == "tasks":
 					raise exc
 
-		main.webdriver.Edge = Driver
+		browser.webdriver.Edge = Driver
 		main.rewards_tasks.RewardsTaskUtils = Tasks
 
 	def test_the_remaining_accounts_still_run(self):
@@ -308,7 +309,7 @@ class TestTwoRealProfiles(EnvironmentTestCase):
 	def identity_of(self, account):
 		from selenium import webdriver
 
-		driver = webdriver.Edge(options=main.build_options(account))
+		driver = webdriver.Edge(options=browser.build_options(account))
 
 		try:
 			driver.get("https://www.bing.com")
