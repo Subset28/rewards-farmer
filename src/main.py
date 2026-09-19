@@ -1,6 +1,8 @@
+from constants import DOTENV_PATH
 import logging
+import os
 import sys
-
+import dotenv
 import log_utils
 import accounts
 import browser
@@ -82,4 +84,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
 	sys.exit(main())

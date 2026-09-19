@@ -7,3 +7,5 @@ REPO_ROOT = dirname(dirname(abspath(__file__)))
 
 USER_DATA_DIR = join(REPO_ROOT, "data-dir")
 PROFILE_NAME = "Default"
+
+DOTENV_PATH = join(REPO_ROOT, ".env")
