@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Generator
 import logging
@@ -41,12 +42,12 @@ _CLIENT = ollama.Client(timeout=180)
 
 MAX_EMPTY_RETRIES = 5
 
+DEFAULT_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:cloud")
 
 class OllamaOfflineException(Exception):
 	pass
 
-
-def get_ollama_response(messages: list[dict[str, str]], model: str="gemma4:cloud") -> str:
+def get_ollama_response(messages: list[dict[str, str]], model: str=DEFAULT_MODEL) -> str:
 	try:
 		response = _CLIENT.chat(
 			model=model,
