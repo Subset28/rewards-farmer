@@ -65,11 +65,28 @@ You must also have a [webdriver for Microsoft Edge](https://learn.microsoft.com/
 
 The profile directory in `src/constants.py` is set to `Default`. If this signs you in to a global profile that you do not want to use for automation, then you can create a new profile from within the webdriver instance manually and then change the `PROFILE_NAME` constant to `Profile 1` (or the equivalent number).
 
-Run main.py (`python src/main.py`, it must be run from the root directory so the relative paths work out), wait for the page to launch, and then CTRL-C to quit the application immediately. Sign in to the created profile with your Microsoft account on both Bing and `rewards.bing.com`.
+Run main.py (`python src/main.py`; paths are resolved from the repository, so it can be started from any directory), wait for the page to launch, and then CTRL-C to quit the application immediately. Sign in to the created profile with your Microsoft account on both Bing and `rewards.bing.com`.
 
 EU Users: you may have to accept a consent banner once on `rewards.bing.com` and on the Bing search page, `bing.com`. Once you consent, your choice will be saved for future runs using the same profile, so you will not need to interact with the banner during automated runs.
 
 Close all webdriver browser instances. Run `main.py` again; the automation should start working.
+
+# If Edge will not start
+
+When the browser fails to start, the log names the likely cause from the driver's own message, and falls back to printing that message as is. Three optional environment variables help when it does not:
+
+| Variable | Effect |
+| --- | --- |
+| `MSEDGEDRIVER_PATH` | Full path to `msedgedriver` to use, instead of letting selenium look for one. Try this first on *Unable to obtain driver for MicrosoftEdge*. |
+| `EDGE_BINARY` | Full path to the Edge executable, for an install selenium does not find on its own. |
+| `REWARDS_DRIVER_LOG` | Path to write a verbose msedgedriver log to. On *Chrome instance exited* this log holds Edge's actual reason; attach it to a bug report. |
+
+```sh
+$env:REWARDS_DRIVER_LOG="msedgedriver.log"; python src/main.py   # PowerShell
+REWARDS_DRIVER_LOG=msedgedriver.log python src/main.py          # bash
+```
+
+`src/check_selectors.py` starts Edge the same way and reads the same variables.
 
 # Running more than one account
 

@@ -16,7 +16,9 @@ import mouse_trajectory
 import mimic_typing
 import element_selectors
 
-VISUAL_SEARCH_IMAGE_PATH = os.path.abspath("visual_search.jpg")
+from constants import REPO_ROOT
+
+VISUAL_SEARCH_IMAGE_PATH = os.path.join(REPO_ROOT, "visual_search.jpg")
 
 REWARDS_HOME_URL = "https://rewards.bing.com/"
 

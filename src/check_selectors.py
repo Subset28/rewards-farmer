@@ -16,28 +16,18 @@ variant does not ship. FAILED is what needs fixing.
 import sys
 import time
 
-from selenium import webdriver
 from selenium.webdriver.common.by import By
 
+import accounts
+import browser
 import element_selectors
+import log_utils
 from constants import USER_DATA_DIR, PROFILE_NAME
 
 RENDER_TIMEOUT = 60
 
 # How many activities a fully rendered daily set panel holds.
 DAILY_SET_ACTIVITIES = 3
-
-
-def build_driver():
-	options = webdriver.EdgeOptions()
-
-	options.add_experimental_option("excludeSwitches", ["enable-automation"])
-	options.add_experimental_option("useAutomationExtension", False)
-	options.add_argument("--disable-blink-features=AutomationControlled")
-	options.add_argument(f"--user-data-dir={USER_DATA_DIR}")
-	options.add_argument(f"--profile-directory={PROFILE_NAME}")
-
-	return webdriver.Edge(options=options)
 
 
 def wait_until(predicate, timeout=RENDER_TIMEOUT):
@@ -122,7 +112,15 @@ def describe_environment(driver, report):
 
 
 def main():
-	driver = build_driver()
+	log_utils.setup_logging()
+
+	driver = browser.start_driver(
+		accounts.Account(name="default", user_data_dir=USER_DATA_DIR, profile_name=PROFILE_NAME)
+	)
+
+	if driver is None:
+		return 2
+
 	elements = element_selectors.ElementSelectionUtils(driver)
 	report = Report()
 
