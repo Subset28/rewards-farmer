@@ -1,0 +1,43 @@
+name: Windows tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-utils:
+    name: Desktop utility tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Poetry
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install poetry
+
+      - name: Install dependencies
+        shell: pwsh
+        run: poetry install --no-interaction
+
+      - name: Run desktop utility tests
+        shell: pwsh
+        env:
+          USE_VIRTUAL_DESKTOP: "false"
+          SWITCH_BACK_TO_MAIN_DESKTOP: "false"
+        run: |
+          poetry run python -m unittest discover -s tests -p "test_desktop_utils.py" -v

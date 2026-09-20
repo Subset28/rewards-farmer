@@ -6,6 +6,7 @@ import dotenv
 import log_utils
 import accounts
 import browser
+import desktop_utils
 import rewards_tasks
 
 HEADLESS = browser.HEADLESS
@@ -15,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 def run_account(account: accounts.Account) -> bool:
 	"""Work one account. Returns whether the browser started."""
-	driver = browser.start_driver(account)
+	try:
+		if not desktop_utils.prepare_desktop_before_launch():
+			return False
+		driver = browser.start_driver(account)
+	finally:
+		desktop_utils.switch_back_after_launch()
 
 	if driver is None:
 		return False
@@ -41,6 +47,10 @@ def run_account(account: accounts.Account) -> bool:
 
 def main() -> int:
 	log_utils.setup_logging()
+	desktop_utils.reset_virtual_desktop_state()
+
+	if desktop_utils.is_virtual_desktop_enabled() and not desktop_utils.is_windows():
+		logger.warning("USE_VIRTUAL_DESKTOP is enabled, but virtual desktops are only supported on Windows.")
 
 	try:
 		configured = accounts.configured()
@@ -79,6 +89,8 @@ def main() -> int:
 	# Nothing is watching a container, and stdin is not a terminal there.
 	if not HEADLESS:
 		input("Press Enter to exit...")
+
+	desktop_utils.cleanup_virtual_desktop()
 
 	return 0 if started else 1
 
