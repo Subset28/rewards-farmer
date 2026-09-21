@@ -2,7 +2,20 @@
 
 Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.be/4qdPcMNaioA).
 
-# Running Instructions
+## Table of Contents
+
+- [Core Setup & Running Instructions](#core-setup--running-instructions)
+	- [Where search queries come from](#where-search-queries-come-from)
+	- [Installing Dependencies](#installing-dependencies)
+	- [Profile Setup](#profile-setup)
+- [If Edge will not start](#if-edge-will-not-start)
+- [Running more than one account](#running-more-than-one-account)
+- [Docker](#docker)
+- [Logging](#logging)
+- [Windows Virtual Desktop (Windows only)](#windows-virtual-desktop-windows-only)
+
+
+## Core Setup & Running Instructions
 
 IMPORTANT: Use at your own risk. Microsoft may take action against your account for using automated scripts to gain rewards points. The YouTube video contains more details about the techniques implemented to avoid detection of this script.
 
@@ -19,7 +32,7 @@ cd rewards-farmer
 # Edit the included nouns.txt file to add or replace words as needed
 ```
 
-# Where search queries come from
+### Where search queries come from
 
 The bot needs short strings to type into Bing. Two backends produce them, set with `QUERY_SOURCE`:
 
@@ -56,6 +69,8 @@ If the configuration options are not provided, they default to `LLM_PROVIDER=loc
 
 You must also provide an image for the script to upload to complete the visual search task. A helper script is included at `src/random_image_for_visual_search.py` that will download an image from Wikipedia named `visual_search.jpg` into the project root for you. You may also provide an image of your own, just ensure that the absolute path of the image is placed in the `VISUAL_SEARCH_IMAGE_PATH` constant at the top of `rewards_tasks.py`.
 
+### Installing Dependencies
+
 Activate the virtual environment & install dependencies (you may have to use `python -m poetry` instead of `poetry`).
 You must have Python 3.12+ and Poetry installed.
 
@@ -77,6 +92,8 @@ eval $(poetry env activate)
 
 You must also have a [webdriver for Microsoft Edge](https://learn.microsoft.com/en-us/microsoft-edge/webdriver/?tabs=c-sharp) installed. If you already have the Edge Browser installed, you probably have this component as well.
 
+### Profile Setup
+
 The profile directory in `src/constants.py` is set to `Default`. If this signs you in to a global profile that you do not want to use for automation, then you can create a new profile from within the webdriver instance manually and then change the `PROFILE_NAME` constant to `Profile 1` (or the equivalent number).
 
 Run main.py (`python src/main.py`; paths are resolved from the repository, so it can be started from any directory), wait for the page to launch, and then CTRL-C to quit the application immediately. Sign in to the created profile with your Microsoft account on both Bing and `rewards.bing.com`.
@@ -85,7 +102,7 @@ EU Users: you may have to accept a consent banner once on `rewards.bing.com` and
 
 Close all webdriver browser instances. Run `main.py` again; the automation should start working.
 
-# If Edge will not start
+## If Edge will not start
 
 When the browser fails to start, the log names the likely cause from the driver's own message, and falls back to printing that message as is. Three optional environment variables help when it does not:
 
@@ -102,7 +119,7 @@ REWARDS_DRIVER_LOG=msedgedriver.log python src/main.py          # bash
 
 `src/check_selectors.py` starts Edge the same way and reads the same variables.
 
-# Running more than one account
+## Running more than one account
 
 Rewards is per Microsoft account and the browser profile holds the sign-in, so an account here is a profile directory. `REWARDS_ACCOUNTS` takes a comma separated list, and each name gets its own directory under `data-dir`:
 
@@ -118,7 +135,7 @@ msedge --user-data-dir="<repo>\data-dir\personal" --profile-directory=Default ht
 
 They run one after another, and an account that fails is reported and skipped rather than ending the run, whether it fails to start or dies partway through. Leave `REWARDS_ACCOUNTS` unset and everything behaves exactly as before, using the single profile in `data-dir`.
 
-# Docker
+## Docker
 
 Runs the bot without installing Edge, a driver or Python on the host.
 
@@ -165,7 +182,7 @@ REWARDS_ACCOUNTS=personal,spare docker compose run --rm rewards-farmer
 
 `REWARDS_HEADLESS=1` is set in the image. It also works on the host if you want a run with no visible window; the pointer code needs an explicit window size in that mode, which `main.py` sets.
 
-# Logging
+## Logging
 
 The script logs to the console. Two optional environment variables change that:
 
@@ -186,7 +203,7 @@ REWARDS_FARMER_LOG_LEVEL=DEBUG REWARDS_FARMER_LOG_FILE=run.log python src/main.p
 
 If you are opening an issue about a crash, running with `REWARDS_FARMER_LOG_LEVEL=DEBUG` and attaching the log is the most useful thing you can include.
 
-# Windows Virtual Desktop (Windows only)
+## Windows Virtual Desktop (Windows only)
 
 To run the browser on a separate Windows Virtual Desktop so searches run in the background without interrupting your current workspace:
 
