@@ -14,6 +14,7 @@ sys.path.insert(0, SRC)
 import desktop_utils
 
 
+@unittest.skipUnless(sys.platform.startswith("win"), "Skipped because OS is not Windows")
 class VirtualDesktopConfigTests(unittest.TestCase):
 	def setUp(self):
 		self.saved_env = {
@@ -152,11 +153,11 @@ class PlatformSafetyTests(unittest.TestCase):
 
 			# Switch back after launch
 			desktop_utils.switch_back_after_launch()
-			mock_left.assert_called_once()
+			self.assertEqual(mock_left.call_count, desktop_utils._hops_to_worker)
 
 			# Subsequent launch switches right
 			self.assertTrue(desktop_utils.prepare_desktop_before_launch())
-			mock_right.assert_called_once()
+			self.assertEqual(mock_right.call_count, desktop_utils._hops_to_worker)
 
 	@mock.patch("desktop_utils.is_windows", return_value=True)
 	@mock.patch("desktop_utils.create_virtual_desktop", return_value=False)
@@ -218,16 +219,16 @@ class PlatformSafetyTests(unittest.TestCase):
 			self.assertTrue(desktop_utils._on_worker_desktop)
 
 			desktop_utils.switch_back_after_launch()
-			mock_left.assert_called_once()
+			self.assertEqual(mock_left.call_count, desktop_utils._hops_to_worker)
 			self.assertFalse(desktop_utils._on_worker_desktop)
 
 			# Account 2
 			desktop_utils.prepare_desktop_before_launch()
-			mock_right.assert_called_once()
+			self.assertEqual(mock_right.call_count, desktop_utils._hops_to_worker)
 			self.assertTrue(desktop_utils._on_worker_desktop)
 
 			desktop_utils.switch_back_after_launch()
-			self.assertEqual(mock_left.call_count, 2)
+			self.assertEqual(mock_left.call_count, desktop_utils._hops_to_worker * 2)
 			self.assertFalse(desktop_utils._on_worker_desktop)
 
 	@mock.patch("desktop_utils.time.sleep")
