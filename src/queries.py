@@ -47,9 +47,11 @@ def search_query_for_task(task_description: str) -> str:
 		if query:
 			return query
 
-		# Every feed was unreachable. The description still contains the topic,
-		# so a trimmed version beats skipping the card entirely.
-		logger.warning("No query source reachable, using the lowercased task description.")
+		# Not a network failure: an unreachable autosuggest still returns the
+		# trimmed description. Nothing is left here only when the description was
+		# instruction words all the way down, which leaves the sentence itself as
+		# the last thing worth typing.
+		logger.warning("No searchable words in the task description, using it as written.")
 
 		return task_description.lower()
 
