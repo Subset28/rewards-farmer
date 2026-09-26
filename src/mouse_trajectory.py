@@ -9,6 +9,7 @@ import math
 import random
 import numpy as np
 from typing import Callable
+from browser import HEADLESS
 
 Point = tuple[int, int]
 
@@ -142,8 +143,9 @@ def get_path_with_transformed_velo(
 
 	return lambda t: bezier_path(logistic_sigmoid(t))
 
-FITTS_LAW_A = 0.5500
-FITTS_LAW_B = 0.1276
+# Measured from fitts_law.py against this user's own mouse (18 trials).
+FITTS_LAW_A = 0.4007
+FITTS_LAW_B = 0.1454
 
 def get_final_path_from_real_time(
 	movement_time: float,
@@ -227,11 +229,18 @@ class MouseUtils:
 	def __init__(self, driver: webdriver.Edge):
 		self.driver = driver
 		self.fallback_init_pos = (0, 0) # default fallback position if mouse position is not initialized
+		# Nothing renders the visual cursor on a headless NAS deployment, so
+		# painting it every animation frame is a CDP round-trip for no reason.
+		# Real position tracking (init_driver_with_mouse_tracking) stays on
+		# regardless, since move_to_element depends on it.
+		self.visualize_enabled = not HEADLESS
 		self.reinitialize()
 
 	def reinitialize(self):
 		self.init_driver_with_mouse_tracking()
-		self.init_driver_with_cursor_visualization()
+
+		if self.visualize_enabled:
+			self.init_driver_with_cursor_visualization()
 
 	def init_driver_with_mouse_tracking(self):
 		initial_pos = self.fallback_init_pos
@@ -285,7 +294,9 @@ class MouseUtils:
 
 		return (x, y)
 
-	def move_mouse(self, move_time: float, path_function: Callable[[float], Point], visualize: bool=True):
+	def move_mouse(self, move_time: float, path_function: Callable[[float], Point], visualize: bool | None=None):
+		if visualize is None:
+			visualize = self.visualize_enabled
 		start_time = time.monotonic()
 		end_time = start_time + move_time
 
@@ -377,7 +388,9 @@ class MouseUtils:
 
 			time.sleep(random.uniform(0.04, 0.12))
 
-	def move_to_element(self, element: WebElement, visualize: bool=True):
+	def move_to_element(self, element: WebElement, visualize: bool | None=None):
+		if visualize is None:
+			visualize = self.visualize_enabled
 		# The pointer is moved to viewport coordinates, so an element below the
 		# fold yields a target outside the window and the driver rejects the move
 		# with MoveTargetOutOfBoundsException. Bring it into view first, but only
