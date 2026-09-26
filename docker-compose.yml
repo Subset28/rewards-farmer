@@ -3,15 +3,35 @@
 #   docker compose run --rm --service-ports signin
 #   docker compose run --rm rewards-farmer
 #
+# For unattended daily runs at a varying time instead of one manual run, use
+# the scheduler service:
+#
+#   docker compose up -d scheduler
+#
 # See the Docker section of the README.
 
 services:
   rewards-farmer:
-    build: .
-    image: rewards-farmer
+    build:
+      context: .
+      target: runtime
+    # Distinct tag from signin's image on purpose: they are genuinely
+    # different images (runtime has no Xvfb/VNC stack), and sharing one tag
+    # would leave whichever was built last silently overwriting the other's
+    # tag on this NAS's Docker daemon.
+    image: rewards-farmer:runtime
     # Chromium wants more than the default 64MB of shared memory and crashes
     # partway through a page without it.
     shm_size: 1gb
+    # Keeps the bot from crowding out everything else running on the NAS.
+    # cpus is deliberately not set here: this NAS's kernel has no CFS quota
+    # controller ("NanoCPUs can not be set..."), so a cpus limit makes the
+    # container refuse to start at all rather than degrade gracefully.
+    # Memory uses a different cgroup controller and still works.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
     environment:
       # trends needs no account or model, which is why it is the default here.
       # To use a model instead, set QUERY_SOURCE=llm and give OLLAMA_HOST an
@@ -35,6 +55,41 @@ services:
       # exist yet is mounted as an empty directory rather than a file.
       - ./visual_search.jpg:/app/visual_search.jpg:ro
 
+  # Runs main.py once a day, unattended, at an anchor hour plus a random
+  # jitter (src/daily_loop.py) instead of the same wall-clock moment every
+  # day. Lives in the container rather than the NAS's own crontab so the
+  # schedule travels with this repo instead of being a manual edit to shared
+  # host state (/etc/crontab is also used by this NAS's other containers).
+  # restart: unless-stopped keeps it running across NAS reboots; the loop
+  # itself never exits on a purpose, so only a crash or `docker compose down`
+  # should stop it.
+  scheduler:
+    build:
+      context: .
+      target: runtime
+    image: rewards-farmer:runtime
+    shm_size: 1gb
+    restart: unless-stopped
+    command: ["python", "src/daily_loop.py"]
+    # See the rewards-farmer service above for why cpus is left unset.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+    environment:
+      QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      REWARDS_HEADLESS: "1"
+      REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Hour to anchor the run to, and how many seconds after that hour the
+      # actual start may be delayed by, both in TZ below rather than UTC.
+      REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
+      REWARDS_JITTER_SECONDS: ${REWARDS_JITTER_SECONDS:-10800}
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - ./data-dir:/app/data-dir
+      - ./visual_search.jpg:/app/visual_search.jpg:ro
+
   # One off, before the first run. Opens the Rewards sign-in in a browser
   # inside the container and puts that browser on your screen as a web page,
   # so the profile is written by the same Edge that will later read it.
@@ -51,17 +106,19 @@ services:
   # DPAPI or the login Keychain, and the container can unwrap neither, so the
   # profile arrives looking healthy and behaving as though it were logged out.
   signin:
-    build: .
-    image: rewards-farmer
+    build:
+      context: .
+      target: signin
+    image: rewards-farmer:signin
     shm_size: 1gb
     command: ["python", "src/signin.py"]
     environment:
       # One name. Signing in is one browser window, so one account at a time.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
     ports:
-      # 127.0.0.1 is the security boundary, not decoration: for as long as this
-      # is up the port shows a live Microsoft sign-in page. Publishing it on
-      # 0.0.0.0 would offer that to the whole network.
-      - "127.0.0.1:6080:6080"
+      # Bound to the NAS's LAN IP for this one-time sign-in (SSH tunneling is
+      # blocked by this NAS's sshd, AllowTcpForwarding no). Trusted home LAN
+      # only, same as this NAS's other containers (qbit, sonarr, radarr).
+      - "192.168.35.12:6080:6080"
     volumes:
       - ./data-dir:/app/data-dir

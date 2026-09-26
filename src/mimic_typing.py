@@ -3,12 +3,14 @@ from typing import Iterable
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 
+# Measured from recordpress.py + analyze_keypresses.py against this user's
+# own typing (267 keypress intervals, keypress_times.txt).
 FIRST_INTERVAL = (0.0, 0.1)
 SECOND_INTERVAL = (0.1, 0.2)
-THIRD_INTERVAL = (0.2, 0.4)
+THIRD_INTERVAL = (0.2, 0.7)
 
-FIRST_INTERVAL_PROBABILITY = 0.377
-SECOND_INTERVAL_PROBABILITY = 0.5492
+FIRST_INTERVAL_PROBABILITY = 0.5019
+SECOND_INTERVAL_PROBABILITY = 0.4195
 THIRD_INTERVAL_PROBABILITY = 1 - (FIRST_INTERVAL_PROBABILITY + SECOND_INTERVAL_PROBABILITY)
 
 class KeyboardUtils:
