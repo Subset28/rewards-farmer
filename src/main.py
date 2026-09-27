@@ -28,7 +28,10 @@ def run_account(account: accounts.Account) -> bool:
 
 	try:
 		rewards = rewards_tasks.RewardsTaskUtils(driver)
-		rewards.complete_all_tasks()
+		# Set when search_scheduler.py is running separately, so the once-a-day
+		# run does not redo what is already being spread across the day.
+		skip_searches = os.environ.get("REWARDS_SKIP_SEARCHES", "0") == "1"
+		rewards.complete_all_tasks(skip_searches=skip_searches)
 	finally:
 		try:
 			driver.quit()

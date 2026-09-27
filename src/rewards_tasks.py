@@ -466,7 +466,7 @@ class RewardsTaskUtils:
 		except TimeoutException:
 			logger.warning("Could not find the 'Claim Bonus Points' button. There are likely no bonus points to claim at this time.")
 
-	def complete_all_tasks(self):
+	def complete_all_tasks(self, skip_searches: bool = False):
 		# Each task is run independently. The Rewards UI differs by market and
 		# changes between deploys, so a task the current variant does not ship
 		# must not take the remaining ones down with it.
@@ -478,6 +478,13 @@ class RewardsTaskUtils:
 			("Required searches", self.complete_required_searches),
 			("Bonus points", self.claim_bonus_points),
 		)
+
+		if skip_searches:
+			# search_scheduler.py already spreads these across the day; redoing
+			# them here would just be complete_required_searches confirming
+			# quota is already met, which is a wasted page load, not a wasted
+			# search.
+			steps = tuple(step for step in steps if step[0] != "Required searches")
 
 		for name, step in steps:
 			# The tags stay in the message rather than being folded into the
