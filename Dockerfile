@@ -4,12 +4,12 @@
 #
 # Two stages, because only one of them ever runs unattended: `runtime` is
 # what scheduler/rewards-farmer actually use, every day, and carries only
-# what main.py reaches (selenium, numpy, Edge, its driver). `signin` extends
-# it with a GUI/VNC stack (Xvfb, x11vnc, noVNC) that exists solely for the
-# one-time interactive sign-in and has no business sitting in the image that
-# is idle 23+ hours a day on the NAS. pygetwindow, keyboard, matplotlib and
-# pygame are dev-only calibration tools and are never installed here at all,
-# two of them are Windows-only besides.
+# what main.py reaches (selenium, numpy, dotenv, requests, Edge, its driver).
+# `signin` extends it with a GUI/VNC stack (Xvfb, x11vnc, noVNC) that exists
+# solely for the one-time interactive sign-in and has no business sitting in
+# the image that is idle 23+ hours a day on the NAS. pygetwindow, keyboard,
+# matplotlib and pygame are dev-only calibration tools and are never
+# installed here at all, two of them are Windows-only besides.
 #
 # `RUN --mount=type=cache` keeps apt/pip downloads out of the image layers
 # (so they don't add to on-disk size) while still caching them across
@@ -53,8 +53,12 @@ RUN --mount=type=cache,target=/var/cache/edgedriver \
 
 WORKDIR /app
 
+# dotenv: main.py imports it unconditionally even though loading a .env file
+# is conditional. requests: llm_utils.py needs it under QUERY_SOURCE=llm,
+# which docker-compose.yml documents as a supported option even though
+# `trends` is the default -- so this can't wait until something reaches it.
 RUN --mount=type=cache,target=/root/.cache/pip \
-	pip install "selenium>=4.46.0,<5.0.0" "numpy"
+	pip install "selenium>=4.46.0,<5.0.0" "numpy" "python-dotenv" "requests"
 
 COPY src/ ./src/
 COPY nouns.txt ./

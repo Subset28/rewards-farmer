@@ -4,9 +4,10 @@
 #   docker compose run --rm rewards-farmer
 #
 # For unattended daily runs at a varying time instead of one manual run, use
-# the scheduler service:
+# the scheduler service, and search-scheduler to spread required searches
+# across the day instead of doing them all in the same daily run:
 #
-#   docker compose up -d scheduler
+#   docker compose up -d scheduler search-scheduler
 #
 # See the Docker section of the README.
 
@@ -85,6 +86,45 @@ services:
       # actual start may be delayed by, both in TZ below rather than UTC.
       REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
       REWARDS_JITTER_SECONDS: ${REWARDS_JITTER_SECONDS:-10800}
+      TZ: ${TZ:-America/New_York}
+      # search-scheduler below already spreads the required searches across
+      # the day; without this the once-a-day run would redo them in one batch
+      # right after the last spread-out run, undoing the point of spreading
+      # them at all.
+      REWARDS_SKIP_SEARCHES: "1"
+    volumes:
+      - ./data-dir:/app/data-dir
+      - ./visual_search.jpg:/app/visual_search.jpg:ro
+
+  # Runs src/search_only.py (required searches only) a handful of times a day
+  # at random points within waking hours (src/search_scheduler.py), rather
+  # than all 25 in one sitting the way the once-a-day `scheduler` run above
+  # would. Separate from `scheduler` because the daily set/explore/misc/bonus
+  # tasks above genuinely only make sense once a day, while search timing is
+  # what most obviously reads as bot-like when batched.
+  search-scheduler:
+    build:
+      context: .
+      target: runtime
+    image: rewards-farmer:runtime
+    shm_size: 1gb
+    restart: unless-stopped
+    command: ["python", "src/search_scheduler.py"]
+    # See the rewards-farmer service above for why cpus is left unset.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+    environment:
+      QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      REWARDS_HEADLESS: "1"
+      REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # How many times a day to run, and the waking-hours window (in TZ below)
+      # they are randomly placed within.
+      REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
+      REWARDS_SEARCH_START_HOUR: ${REWARDS_SEARCH_START_HOUR:-8}
+      REWARDS_SEARCH_END_HOUR: ${REWARDS_SEARCH_END_HOUR:-23}
       TZ: ${TZ:-America/New_York}
     volumes:
       - ./data-dir:/app/data-dir

@@ -14,8 +14,8 @@ HEADLESS = browser.HEADLESS
 logger = logging.getLogger(__name__)
 
 
-def run_account(account: accounts.Account) -> bool:
-	"""Work one account. Returns whether the browser started."""
+def run_account_searches(account: accounts.Account) -> bool:
+	"""Run searches only for one account. Returns whether the browser started."""
 	try:
 		if not desktop_utils.prepare_desktop_before_launch():
 			return False
@@ -28,17 +28,19 @@ def run_account(account: accounts.Account) -> bool:
 
 	try:
 		rewards = rewards_tasks.RewardsTaskUtils(driver)
-		# Set when search_scheduler.py is running separately, so the once-a-day
-		# run does not redo what is already being spread across the day.
-		skip_searches = os.environ.get("REWARDS_SKIP_SEARCHES", "0") == "1"
-		rewards.complete_all_tasks(skip_searches=skip_searches)
+		rewards.complete_required_searches()
+		logger.info("[OK] Required searches")
+	except Exception as exc:
+		tag, reason = rewards_tasks.task_failure_report(exc)
+		logger.log(
+			logging.WARNING if tag == "SKIP" else logging.ERROR,
+			"[%s] Required searches: %s", tag, reason,
+			exc_info=logger.isEnabledFor(logging.DEBUG)
+		)
 	finally:
 		try:
 			driver.quit()
 		except Exception as exc:
-			# quit() raises when the browser is already gone. Letting it out
-			# here would replace whatever actually went wrong with the tidy-up's
-			# own error, and the process it is meant to end is dead anyway.
 			logger.warning(
 				"%s: the driver did not shut down cleanly: %s",
 				account.name,
@@ -59,7 +61,6 @@ def main() -> int:
 		configured = accounts.configured()
 	except ValueError as exc:
 		logger.error("[FAIL] %s", exc)
-
 		return 2
 
 	started = 0
@@ -68,14 +69,8 @@ def main() -> int:
 		if len(configured) > 1:
 			logger.info("=== account: %s ===", account.name)
 
-		# One account must not be able to end the batch. complete_all_tasks
-		# already contains a task that fails, and run_account names the profile
-		# that is already open, but everything else - a driver that will not
-		# start for some other reason, the browser dying mid-run, a page that
-		# never loads - reached here and took the remaining accounts with it.
-		# KeyboardInterrupt is deliberately not caught: Ctrl-C means stop.
 		try:
-			if run_account(account):
+			if run_account_searches(account):
 				started += 1
 		except Exception as exc:
 			logger.error(
@@ -87,9 +82,8 @@ def main() -> int:
 			)
 
 	if len(configured) > 1:
-		logger.info("%s/%s accounts ran", started, len(configured))
+		logger.info("%s/%s accounts ran searches", started, len(configured))
 
-	# Nothing is watching a container, and stdin is not a terminal there.
 	if not HEADLESS:
 		input("Press Enter to exit...")
 
