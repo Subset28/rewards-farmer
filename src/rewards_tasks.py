@@ -9,12 +9,13 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException, WebDriverException
 import tab_utils
 import queries
 import mouse_trajectory
 import mimic_typing
 import element_selectors
+import search_behavior
 
 from constants import REPO_ROOT
 
@@ -243,7 +244,7 @@ class RewardsTaskUtils:
 
 			# search bar should be auto-focused
 
-			self.keyboard.send_keys(f"{query} -noai{Keys.ENTER}")
+			self.keyboard.send_keys(f"{query}{Keys.ENTER}")
 
 			time.sleep(random.uniform(2, 3))
 
@@ -318,7 +319,16 @@ class RewardsTaskUtils:
 
 		self.mouse.wheel_scroll_to_top()
 
-	def complete_required_searches(self, max_rounds: int = 6):
+	# Searches in the first round, before the points per search are known.
+	PROBE_SEARCHES = 3
+
+	def complete_required_searches(self, max_rounds: int = 6, max_searches: int | None = None):
+		"""Search until the daily quota is filled, or `max_searches` have been made.
+
+		`max_searches` is for a run that is one of several spread across the day:
+		it stops there and leaves the rest for the next one, instead of clearing
+		the whole quota in one sitting.
+		"""
 		# Points per search are not fixed. Some markets award 3 rather than 5,
 		# the daily maximum itself changes (observed 15, 30 and 60 on the same
 		# account within one day, with the counter resetting), and daily set and
@@ -329,12 +339,24 @@ class RewardsTaskUtils:
 
 		logger.info("Search points before: %s/%s", points_earned, max_pts)
 
+		# The lowest rate seen, used only to size the first round. Sizing every
+		# round on it made 15 searches out of a 50 point quota that 10 fill at
+		# 5 points each: five extra, on a loop whose worst tell is volume.
+		points_per_search = 3.0
+		budget = max_searches
+
 		for round_number in range(1, max_rounds + 1):
-			if points_earned >= max_pts:
+			if points_earned >= max_pts or (budget is not None and budget <= 0):
 				break
 
-			# Assume the lower known rate so a round never overshoots by much.
-			searches = max(1, (max_pts - points_earned) // 3)
+			searches = search_behavior.searches_needed(max_pts - points_earned, points_per_search)
+
+			if round_number == 1:
+				searches = min(searches, self.PROBE_SEARCHES)
+
+			if budget is not None:
+				searches = min(searches, budget)
+				budget -= searches
 
 			self.run_search_batch(searches)
 
@@ -346,14 +368,26 @@ class RewardsTaskUtils:
 				round_number, searches, points_earned, max_pts
 			)
 
-			if points_earned <= previous:
-				logger.warning("Round produced no points, stopping instead of searching pointlessly.")
+			if points_earned <= previous and points_earned < max_pts:
+				logger.warning(
+					"Searches earned no points. The account may be restricted, or the "
+					"searches are not being counted. Stopping instead of searching "
+					"pointlessly; check the Rewards page."
+				)
 				break
 
-		if points_earned < max_pts:
-			logger.warning("Search quota not filled: %s/%s", points_earned, max_pts)
-		else:
+			points_per_search = (points_earned - previous) / searches
+
+		if points_earned >= max_pts:
 			logger.info("Search quota complete: %s/%s", points_earned, max_pts)
+		elif budget is not None and budget <= 0:
+			logger.info(
+				"Search run stopped at its limit of %s searches, %s/%s so far. "
+				"A later run continues.",
+				max_searches, points_earned, max_pts
+			)
+		else:
+			logger.warning("Search quota not filled: %s/%s", points_earned, max_pts)
 
 	def read_search_points(self):
 		"""Open the points breakdown, read the Bing search row, close it again."""
@@ -382,31 +416,66 @@ class RewardsTaskUtils:
 
 		return points_earned, max_pts
 
+	# Chance that a search is followed by a look at another results tab, and, if
+	# it is not, by reading down the results.
+	RESULTS_TAB_RATE = 0.2
+	RESULTS_SCROLL_RATE = 0.75
+
 	def run_search_batch(self, count: int):
-		self.driver.get("https://www.bing.com/")
-		self.tab_utils.ensure_focus()
-
-		self.wait_for_element(self.elements.get_bing_search_bar)
-
-		# search bar should be auto-focused
+		breaks = search_behavior.CoffeeBreaks()
 
 		for i, query in enumerate(
 			queries.related_queries(count)
 		):
-			self.keyboard.send_keys(f"{query} -noai{Keys.ENTER}")
+			# A fresh homepage for every search, the way a person starts one, in
+			# place of typing the next query into the results page's box. The
+			# search bar is auto-focused on arrival.
+			self.driver.get("https://www.bing.com/")
+			self.tab_utils.ensure_focus()
 
-			time.sleep(random.uniform(5.5, 7.5))
+			self.wait_for_element(self.elements.get_bing_search_bar)
 
-			try: self.wait_for_then_click(self.elements.get_clear_bing_search_query_button)
-			except StaleElementReferenceException:
-				logger.warning(
-					"StaleElementReferenceException when trying to click the clear button for query %s. Trying again...",
-					i + 1
-				)
-				self.wait_for_then_click(self.elements.get_clear_bing_search_query_button)
+			time.sleep(random.uniform(2.5, 5.5))
+
+			pause = breaks.before_search()
+
+			if pause:
+				logger.info("Pausing %.0fs between searches.", pause)
+				time.sleep(pause)
+
+			# No operator on the query: an identical suffix on every search is
+			# something no person does.
+			self.keyboard.send_keys(f"{search_behavior.with_typo(query)}{Keys.ENTER}")
+
+			time.sleep(random.uniform(2, 4))
+
+			self.browse_results()
+
+			time.sleep(random.uniform(2, 4))
 
 		self.driver.get(REWARDS_HOME_URL)
 		self.tab_utils.ensure_focus()
+
+	def browse_results(self):
+		"""Look at the results the way a person would: sometimes another tab, sometimes a scroll.
+
+		Best effort. Nothing here earns anything, so a control that is not where
+		it was expected is skipped, not an error.
+		"""
+		try:
+			if random.random() < self.RESULTS_TAB_RATE:
+				tab = random.choices(("images", "videos", "news"), weights=(4, 2, 4))[0]
+
+				self.move_to_and_click(self.elements.get_search_results_tab(tab))
+
+				time.sleep(random.uniform(3, 6))
+			elif random.random() < self.RESULTS_SCROLL_RATE:
+				self.mouse.wheel_scroll_read()
+		except WebDriverException as exc:
+			# Wide on purpose: a click that is intercepted or a target that is off
+			# screen is as skippable as a missing control. A browser that has died
+			# is not hidden by this, the next navigation raises it.
+			logger.debug("Skipped looking at the results: %s", log_utils.exception_summary(exc))
 
 	def restore_main_tab(self):
 		"""Close the stray tabs, keeping the one the tasks work in.

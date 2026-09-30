@@ -1,6 +1,7 @@
 from constants import DOTENV_PATH
 import logging
 import os
+import random
 import sys
 import dotenv
 import log_utils
@@ -12,6 +13,24 @@ import rewards_tasks
 HEADLESS = browser.HEADLESS
 
 logger = logging.getLogger(__name__)
+
+
+def searches_this_run() -> int:
+	"""How many searches this run may make, from REWARDS_SEARCHES_PER_RUN ("5-8").
+
+	A run is one of several across the day, so it stops at a handful and leaves
+	the rest of the quota for the next one. A malformed value falls back to the
+	default rather than stopping the run over a typo.
+	"""
+	raw = os.environ.get("REWARDS_SEARCHES_PER_RUN", "5-8")
+
+	try:
+		low, high = (int(part) for part in raw.split("-"))
+		return random.randint(min(low, high), max(low, high))
+	except ValueError:
+		logger.warning("REWARDS_SEARCHES_PER_RUN=%r is not like '5-8', using 5-8.", raw)
+
+		return random.randint(5, 8)
 
 
 def run_account_searches(account: accounts.Account) -> bool:
@@ -28,7 +47,7 @@ def run_account_searches(account: accounts.Account) -> bool:
 
 	try:
 		rewards = rewards_tasks.RewardsTaskUtils(driver)
-		rewards.complete_required_searches()
+		rewards.complete_required_searches(max_searches=searches_this_run())
 		logger.info("[OK] Required searches")
 	except Exception as exc:
 		tag, reason = rewards_tasks.task_failure_report(exc)
