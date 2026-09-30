@@ -60,10 +60,26 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/pip \
 	pip install "selenium>=4.46.0,<5.0.0" "numpy" "python-dotenv" "requests"
 
+# A virtual display for Edge to run headed on (with-xvfb, in docker-compose.yml)
+# rather than --headless=new, which Microsoft does not credit the Explore on
+# Bing cards to. Its own layer, after everything slow, so adding or changing
+# it does not redo the Edge install above.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	--mount=type=cache,target=/var/lib/apt,sharing=locked \
+	apt-get update \
+	&& apt-get install -y --no-install-recommends xvfb xauth
+
 COPY src/ ./src/
 COPY nouns.txt ./
 
-# Headless because there is no display, and trends because there is no model.
+# The carriage return strip is for a checkout on Windows, where git may have
+# rewritten the script's line endings and left `#!/bin/sh\r` unrunnable.
+COPY with-xvfb.sh /usr/local/bin/with-xvfb
+RUN sed -i 's/\r$//' /usr/local/bin/with-xvfb && chmod +x /usr/local/bin/with-xvfb
+
+# Unattended (no prompt at exit, no cursor overlay) and trends because there is
+# no model. The browser itself is headless unless REWARDS_VIRTUAL_DISPLAY is
+# set and the process is run under with-xvfb, which the compose services do.
 ENV REWARDS_HEADLESS=1 \
 	QUERY_SOURCE=trends \
 	PYTHONUNBUFFERED=1

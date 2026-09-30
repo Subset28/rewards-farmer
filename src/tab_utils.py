@@ -4,10 +4,15 @@ from selenium import webdriver
 
 logger = logging.getLogger(__name__)
 
-GHOST_TAB_URLS = (
-	"https://ntp.msn.com/edge/ntp?locale=en-US&title=New%20tab&fre=1&dsp=1&sp=Bing&feed_dis=always&en_widget_reg=false&prerender=1&PC=U531", # has fre
-	"https://ntp.msn.com/edge/ntp?locale=en-US&title=New%20tab&dsp=1&sp=Bing&feed_dis=always&en_widget_reg=false&prerender=1&PC=U531" # no fre
-)
+# The query string on Edge's startup New tab page varies (feed_dis was seen as
+# always, off and peek, with and without fre), so match the page, not one
+# spelling of its URL. An exact match missed peek, and the page was then taken
+# for the tab a card had just opened.
+GHOST_TAB_PREFIX = "https://ntp.msn.com/edge/ntp"
+
+
+def is_ghost_tab(url: str) -> bool:
+	return url.startswith(GHOST_TAB_PREFIX)
 
 class TabUtils:
 	def __init__(self, driver: webdriver.Edge):
@@ -32,7 +37,7 @@ document.dispatchEvent(new Event('visibilitychange'));
 			if handle != current_window and handle not in self.problematic_tabs:
 				self.driver.switch_to.window(handle)
 
-				if self.driver.current_url in GHOST_TAB_URLS:
+				if is_ghost_tab(self.driver.current_url):
 					logger.debug("Found ghost tab with handle %s and URL %s.", handle, self.driver.current_url)
 					continue
 
@@ -55,7 +60,7 @@ document.dispatchEvent(new Event('visibilitychange'));
 				try:
 					self.driver.switch_to.window(handle)
 
-					if self.driver.current_url in GHOST_TAB_URLS:
+					if is_ghost_tab(self.driver.current_url):
 						logger.debug("Found ghost tab with handle %s and URL %s, not closing.", handle, self.driver.current_url)
 						continue
 
