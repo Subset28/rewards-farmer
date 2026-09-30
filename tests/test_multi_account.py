@@ -249,7 +249,7 @@ class TestFailureIsolation(RunLoopTestCase):
 				if driver.name == "two" and fail_at == "connect":
 					raise exc
 
-			def complete_all_tasks(self):
+			def complete_all_tasks(self, skip_searches=False):
 				if self.driver.name == "two" and fail_at == "tasks":
 					raise exc
 
