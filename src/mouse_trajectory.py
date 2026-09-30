@@ -368,6 +368,22 @@ class MouseUtils:
 
 			time.sleep(random.uniform(0.04, 0.12))
 
+	def wheel_scroll_read(self, max_steps: int = 6):
+		"""Scroll down a page in a few uneven wheel steps, as if reading it.
+
+		Sometimes ends with a short scroll back up. Not aimed at anything: it is
+		just what a person does with a page of results before moving on.
+		"""
+		for _ in range(random.randint(2, max_steps)):
+			ActionChains(self.driver).scroll_by_amount(0, random.randint(180, 420)).perform()
+
+			time.sleep(random.uniform(0.5, 1.8))
+
+		if random.random() < 0.3:
+			ActionChains(self.driver).scroll_by_amount(0, -random.randint(100, 300)).perform()
+
+			time.sleep(random.uniform(0.4, 1.2))
+
 	def wheel_scroll_to_top(self, max_wheel_events: int = 80):
 		"""Scroll back to the top of the page with simulated wheel input.
 

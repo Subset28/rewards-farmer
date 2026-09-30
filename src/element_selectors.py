@@ -448,3 +448,15 @@ return (
 
 	def get_clear_bing_search_query_button(self):
 		return self.driver.find_element(By.ID, "sw_clx")
+
+	# The ids Bing gives the scope tabs of a results page, read off a live one.
+	# Videos is "video" there, which is easy to get wrong.
+	SEARCH_TAB_IDS = {
+		"images": "b-scopeListItem-images",
+		"videos": "b-scopeListItem-video",
+		"news": "b-scopeListItem-news",
+	}
+
+	def get_search_results_tab(self, name: str) -> WebElement:
+		"""The link of the Images, Videos or News tab on a results page."""
+		return self.driver.find_element(By.CSS_SELECTOR, f"#{self.SEARCH_TAB_IDS[name]} a")
