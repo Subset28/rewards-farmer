@@ -303,6 +303,16 @@ class RewardsTaskUtils:
 				if not self.elements.card_is_complete(card) and self.elements.get_card_point_value(card) > 0:
 					self.move_to_and_click(card)
 					time.sleep(random.uniform(1, 2))
+
+					# Look at the page the card opened before closing it. Closed
+					# after a second or two without ever being focused, two +15
+					# Silver cards stayed uncredited; opened the same way, brought
+					# to the front, and left for a few seconds, both completed in
+					# a supervised run. A card that opens in the same tab has no
+					# other tab to switch to, which switch_to_other_tab allows.
+					self.tab_utils.switch_to_other_tab()
+					time.sleep(random.uniform(3, 6))
+
 					self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 			except Exception as exc:
 				logger.warning("Misc Card [%d] interaction failed: %s", index, exc)
