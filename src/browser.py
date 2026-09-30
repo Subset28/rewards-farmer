@@ -12,6 +12,7 @@ from selenium.common.exceptions import NoSuchDriverException, WebDriverException
 
 import accounts
 import log_utils
+import mobile_emulation
 
 HEADLESS = os.environ.get("REWARDS_HEADLESS", "").strip().lower() in ("1", "true", "yes")
 
@@ -159,11 +160,27 @@ def hide_driver_markers(driver, account_name: str) -> None:
 			)
 
 
-def start_driver(account: accounts.Account):
-	"""An Edge driver for the account, or None after logging why it failed."""
+def start_driver(account: accounts.Account, mobile: bool = False):
+	"""An Edge driver for the account, or None after logging why it failed.
+
+	`mobile` presents the browser as the account's phone (mobile_emulation). If
+	that cannot be completed the driver is shut down and the error is raised: a
+	half-emulated phone is easier to spot than either kind of browser.
+	"""
 	try:
 		driver = webdriver.Edge(options=build_options(account), service=build_service())
 		hide_driver_markers(driver, account.name)
+
+		if mobile:
+			try:
+				mobile_emulation.apply(driver, mobile_emulation.device_for(account.name))
+			except mobile_emulation.MobileEmulationError:
+				try:
+					driver.quit()
+				except Exception:
+					pass
+
+				raise
 
 		return driver
 	except WebDriverException as exc:
