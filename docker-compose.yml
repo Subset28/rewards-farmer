@@ -43,10 +43,15 @@ services:
       #   QUERY_SOURCE=llm OLLAMA_HOST=host.docker.internal:11434 docker compose run --rm rewards-farmer
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
       REWARDS_HEADLESS: "1"
+      # Edge runs headed on the virtual display with-xvfb provides (see command
+      # below) rather than headless: headless Edge is not credited for the
+      # Explore on Bing cards. The scheduler services do the same.
+      REWARDS_VIRTUAL_DISPLAY: "1"
       # Comma separated, one profile directory each. Leave unset for a single
       # profile in data-dir, which is the existing behaviour.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+    command: ["with-xvfb", "python", "src/main.py"]
     volumes:
       # Keeps the sign-in across container rebuilds.
       - ./data-dir:/app/data-dir
@@ -71,7 +76,7 @@ services:
     image: rewards-farmer:runtime
     shm_size: 1gb
     restart: unless-stopped
-    command: ["python", "src/daily_loop.py"]
+    command: ["with-xvfb", "python", "src/daily_loop.py"]
     # See the rewards-farmer service above for why cpus is left unset.
     deploy:
       resources:
@@ -80,6 +85,7 @@ services:
     environment:
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
       REWARDS_HEADLESS: "1"
+      REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
       # Hour to anchor the run to, and how many seconds after that hour the
@@ -109,7 +115,7 @@ services:
     image: rewards-farmer:runtime
     shm_size: 1gb
     restart: unless-stopped
-    command: ["python", "src/search_scheduler.py"]
+    command: ["with-xvfb", "python", "src/search_scheduler.py"]
     # See the rewards-farmer service above for why cpus is left unset.
     deploy:
       resources:
@@ -118,6 +124,7 @@ services:
     environment:
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
       REWARDS_HEADLESS: "1"
+      REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
       # How many times a day to run, and the waking-hours window (in TZ below)
