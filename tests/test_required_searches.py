@@ -120,6 +120,8 @@ class Browsing:
 		self.elements.get_search_results_tab.side_effect = self._tab
 		self.mouse = mock.Mock()
 		self.mouse.wheel_scroll_read.side_effect = self._scroll
+		self.driver = mock.Mock(current_window_handle="main", window_handles=["main", "extra"])
+		self.tab_utils = mock.Mock()
 
 	def _tab(self, name):
 		self.tabs_asked.append(name)
@@ -166,6 +168,25 @@ class TestBrowseResults(unittest.TestCase):
 			page.browse_results()
 
 		self.assertEqual((page.clicked, page.scrolled), (0, 0))
+
+	def test_a_results_tab_is_followed_then_closed_and_the_main_tab_restored(self):
+		page = Browsing()
+
+		with mock.patch.object(rewards_tasks.random, "random", return_value=0.05):
+			page.browse_results()
+
+		page.tab_utils.switch_to_other_tab.assert_called_once()
+		page.tab_utils.close_all_other_tabs.assert_called_once_with(exceptions=["main"])
+		page.driver.switch_to.window.assert_called_with("main")
+
+	def test_a_failed_click_still_leaves_one_tab_and_the_main_one_in_front(self):
+		page = Browsing(click_error=ElementClickInterceptedException("covered"))
+
+		with mock.patch.object(rewards_tasks.random, "random", return_value=0.05):
+			page.browse_results()
+
+		page.tab_utils.close_all_other_tabs.assert_called_once_with(exceptions=["main"])
+		page.driver.switch_to.window.assert_called_with("main")
 
 	def test_a_missing_tab_is_skipped_not_an_error(self):
 		page = Browsing(tab_error=NoSuchElementException("no tab"))
