@@ -5,13 +5,14 @@
 
 import os
 import sys
+import types
 import unittest
 from unittest import mock
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
 sys.path.insert(0, SRC)
 
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, WebDriverException
 from selenium.webdriver.common.by import By
 
 import element_selectors
@@ -287,6 +288,62 @@ class TestResultsTabSelector(unittest.TestCase):
 		):
 			selectors.get_search_results_tab(name)
 			driver.find_element.assert_called_with(By.CSS_SELECTOR, expected)
+
+
+class ReadPoints:
+	read_search_points = Tasks.read_search_points
+
+	def __init__(self, results):
+		self.results = list(results)
+		self.events = []
+		self.driver = types.SimpleNamespace(
+			current_url="https://rewards.bing.com/earn",
+			get=lambda url: self.events.append(("get", url)),
+		)
+		self.tab_utils = types.SimpleNamespace(ensure_focus=lambda: self.events.append(("focus",)))
+
+	def _read_search_points_once(self):
+		self.events.append(("read",))
+		result = self.results.pop(0)
+
+		if isinstance(result, Exception):
+			raise result
+
+		return result
+
+
+@mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
+class TestReadSearchPoints(unittest.TestCase):
+	def test_a_breakdown_that_appears_is_read_once(self):
+		page = ReadPoints([(15, 50)])
+
+		self.assertEqual(page.read_search_points(), (15, 50))
+		self.assertEqual(page.events, [("read",)])
+
+	def test_a_breakdown_that_never_appeared_is_retried_after_a_reload(self):
+		page = ReadPoints([rewards_tasks.ElementNeverAppeared("no button"), (35, 50)])
+
+		with self.assertLogs(rewards_tasks.logger, level="WARNING") as logs:
+			self.assertEqual(page.read_search_points(), (35, 50))
+
+		self.assertEqual([e[0] for e in page.events], ["read", "get", "focus", "read"])
+		self.assertIn("rewards.bing.com/earn", logs.output[0])
+
+	def test_it_gives_up_after_one_retry(self):
+		page = ReadPoints([rewards_tasks.ElementNeverAppeared("a"), rewards_tasks.ElementNeverAppeared("b")])
+
+		with self.assertLogs(rewards_tasks.logger, level="WARNING"), self.assertRaises(rewards_tasks.ElementNeverAppeared):
+			page.read_search_points()
+
+		self.assertEqual([e[0] for e in page.events].count("read"), 2)
+
+	def test_other_failures_are_not_retried(self):
+		page = ReadPoints([WebDriverException("chrome not reachable")])
+
+		with self.assertRaises(WebDriverException):
+			page.read_search_points()
+
+		self.assertEqual(page.events, [("read",)])
 
 
 if __name__ == "__main__":

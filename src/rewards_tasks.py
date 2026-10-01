@@ -358,7 +358,7 @@ class RewardsTaskUtils:
 
 		listed = [
 			(card.get_dom_attribute("href") or "", card.text)
-			for card in self.elements.get_quest_links()
+			for card in self.wait_for_element(self.elements.get_quest_links)
 		]
 		wanted = [href for href, text in listed if quests.wants_quest(href, text)]
 
@@ -378,8 +378,11 @@ class RewardsTaskUtils:
 
 	def work_quest(self, href: str, main_tab: str):
 		"""Open one quest and do its plain-link tasks, one at a time."""
+		# The earn page re-renders after it loads and the quests section briefly
+		# disappears (a bare lookup right after listing it failed in a supervised
+		# run), so wait for it, as the other tasks wait for their sections.
 		card = next(
-			(c for c in self.elements.get_quest_links() if (c.get_dom_attribute("href") or "") == href),
+			(c for c in self.wait_for_element(self.elements.get_quest_links) if (c.get_dom_attribute("href") or "") == href),
 			None,
 		)
 
@@ -594,7 +597,27 @@ class RewardsTaskUtils:
 			logger.warning("Search quota not filled: %s/%s", points_earned, max_pts)
 
 	def read_search_points(self):
-		"""Open the points breakdown, read the Bing search row, close it again."""
+		"""Open the points breakdown, read the Bing search row, close it again.
+
+		The breakdown button intermittently never appears (two scheduled runs
+		on 1 Oct gave up on it, with the quota untouched). Reload the Rewards
+		page and try once more before giving up, and say which page it was.
+		"""
+		try:
+			return self._read_search_points_once()
+		except ElementNeverAppeared:
+			logger.warning(
+				"The points breakdown did not appear (page: %s). Reloading and trying once more.",
+				(self.driver.current_url or "")[:90],
+			)
+
+			self.driver.get(REWARDS_HOME_URL)
+			self.tab_utils.ensure_focus()
+			time.sleep(random.uniform(4, 7))
+
+			return self._read_search_points_once()
+
+	def _read_search_points_once(self):
 		self.switch_to_earn_page()
 
 		# 30s rather than the default 10s: this runs after the earlier tasks have
