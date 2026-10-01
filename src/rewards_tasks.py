@@ -19,6 +19,7 @@ import search_behavior
 import safety
 import notify
 import points_log
+import quests
 
 from constants import REPO_ROOT
 
@@ -159,6 +160,22 @@ class RewardsTaskUtils:
 	def brake_if_risky(self):
 		"""Stop the run, and every later one, if the page needs a human."""
 		safety.guard(self.driver, self.account_name)
+
+	def today_points(self) -> int | None:
+		"""Today's points from the breakdown panel, or None when it cannot be read.
+
+		Never raises for an unreadable panel: this is a measurement, and a task
+		must not fail because it could not be taken. A page that needs a human
+		is the brake's business and still stops the run.
+		"""
+		try:
+			return self.read_points_summary().get("today")
+		except safety.AccountAtRisk:
+			raise
+		except Exception as exc:
+			logger.debug("Could not read today's points: %s", log_utils.exception_summary(exc))
+
+			return None
 
 	def read_points_summary(self) -> dict[str, int]:
 		"""Today, month and lifetime points from the breakdown panel."""
@@ -324,6 +341,105 @@ class RewardsTaskUtils:
 				"Explore on Bing Card [desc=%r] is not complete after searching. Please check manually.",
 				desc
 			)
+
+	# Quests per run and tasks per quest. A quest hands out its tasks a few at a
+	# time, so a small bound covers what is available without chasing more.
+	MAX_QUESTS = 4
+	MAX_QUEST_TASKS = 5
+
+	def complete_quests(self):
+		"""Do the plain-link tasks of the quests on the earn page.
+
+		Quests that need Spotify, the phone app or the Windows taskbar are left
+		alone, as is any task link that is not a Bing or Rewards page.
+		"""
+		self.switch_to_earn_page()
+		main_tab = self.driver.current_window_handle
+
+		listed = [
+			(card.get_dom_attribute("href") or "", card.text)
+			for card in self.elements.get_quest_links()
+		]
+		wanted = [href for href, text in listed if quests.wants_quest(href, text)]
+
+		if not wanted:
+			raise NoSuchElementException("no quests to do in this UI variant")
+
+		for href in wanted[:self.MAX_QUESTS]:
+			try:
+				self.work_quest(href, main_tab)
+			except safety.AccountAtRisk:
+				raise
+			except Exception as exc:
+				logger.warning("Quest %s: %s", href.rsplit("/", 1)[-1], log_utils.exception_summary(exc))
+
+			self.restore_main_tab()
+			self.switch_to_earn_page()
+
+	def work_quest(self, href: str, main_tab: str):
+		"""Open one quest and do its plain-link tasks, one at a time."""
+		card = next(
+			(c for c in self.elements.get_quest_links() if (c.get_dom_attribute("href") or "") == href),
+			None,
+		)
+
+		if card is None:
+			return
+
+		self.mouse.wheel_scroll_element_into_view(card)
+		self.move_to_and_click(card)
+		time.sleep(random.uniform(3, 5))
+
+		quest_url = self.driver.current_url
+		tried: set[str] = set()
+
+		for _ in range(self.MAX_QUEST_TASKS):
+			links = [
+				(link.get_dom_attribute("href") or "", link.text or "")
+				for link in self.elements.get_quest_page_links()
+			]
+			task = quests.pick_task(links, tried)
+
+			if task is None:
+				break
+
+			task_href, task_text = task
+			tried.add(task_href)
+			logger.info("Quest task: %r (%s)", task_text.strip()[:40], task_href[:60])
+
+			link = next(
+				(l for l in self.elements.get_quest_page_links() if (l.get_dom_attribute("href") or "") == task_href),
+				None,
+			)
+
+			if link is None:
+				continue
+
+			self.mouse.wheel_scroll_element_into_view(link)
+			self.move_to_and_click(link)
+			time.sleep(random.uniform(2, 3))
+
+			opened_elsewhere = len(self.driver.window_handles) > 1
+
+			if opened_elsewhere:
+				self.tab_utils.switch_to_other_tab()
+
+			# Look at what the task opened before leaving it, as for the cards.
+			time.sleep(random.uniform(3, 6))
+
+			try:
+				self.mouse.wheel_scroll_read(max_steps=3)
+			except WebDriverException as exc:
+				logger.debug("Skipped scrolling the quest page: %s", log_utils.exception_summary(exc))
+
+			if opened_elsewhere:
+				self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
+				self.driver.switch_to.window(main_tab)
+			else:
+				self.driver.get(quest_url)
+				self.tab_utils.ensure_focus()
+
+			time.sleep(random.uniform(2, 3))
 
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
@@ -648,6 +764,8 @@ class RewardsTaskUtils:
 			("Misc cards", self.complete_misc_cards),
 			("Required searches", self.complete_required_searches),
 			("Bonus points", self.claim_bonus_points),
+			# Last, so a quest that stalls the browser costs nothing else.
+			("Quests", self.complete_quests),
 		)
 
 		if skip_searches:
@@ -658,6 +776,13 @@ class RewardsTaskUtils:
 			steps = tuple(step for step in steps if step[0] != "Required searches")
 
 		self.brake_if_risky()
+
+		# Today's points before and after each task, so a log line says what a
+		# task paid. Credit lags a little, so a figure can land on the next
+		# task's line; the run's total is exact. REWARDS_TASK_POINTS=0 turns it
+		# off, since it opens the breakdown panel after every task.
+		track_points = os.environ.get("REWARDS_TASK_POINTS", "1") != "0"
+		last_points = self.today_points() if track_points else None
 
 		for name, step in steps:
 			# The tags stay in the message rather than being folded into the
@@ -690,3 +815,12 @@ class RewardsTaskUtils:
 
 			if not completed:
 				self.return_to_rewards_home()
+
+			if track_points:
+				now = self.today_points()
+
+				if last_points is not None and now is not None:
+					logger.info("[POINTS] %s: %+d (today %d)", name, now - last_points, now)
+
+				if now is not None:
+					last_points = now
