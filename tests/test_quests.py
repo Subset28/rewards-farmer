@@ -157,6 +157,9 @@ class QuestPage:
 			ensure_focus=lambda: self.events.append(("focus",)),
 		)
 
+	def wait_for_element(self, getter, *args, **kwargs):
+		return getter()
+
 	def switch_to_earn_page(self):
 		self.events.append(("earn",))
 
