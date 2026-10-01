@@ -481,11 +481,20 @@ class RewardsTaskUtils:
 		Best effort. Nothing here earns anything, so a control that is not where
 		it was expected is skipped, not an error.
 		"""
+		main_tab = self.driver.current_window_handle
+
 		try:
 			if random.random() < self.RESULTS_TAB_RATE:
 				tab = random.choices(("images", "videos", "news"), weights=(4, 2, 4))[0]
 
 				self.move_to_and_click(self.elements.get_search_results_tab(tab))
+
+				time.sleep(random.uniform(1, 2))
+
+				# These tabs open in a new window. Left open in the background
+				# they stalled the next driver command for minutes (seen on a
+				# throwaway profile), so follow it, look, and close it.
+				self.tab_utils.switch_to_other_tab()
 
 				time.sleep(random.uniform(3, 6))
 			elif random.random() < self.RESULTS_SCROLL_RATE:
@@ -495,6 +504,11 @@ class RewardsTaskUtils:
 			# screen is as skippable as a missing control. A browser that has died
 			# is not hidden by this, the next navigation raises it.
 			logger.debug("Skipped looking at the results: %s", log_utils.exception_summary(exc))
+		finally:
+			if len(self.driver.window_handles) > 1:
+				self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
+
+			self.driver.switch_to.window(main_tab)
 
 	def restore_main_tab(self):
 		"""Close the stray tabs, keeping the one the tasks work in.
