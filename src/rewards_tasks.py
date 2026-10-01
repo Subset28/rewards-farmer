@@ -444,6 +444,15 @@ class RewardsTaskUtils:
 			)
 
 			if points_earned <= previous and points_earned < max_pts:
+				# Credit lags: a round read straight after its last search showed
+				# no gain, and the next run found the points there (seen in the
+				# 11:33 and 14:48 runs on 1 Oct). Look again before deciding the
+				# searches earned nothing, so a slow update is not reported as a
+				# restriction.
+				time.sleep(random.uniform(20, 35))
+				points_earned, max_pts = self.read_search_points()
+
+			if points_earned <= previous and points_earned < max_pts:
 				notify.send(
 					"Searches earned no points",
 					f"{self.account_name}: {searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
