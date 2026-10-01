@@ -31,16 +31,30 @@ class Quota:
 	account_name = "tester"
 	complete_required_searches = Tasks.complete_required_searches
 
-	def __init__(self, earned=0, cap=50, rate=5):
+	def __init__(self, earned=0, cap=50, rate=5, lag_reads=0):
 		self.earned, self.cap, self.rate = earned, cap, rate
 		self.batches = []
+		# Points a batch earned that the page only shows after this many reads.
+		self.lag_reads, self.pending, self.reads_left = lag_reads, 0, 0
 
 	def read_search_points(self):
+		if self.pending:
+			if self.reads_left <= 0:
+				self.earned = min(self.cap, self.earned + self.pending)
+				self.pending = 0
+			else:
+				self.reads_left -= 1
+
 		return self.earned, self.cap
 
 	def run_search_batch(self, count):
 		self.batches.append(count)
-		self.earned = min(self.cap, self.earned + count * self.rate)
+		gained = count * self.rate
+
+		if self.lag_reads:
+			self.pending, self.reads_left = gained, self.lag_reads
+		else:
+			self.earned = min(self.cap, self.earned + gained)
 
 
 class TestSizing(unittest.TestCase):
@@ -98,7 +112,36 @@ class TestRunLimit(unittest.TestCase):
 		self.assertTrue(any("quota complete" in line for line in logs.output))
 
 
+@mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
 class TestNoPoints(unittest.TestCase):
+	def test_points_that_show_up_late_are_not_reported_as_a_restriction(self):
+		# The page showed no gain straight after the searches, and the points
+		# arrived on the next read. That is a slow update, not a restriction.
+		quota = Quota(earned=0, cap=50, rate=5, lag_reads=1)
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert:
+			quota.complete_required_searches()
+
+		alert.assert_not_called()
+		self.assertEqual(quota.earned, 50)
+
+	def test_points_that_never_arrive_are_still_reported(self):
+		quota = Quota(earned=0, cap=50, rate=5, lag_reads=99)
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="WARNING"):
+			quota.complete_required_searches()
+
+		alert.assert_called_once()
+
+	def test_the_second_look_waits_before_reading_again(self):
+		quota = Quota(earned=0, cap=50, rate=0)
+		waits = []
+
+		with mock.patch.object(rewards_tasks.time, "sleep", waits.append), 			mock.patch.object(rewards_tasks.notify, "send"), 			self.assertLogs(rewards_tasks.logger, level="WARNING"):
+			quota.complete_required_searches()
+
+		self.assertTrue(any(20 <= w <= 35 for w in waits))
+
 	def test_searches_that_earn_nothing_stop_the_run_with_a_warning(self):
 		quota = Quota(earned=0, cap=50, rate=0)
 
