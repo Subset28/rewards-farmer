@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -149,6 +150,11 @@ class RunLoopTestCase(EnvironmentTestCase):
 		headless = main.HEADLESS
 		main.HEADLESS = True
 		self.addCleanup(setattr, main, "HEADLESS", headless)
+
+		# main() waits 20-60 minutes between accounts. TestUpgrades covers that.
+		gap = mock.patch.object(main.search_behavior, "account_gap_seconds", return_value=0.0)
+		gap.start()
+		self.addCleanup(gap.stop)
 
 		# main() reports per account at info, and the failure paths at error, by
 		# design. The assertions are what reports the outcome here, so keep the

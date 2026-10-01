@@ -104,3 +104,27 @@ def searches_needed(remaining_points: int, points_per_search: float) -> int:
 		return 1
 
 	return max(1, math.ceil(remaining_points / points_per_search))
+
+
+DEFAULT_ACCOUNT_GAP_MINUTES = "20-60"
+
+
+def account_gap_seconds(raw: str | None = None, rng=random) -> float:
+	"""Seconds to wait between one account's run and the next, from "20-60" (minutes).
+
+	Accounts are worked strictly one after another, never together, and with a
+	gap that is not the same every time. A malformed value gives the default
+	rather than no gap, since no gap is the thing this exists to avoid.
+	"""
+	for text in (raw, DEFAULT_ACCOUNT_GAP_MINUTES):
+		try:
+			low, high = (float(part) for part in (text or "").split("-"))
+		except ValueError:
+			continue
+
+		if low < 0 or high < 0:
+			continue
+
+		return rng.uniform(min(low, high), max(low, high)) * 60
+
+	return 0.0

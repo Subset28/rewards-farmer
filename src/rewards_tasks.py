@@ -16,6 +16,9 @@ import mouse_trajectory
 import mimic_typing
 import element_selectors
 import search_behavior
+import safety
+import notify
+import points_log
 
 from constants import REPO_ROOT
 
@@ -150,6 +153,27 @@ class RewardsTaskUtils:
 				f"nothing matched during the {timeout}s wait: {log_utils.exception_summary(last_error)}"
 			) from last_error
 
+	# Whose profile this is, for alerts and the pause record. The caller sets it.
+	account_name = "default"
+
+	def brake_if_risky(self):
+		"""Stop the run, and every later one, if the page needs a human."""
+		safety.guard(self.driver, self.account_name)
+
+	def read_points_summary(self) -> dict[str, int]:
+		"""Today, month and lifetime points from the breakdown panel."""
+		self.switch_to_earn_page()
+		self.wait_for_then_click(self.elements.get_points_breakdown_button, timeout=30)
+
+		reading = points_log.parse_breakdown(self.elements.get_sidebar_section().text)
+
+		try:
+			self.move_to_and_click(self.elements.get_generic_sidebar_close_button())
+		except Exception:
+			pass
+
+		return reading
+
 	def switch_to_earn_page(self):
 		self.move_to_and_click(self.elements.get_earn_tab())
 
@@ -221,6 +245,42 @@ class RewardsTaskUtils:
 
 		self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 
+	def search_explore_card(self, card, pick: int = 0):
+		"""Open one Explore card, search for what it asks, and look at the results."""
+		desc = self.elements.extract_card_descriptions(card)
+		query = queries.search_query_for_task(desc, pick=pick)
+
+		self.move_to_and_click(card)
+		self.tab_utils.switch_to_other_tab()
+
+		self.wait_for_element(self.elements.get_bing_search_bar)
+
+		# search bar should be auto-focused
+
+		self.keyboard.send_keys(f"{query}{Keys.ENTER}")
+
+		# Read the results for several seconds before closing the tab. Two
+		# Explore cards stayed uncredited after a 2-3 second look; with the
+		# plain query and a few seconds of scrolling, one of them credited in
+		# a supervised run. Not proven to be the cause.
+		time.sleep(random.uniform(4, 6))
+
+		try:
+			self.mouse.wheel_scroll_read(max_steps=4)
+		except WebDriverException as exc:
+			logger.debug("Skipped scrolling the results: %s", log_utils.exception_summary(exc))
+
+		self.tab_utils.switch_to_other_tab()
+		self.tab_utils.close_all_other_tabs()
+
+	def incomplete_explore_descriptions(self) -> list[str]:
+		"""Descriptions of the Explore cards that are still open, read from a fresh page."""
+		return [
+			self.elements.extract_card_descriptions(card)
+			for card in self.elements.get_explore_on_bing_elements()
+			if not self.elements.card_is_complete(card)
+		]
+
 	def complete_explore_on_bing_tasks(self):
 		self.switch_to_earn_page()
 
@@ -234,40 +294,36 @@ class RewardsTaskUtils:
 			raise NoSuchElementException("no Explore on Bing section in this UI variant")
 
 		for card in explore_on_bing_links:
-			desc = self.elements.extract_card_descriptions(card)
-			query = queries.search_query_for_task(desc)
+			# A card that is already done earns nothing more, and searching for
+			# it anyway was a few extra searches on every run.
+			if self.elements.card_is_complete(card):
+				continue
 
-			self.move_to_and_click(card)
-			self.tab_utils.switch_to_other_tab()
-
-			self.wait_for_element(self.elements.get_bing_search_bar)
-
-			# search bar should be auto-focused
-
-			self.keyboard.send_keys(f"{query}{Keys.ENTER}")
-
-			# Read the results for several seconds before closing the tab. Two
-			# Explore cards stayed uncredited after a 2-3 second look; with the
-			# plain query and a few seconds of scrolling, one of them credited in
-			# a supervised run. Not proven to be the cause.
-			time.sleep(random.uniform(4, 6))
-
-			try:
-				self.mouse.wheel_scroll_read(max_steps=4)
-			except WebDriverException as exc:
-				logger.debug("Skipped scrolling the results: %s", log_utils.exception_summary(exc))
-
-			self.tab_utils.switch_to_other_tab()
-			self.tab_utils.close_all_other_tabs()
+			self.search_explore_card(card)
 
 		time.sleep(random.uniform(1, 2)) # allow card statuses to update
 
-		for card in explore_on_bing_links:
-			if not self.elements.card_is_complete(card):
-				logger.warning(
-					"Explore on Bing Card [desc=%r] is not complete after searching. Please check manually.",
-					self.elements.extract_card_descriptions(card)
-				)
+		# One more try, with a different query, for cards that did not credit.
+		# Fresh elements: the page has changed since the cards were first read.
+		# Once only, because a card that will not credit is not a reason to keep
+		# searching.
+		still_open = self.incomplete_explore_descriptions()
+
+		if still_open:
+			self.switch_to_earn_page()
+
+			for card in self.elements.get_explore_on_bing_elements():
+				if self.elements.extract_card_descriptions(card) in still_open and not self.elements.card_is_complete(card):
+					logger.info("Retrying Explore card with a different query: %r", self.elements.extract_card_descriptions(card))
+					self.search_explore_card(card, pick=1)
+
+			time.sleep(random.uniform(1, 2))
+
+		for desc in self.incomplete_explore_descriptions():
+			logger.warning(
+				"Explore on Bing Card [desc=%r] is not complete after searching. Please check manually.",
+				desc
+			)
 
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
@@ -388,6 +444,10 @@ class RewardsTaskUtils:
 			)
 
 			if points_earned <= previous and points_earned < max_pts:
+				notify.send(
+					"Searches earned no points",
+					f"{self.account_name}: {searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
+				)
 				logger.warning(
 					"Searches earned no points. The account may be restricted, or the "
 					"searches are not being counted. Stopping instead of searching "
@@ -588,6 +648,8 @@ class RewardsTaskUtils:
 			# search.
 			steps = tuple(step for step in steps if step[0] != "Required searches")
 
+		self.brake_if_risky()
+
 		for name, step in steps:
 			# The tags stay in the message rather than being folded into the
 			# level, they are the per-task outcome summary and reading a run
@@ -606,6 +668,11 @@ class RewardsTaskUtils:
 					"[%s] %s: %s", tag, name, reason,
 					exc_info=logger.isEnabledFor(logging.DEBUG)
 				)
+
+				# A task that fails on a sign-in, verification or restriction
+				# page is not a missing control. Look before the next task makes
+				# it worse.
+				self.brake_if_risky()
 
 			# Leave a clean tab state behind for the next task. Both halves of
 			# this matter, and they are separate failures: the right tab has to
