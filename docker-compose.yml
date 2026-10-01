@@ -24,6 +24,8 @@ services:
     # Chromium wants more than the default 64MB of shared memory and crashes
     # partway through a page without it.
     shm_size: 1gb
+    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
+    init: true
     # Keeps the bot from crowding out everything else running on the NAS.
     # cpus is deliberately not set here: this NAS's kernel has no CFS quota
     # controller ("NanoCPUs can not be set..."), so a cpus limit makes the
@@ -75,6 +77,8 @@ services:
       target: runtime
     image: rewards-farmer:runtime
     shm_size: 1gb
+    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
+    init: true
     restart: unless-stopped
     command: ["with-xvfb", "python", "src/daily_loop.py"]
     # See the rewards-farmer service above for why cpus is left unset.
@@ -114,6 +118,8 @@ services:
       target: runtime
     image: rewards-farmer:runtime
     shm_size: 1gb
+    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
+    init: true
     restart: unless-stopped
     command: ["with-xvfb", "python", "src/search_scheduler.py"]
     # See the rewards-farmer service above for why cpus is left unset.

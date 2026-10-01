@@ -198,7 +198,7 @@ class TestBrake(unittest.TestCase):
 class TestBrakeInTheTaskLoop(unittest.TestCase):
 	STEPS = [
 		"complete_bing_daily_set", "complete_explore_on_bing_tasks", "complete_visual_search",
-		"complete_misc_cards", "complete_required_searches", "claim_bonus_points",
+		"complete_misc_cards", "complete_required_searches", "claim_bonus_points", "complete_quests",
 	]
 
 	def _tasks(self, page, failures):
