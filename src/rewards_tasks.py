@@ -246,7 +246,16 @@ class RewardsTaskUtils:
 
 			self.keyboard.send_keys(f"{query}{Keys.ENTER}")
 
-			time.sleep(random.uniform(2, 3))
+			# Read the results for several seconds before closing the tab. Two
+			# Explore cards stayed uncredited after a 2-3 second look; with the
+			# plain query and a few seconds of scrolling, one of them credited in
+			# a supervised run. Not proven to be the cause.
+			time.sleep(random.uniform(4, 6))
+
+			try:
+				self.mouse.wheel_scroll_read(max_steps=4)
+			except WebDriverException as exc:
+				logger.debug("Skipped scrolling the results: %s", log_utils.exception_summary(exc))
 
 			self.tab_utils.switch_to_other_tab()
 			self.tab_utils.close_all_other_tabs()
