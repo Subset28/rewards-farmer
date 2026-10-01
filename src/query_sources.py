@@ -159,7 +159,7 @@ def _clean(text: str) -> str:
 	return " ".join(text.split()).strip().lower()
 
 
-def query_from_task_description(description: str) -> str | None:
+def query_from_task_description(description: str, pick: int = 0) -> str | None:
 	"""A search query for a task phrased as an instruction.
 
 	"Search on Bing to compare checking and savings account options" becomes
@@ -176,7 +176,12 @@ def query_from_task_description(description: str) -> str | None:
 
 	# Prefer a suggestion, since it is a query Bing has seen. The trimmed
 	# sentence is a reasonable fallback and still beats typing the imperative.
-	return options[0] if options else seed
+	# `pick` asks for a different one than last time, for a card that did not
+	# credit; when Bing has fewer suggestions it falls to the last one it has.
+	if options:
+		return options[min(pick, len(options) - 1)]
+
+	return seed
 
 
 def related_queries(count: int, seed: str | None = None) -> list[str]:

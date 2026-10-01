@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 
 import log_utils
+import safety
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,13 @@ def main() -> None:
 
 			if wait > 0:
 				time.sleep(wait)
+
+			hold = safety.paused()
+
+			if hold:
+				logger.error("[BRAKE] Skipping this search run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
+
+				continue
 
 			logger.info("=== starting scheduled search run ===")
 

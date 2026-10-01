@@ -28,6 +28,7 @@ class Quota:
 	"""
 
 	PROBE_SEARCHES = Tasks.PROBE_SEARCHES
+	account_name = "tester"
 	complete_required_searches = Tasks.complete_required_searches
 
 	def __init__(self, earned=0, cap=50, rate=5):
@@ -101,11 +102,13 @@ class TestNoPoints(unittest.TestCase):
 	def test_searches_that_earn_nothing_stop_the_run_with_a_warning(self):
 		quota = Quota(earned=0, cap=50, rate=0)
 
-		with self.assertLogs(rewards_tasks.logger, level="WARNING") as logs:
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="WARNING") as logs:
 			quota.complete_required_searches()
 
 		self.assertEqual(quota.batches, [3])
 		self.assertTrue(any("earned no points" in line for line in logs.output))
+		alert.assert_called_once()
+		self.assertIn("tester", alert.call_args.args[1])
 
 
 class Browsing:

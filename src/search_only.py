@@ -9,6 +9,9 @@ import accounts
 import browser
 import desktop_utils
 import rewards_tasks
+import time
+import search_behavior
+import safety
 
 HEADLESS = browser.HEADLESS
 
@@ -47,9 +50,16 @@ def run_account_searches(account: accounts.Account) -> bool:
 
 	try:
 		rewards = rewards_tasks.RewardsTaskUtils(driver)
+		rewards.account_name = account.name
 		rewards.complete_required_searches(max_searches=searches_this_run())
 		logger.info("[OK] Required searches")
+	except safety.AccountAtRisk:
+		raise
 	except Exception as exc:
+		# Look before reporting a missing control: a sign-in or verification
+		# page is the likelier reason than a changed layout.
+		safety.guard(driver, account.name)
+
 		tag, reason = rewards_tasks.task_failure_report(exc)
 		logger.log(
 			logging.WARNING if tag == "SKIP" else logging.ERROR,
@@ -82,15 +92,31 @@ def main() -> int:
 		logger.error("[FAIL] %s", exc)
 		return 2
 
+	hold = safety.paused()
+
+	if hold:
+		logger.error("[BRAKE] Not searching: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
+
+		return 3
+
 	started = 0
 
-	for account in configured:
+	for position, account in enumerate(configured):
+		if position:
+			gap = search_behavior.account_gap_seconds(os.environ.get("REWARDS_ACCOUNT_GAP_MINUTES"))
+			logger.info("Waiting %.0f minutes before the next account.", gap / 60)
+			time.sleep(gap)
+
 		if len(configured) > 1:
 			logger.info("=== account: %s ===", account.name)
 
 		try:
 			if run_account_searches(account):
 				started += 1
+		except safety.AccountAtRisk as exc:
+			logger.error("[BRAKE] %s: %s. Stopping every account.", account.name, exc)
+
+			break
 		except Exception as exc:
 			logger.error(
 				"[FAIL] %s: %s: %s",

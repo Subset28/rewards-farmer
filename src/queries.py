@@ -39,10 +39,10 @@ def selected_source() -> str:
 	return choice if choice in (LLM, TRENDS) else DEFAULT_SOURCE
 
 
-def search_query_for_task(task_description: str) -> str:
-	"""A query for one "Search on Bing for X" card."""
+def search_query_for_task(task_description: str, pick: int = 0) -> str:
+	"""A query for one "Search on Bing for X" card. `pick` > 0 asks for a different one."""
 	if selected_source() == TRENDS:
-		query = query_sources.query_from_task_description(task_description)
+		query = query_sources.query_from_task_description(task_description, pick=pick)
 
 		if query:
 			return query
