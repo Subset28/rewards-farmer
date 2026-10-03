@@ -12,6 +12,7 @@ import rewards_tasks
 import time
 import search_behavior
 import safety
+import run_lock
 
 HEADLESS = browser.HEADLESS
 
@@ -139,4 +140,4 @@ def main() -> int:
 
 if __name__ == "__main__":
 	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
-	sys.exit(main())
+	sys.exit(run_lock.run_locked(main))

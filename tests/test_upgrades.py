@@ -438,21 +438,73 @@ class TestAccountGap(unittest.TestCase):
 
 
 class TestQueryPick(unittest.TestCase):
-	def test_pick_chooses_a_different_suggestion_and_clamps(self):
-		with mock.patch.object(query_sources, "suggestions", return_value=["lyrics favorite song", "favorite song lyrics app"]):
-			desc = "Search on Bing for the lyrics of your favorite song"
+	DESC = "Search on Bing to find tickets for concerts near you"
 
-			self.assertEqual(query_sources.query_from_task_description(desc), "lyrics favorite song")
-			self.assertEqual(query_sources.query_from_task_description(desc, pick=1), "favorite song lyrics app")
-			self.assertEqual(query_sources.query_from_task_description(desc, pick=9), "favorite song lyrics app")
+	def test_pick_chooses_a_different_suggestion_and_clamps(self):
+		with mock.patch.object(query_sources, "suggestions", return_value=["tickets concerts near me", "concert tickets near me 2026"]):
+			self.assertEqual(query_sources.query_from_task_description(self.DESC), "tickets concerts near me")
+			self.assertEqual(query_sources.query_from_task_description(self.DESC, pick=1), "concert tickets near me 2026")
+			self.assertEqual(query_sources.query_from_task_description(self.DESC, pick=9), "concert tickets near me 2026")
 
 	def test_with_no_suggestions_it_is_the_trimmed_description_either_way(self):
 		with mock.patch.object(query_sources, "suggestions", return_value=[]):
-			desc = "Search on Bing for the lyrics of your favorite song"
-
 			self.assertEqual(
-				query_sources.query_from_task_description(desc, pick=1),
-				query_sources.query_from_task_description(desc),
+				query_sources.query_from_task_description(self.DESC, pick=1),
+				query_sources.query_from_task_description(self.DESC),
+			)
+
+
+class TestConcreteQuery(unittest.TestCase):
+	CASES = {
+		"Search on Bing for the meaning of a word you don't understand.": "define ",
+		"Search on Bing to see what time it is in a different time zone.": "current time in ",
+		"Search on Bing for the latest price of a specific stock.": " stock price",
+		"Search on Bing for the lyrics of your favorite song": " lyrics",
+		"Search on Bing for the lyrics of your favourite song": " lyrics",
+	}
+
+	def test_each_placeholder_becomes_a_real_search(self):
+		for description, marker in self.CASES.items():
+			with self.subTest(description=description):
+				query = query_sources.concrete_query(description)
+
+				self.assertIsNotNone(query)
+				self.assertIn(marker, query)
+				# Nothing of the placeholder wording is left in it.
+				for leftover in ("specific", "different", "favorite", "understand"):
+					self.assertNotIn(leftover, query.lower())
+
+	def test_ordinary_descriptions_are_left_alone(self):
+		for description in (
+			"Search on Bing to find tickets for concerts near you",
+			"Search on Bing to compare checking and savings account options",
+			"Search on Bing to book rental cars for your next adventure",
+			"",
+			None,
+		):
+			with self.subTest(description=description):
+				self.assertIsNone(query_sources.concrete_query(description))
+
+	def test_a_retry_picks_a_different_one(self):
+		description = "Search on Bing for the latest price of a specific stock."
+
+		for seed in range(20):
+			first = query_sources.concrete_query(description, 0, random.Random(seed))
+			second = query_sources.concrete_query(description, 1, random.Random(seed))
+
+			self.assertNotEqual(first, second)
+
+	def test_it_takes_priority_over_autosuggest_and_never_needs_the_network(self):
+		with mock.patch.object(query_sources, "suggestions", side_effect=AssertionError("network used")):
+			query = query_sources.query_from_task_description("Search on Bing for the latest price of a specific stock.")
+
+		self.assertTrue(query.endswith(" stock price"))
+
+	def test_other_descriptions_still_use_autosuggest(self):
+		with mock.patch.object(query_sources, "suggestions", return_value=["tickets concerts near me"]):
+			self.assertEqual(
+				query_sources.query_from_task_description("Search on Bing to find tickets for concerts near you"),
+				"tickets concerts near me",
 			)
 
 
