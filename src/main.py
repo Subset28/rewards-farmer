@@ -9,6 +9,7 @@ import browser
 import desktop_utils
 import rewards_tasks
 import safety
+import run_lock
 import points_log
 import search_behavior
 import time
@@ -133,4 +134,4 @@ def main() -> int:
 
 if __name__ == "__main__":
 	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
-	sys.exit(main())
+	sys.exit(run_lock.run_locked(main))
