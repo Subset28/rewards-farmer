@@ -8,6 +8,11 @@ import accounts
 import browser
 import desktop_utils
 import rewards_tasks
+import safety
+import run_lock
+import points_log
+import search_behavior
+import time
 
 HEADLESS = browser.HEADLESS
 
@@ -28,10 +33,20 @@ def run_account(account: accounts.Account) -> bool:
 
 	try:
 		rewards = rewards_tasks.RewardsTaskUtils(driver)
+		rewards.account_name = account.name
 		# Set when search_scheduler.py is running separately, so the once-a-day
 		# run does not redo what is already being spread across the day.
 		skip_searches = os.environ.get("REWARDS_SKIP_SEARCHES", "0") == "1"
 		rewards.complete_all_tasks(skip_searches=skip_searches)
+
+		try:
+			reading = rewards.read_points_summary()
+
+			if reading:
+				points_log.record(account.name, reading)
+				logger.info("Points: %s", reading)
+		except Exception as exc:
+			logger.warning("Could not record today's points: %s", log_utils.exception_summary(exc))
 	finally:
 		try:
 			driver.quit()
@@ -62,9 +77,23 @@ def main() -> int:
 
 		return 2
 
+	hold = safety.paused()
+
+	if hold:
+		logger.error("[BRAKE] Not running: paused (%s: %s). Clear it with `python src/safety.py clear` once the account has been checked.", hold.get("kind"), hold.get("reason"))
+
+		return 3
+
 	started = 0
 
-	for account in configured:
+	for position, account in enumerate(configured):
+		if position:
+			# One account at a time with a different gap each time, never
+			# back to back and never together.
+			gap = search_behavior.account_gap_seconds(os.environ.get("REWARDS_ACCOUNT_GAP_MINUTES"))
+			logger.info("Waiting %.0f minutes before the next account.", gap / 60)
+			time.sleep(gap)
+
 		if len(configured) > 1:
 			logger.info("=== account: %s ===", account.name)
 
@@ -77,6 +106,11 @@ def main() -> int:
 		try:
 			if run_account(account):
 				started += 1
+		except safety.AccountAtRisk as exc:
+			# The brake is shared: a warning on one account stops the rest too.
+			logger.error("[BRAKE] %s: %s. Stopping every account.", account.name, exc)
+
+			break
 		except Exception as exc:
 			logger.error(
 				"[FAIL] %s: %s: %s",
@@ -100,4 +134,4 @@ def main() -> int:
 
 if __name__ == "__main__":
 	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
-	sys.exit(main())
+	sys.exit(run_lock.run_locked(main))

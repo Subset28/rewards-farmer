@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 
 import log_utils
+import safety
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,13 @@ def main() -> None:
 		)
 
 		time.sleep(wait + jitter)
+
+		hold = safety.paused()
+
+		if hold:
+			logger.error("[BRAKE] Skipping today's run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
+
+			continue
 
 		logger.info("=== starting scheduled run ===")
 

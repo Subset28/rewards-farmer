@@ -200,6 +200,26 @@ REWARDS_ACCOUNTS=personal,spare docker compose run --rm rewards-farmer
 
 `REWARDS_HEADLESS=1` is set in the image. It also works on the host if you want a run with no visible window; the pointer code needs an explicit window size in that mode, which `main.py` sets.
 
+## The brake, alerts and the points record
+
+A run that lands on a sign-in page, a human check or a restriction notice stops, writes `data-dir/PAUSED`, and every scheduled run after it is skipped until someone clears it. The pause covers all accounts, because accounts run from one connection are not independent.
+
+```
+python src/safety.py status
+python src/safety.py clear
+```
+
+Set `NOTIFY_URL` to an [ntfy](https://ntfy.sh) topic to get a phone alert when the brake trips or a round of searches earns nothing. Unset, it only logs.
+
+`data-dir/points.jsonl` gets one line per daily run (today, this month, lifetime). `python src/points_log.py` prints the latest, the points to the next level this month (`REWARDS_GOLD_AT`, default 750) and the daily rate.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NOTIFY_URL` | unset | ntfy topic URL for alerts. |
+| `REWARDS_SEARCHES_PER_RUN` | `5-8` | Searches one scheduled search run makes before stopping, so the quota fills across the day. |
+| `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
+| `REWARDS_GOLD_AT` | `750` | Monthly points that reach the next level, for the progress line. |
+
 ## Logging
 
 The script logs to the console. Two optional environment variables change that:

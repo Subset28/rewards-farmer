@@ -159,13 +159,61 @@ def _clean(text: str) -> str:
 	return " ".join(text.split()).strip().lower()
 
 
-def query_from_task_description(description: str) -> str | None:
+
+# Cards that ask for "a word", "a time zone", "a stock" or "your favorite song"
+# and not a topic. Searching the sentence itself never searched for an actual
+# word, place, ticker or song, and those cards stayed uncredited while the ones
+# worded as a concrete search credited. Each rule turns the placeholder into one
+# ordinary real search.
+PLACEHOLDER_RULES = (
+	(
+		re.compile(r"meaning of a word|word you don.?t understand|define a word", re.I),
+		"define {}",
+		("serendipity", "ephemeral", "ubiquitous", "eloquent", "resilient", "nostalgia", "ambiguous", "benevolent", "pragmatic", "meticulous"),
+	),
+	(
+		re.compile(r"time zone", re.I),
+		"current time in {}",
+		("Tokyo", "London", "Sydney", "Dubai", "Paris", "Los Angeles", "Singapore", "Mumbai", "Berlin", "Toronto"),
+	),
+	(
+		re.compile(r"price of a (specific )?stock|a specific stock", re.I),
+		"{} stock price",
+		("MSFT", "AAPL", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "NFLX"),
+	),
+	(
+		re.compile(r"favou?rite song", re.I),
+		"{} lyrics",
+		("Bohemian Rhapsody", "Imagine John Lennon", "Hotel California", "Yesterday Beatles", "Billie Jean", "Hey Jude", "Rolling in the Deep", "Shape of You", "Stairway to Heaven", "Let It Be"),
+	),
+)
+
+
+def concrete_query(description: str, pick: int = 0, rng=random) -> str | None:
+	"""A real search for a card that names a placeholder, else None.
+
+	`pick` > 0 gives a different one from the same list, for the retry of a card
+	that did not credit.
+	"""
+	for pattern, template, choices in PLACEHOLDER_RULES:
+		if pattern.search(description or ""):
+			return template.format(choices[(rng.randrange(len(choices)) + pick) % len(choices)])
+
+	return None
+
+
+def query_from_task_description(description: str, pick: int = 0) -> str | None:
 	"""A search query for a task phrased as an instruction.
 
 	"Search on Bing to compare checking and savings account options" becomes
 	the content words, then whatever Bing suggests for them, so the query is
 	one Bing already recognises rather than the sentence itself.
 	"""
+	concrete = concrete_query(description, pick)
+
+	if concrete:
+		return concrete
+
 	words = [w for w in _clean(description).split() if w not in INSTRUCTION_WORDS]
 
 	if not words:
@@ -176,7 +224,12 @@ def query_from_task_description(description: str) -> str | None:
 
 	# Prefer a suggestion, since it is a query Bing has seen. The trimmed
 	# sentence is a reasonable fallback and still beats typing the imperative.
-	return options[0] if options else seed
+	# `pick` asks for a different one than last time, for a card that did not
+	# credit; when Bing has fewer suggestions it falls to the last one it has.
+	if options:
+		return options[min(pick, len(options) - 1)]
+
+	return seed
 
 
 def related_queries(count: int, seed: str | None = None) -> list[str]:

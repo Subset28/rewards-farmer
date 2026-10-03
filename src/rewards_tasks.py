@@ -9,12 +9,17 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException, WebDriverException
 import tab_utils
 import queries
 import mouse_trajectory
 import mimic_typing
 import element_selectors
+import search_behavior
+import safety
+import notify
+import points_log
+import quests
 
 from constants import REPO_ROOT
 
@@ -149,6 +154,43 @@ class RewardsTaskUtils:
 				f"nothing matched during the {timeout}s wait: {log_utils.exception_summary(last_error)}"
 			) from last_error
 
+	# Whose profile this is, for alerts and the pause record. The caller sets it.
+	account_name = "default"
+
+	def brake_if_risky(self):
+		"""Stop the run, and every later one, if the page needs a human."""
+		safety.guard(self.driver, self.account_name)
+
+	def today_points(self) -> int | None:
+		"""Today's points from the breakdown panel, or None when it cannot be read.
+
+		Never raises for an unreadable panel: this is a measurement, and a task
+		must not fail because it could not be taken. A page that needs a human
+		is the brake's business and still stops the run.
+		"""
+		try:
+			return self.read_points_summary().get("today")
+		except safety.AccountAtRisk:
+			raise
+		except Exception as exc:
+			logger.debug("Could not read today's points: %s", log_utils.exception_summary(exc))
+
+			return None
+
+	def read_points_summary(self) -> dict[str, int]:
+		"""Today, month and lifetime points from the breakdown panel."""
+		self.switch_to_earn_page()
+		self.wait_for_then_click(self.elements.get_points_breakdown_button, timeout=30)
+
+		reading = points_log.parse_breakdown(self.elements.get_sidebar_section().text)
+
+		try:
+			self.move_to_and_click(self.elements.get_generic_sidebar_close_button())
+		except Exception:
+			pass
+
+		return reading
+
 	def switch_to_earn_page(self):
 		self.move_to_and_click(self.elements.get_earn_tab())
 
@@ -220,6 +262,42 @@ class RewardsTaskUtils:
 
 		self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 
+	def search_explore_card(self, card, pick: int = 0):
+		"""Open one Explore card, search for what it asks, and look at the results."""
+		desc = self.elements.extract_card_descriptions(card)
+		query = queries.search_query_for_task(desc, pick=pick)
+
+		self.move_to_and_click(card)
+		self.tab_utils.switch_to_other_tab()
+
+		self.wait_for_element(self.elements.get_bing_search_bar)
+
+		# search bar should be auto-focused
+
+		self.keyboard.send_keys(f"{query}{Keys.ENTER}")
+
+		# Read the results for several seconds before closing the tab. Two
+		# Explore cards stayed uncredited after a 2-3 second look; with the
+		# plain query and a few seconds of scrolling, one of them credited in
+		# a supervised run. Not proven to be the cause.
+		time.sleep(random.uniform(4, 6))
+
+		try:
+			self.mouse.wheel_scroll_read(max_steps=4)
+		except WebDriverException as exc:
+			logger.debug("Skipped scrolling the results: %s", log_utils.exception_summary(exc))
+
+		self.tab_utils.switch_to_other_tab()
+		self.tab_utils.close_all_other_tabs()
+
+	def incomplete_explore_descriptions(self) -> list[str]:
+		"""Descriptions of the Explore cards that are still open, read from a fresh page."""
+		return [
+			self.elements.extract_card_descriptions(card)
+			for card in self.elements.get_explore_on_bing_elements()
+			if not self.elements.card_is_complete(card)
+		]
+
 	def complete_explore_on_bing_tasks(self):
 		self.switch_to_earn_page()
 
@@ -233,31 +311,138 @@ class RewardsTaskUtils:
 			raise NoSuchElementException("no Explore on Bing section in this UI variant")
 
 		for card in explore_on_bing_links:
-			desc = self.elements.extract_card_descriptions(card)
-			query = queries.search_query_for_task(desc)
+			# A card that is already done earns nothing more, and searching for
+			# it anyway was a few extra searches on every run.
+			if self.elements.card_is_complete(card):
+				continue
 
-			self.move_to_and_click(card)
-			self.tab_utils.switch_to_other_tab()
-
-			self.wait_for_element(self.elements.get_bing_search_bar)
-
-			# search bar should be auto-focused
-
-			self.keyboard.send_keys(f"{query} -noai{Keys.ENTER}")
-
-			time.sleep(random.uniform(2, 3))
-
-			self.tab_utils.switch_to_other_tab()
-			self.tab_utils.close_all_other_tabs()
+			self.search_explore_card(card)
 
 		time.sleep(random.uniform(1, 2)) # allow card statuses to update
 
-		for card in explore_on_bing_links:
-			if not self.elements.card_is_complete(card):
-				logger.warning(
-					"Explore on Bing Card [desc=%r] is not complete after searching. Please check manually.",
-					self.elements.extract_card_descriptions(card)
-				)
+		# One more try, with a different query, for cards that did not credit.
+		# Fresh elements: the page has changed since the cards were first read.
+		# Once only, because a card that will not credit is not a reason to keep
+		# searching.
+		still_open = self.incomplete_explore_descriptions()
+
+		if still_open:
+			self.switch_to_earn_page()
+
+			for card in self.elements.get_explore_on_bing_elements():
+				if self.elements.extract_card_descriptions(card) in still_open and not self.elements.card_is_complete(card):
+					logger.info("Retrying Explore card with a different query: %r", self.elements.extract_card_descriptions(card))
+					self.search_explore_card(card, pick=1)
+
+			time.sleep(random.uniform(1, 2))
+
+		for desc in self.incomplete_explore_descriptions():
+			logger.warning(
+				"Explore on Bing Card [desc=%r] is not complete after searching. Please check manually.",
+				desc
+			)
+
+	# Quests per run and tasks per quest. A quest hands out its tasks a few at a
+	# time, so a small bound covers what is available without chasing more.
+	MAX_QUESTS = 4
+	MAX_QUEST_TASKS = 5
+
+	def complete_quests(self):
+		"""Do the plain-link tasks of the quests on the earn page.
+
+		Quests that need Spotify, the phone app or the Windows taskbar are left
+		alone, as is any task link that is not a Bing or Rewards page.
+		"""
+		self.switch_to_earn_page()
+		main_tab = self.driver.current_window_handle
+
+		listed = [
+			(card.get_dom_attribute("href") or "", card.text)
+			for card in self.wait_for_element(self.elements.get_quest_links)
+		]
+		wanted = [href for href, text in listed if quests.wants_quest(href, text)]
+
+		if not wanted:
+			raise NoSuchElementException("no quests to do in this UI variant")
+
+		for href in wanted[:self.MAX_QUESTS]:
+			try:
+				self.work_quest(href, main_tab)
+			except safety.AccountAtRisk:
+				raise
+			except Exception as exc:
+				logger.warning("Quest %s: %s", href.rsplit("/", 1)[-1], log_utils.exception_summary(exc))
+
+			self.restore_main_tab()
+			self.switch_to_earn_page()
+
+	def work_quest(self, href: str, main_tab: str):
+		"""Open one quest and do its plain-link tasks, one at a time."""
+		# The earn page re-renders after it loads and the quests section briefly
+		# disappears (a bare lookup right after listing it failed in a supervised
+		# run), so wait for it, as the other tasks wait for their sections.
+		card = next(
+			(c for c in self.wait_for_element(self.elements.get_quest_links) if (c.get_dom_attribute("href") or "") == href),
+			None,
+		)
+
+		if card is None:
+			return
+
+		self.mouse.wheel_scroll_element_into_view(card)
+		self.move_to_and_click(card)
+		time.sleep(random.uniform(3, 5))
+
+		quest_url = self.driver.current_url
+		tried: set[str] = set()
+
+		for _ in range(self.MAX_QUEST_TASKS):
+			links = [
+				(link.get_dom_attribute("href") or "", link.text or "")
+				for link in self.elements.get_quest_page_links()
+			]
+			task = quests.pick_task(links, tried)
+
+			if task is None:
+				break
+
+			task_href, task_text = task
+			tried.add(task_href)
+			logger.info("Quest task: %r (%s)", task_text.strip()[:40], task_href[:60])
+
+			link = next(
+				(l for l in self.elements.get_quest_page_links() if (l.get_dom_attribute("href") or "") == task_href),
+				None,
+			)
+
+			if link is None:
+				continue
+
+			self.mouse.wheel_scroll_element_into_view(link)
+			self.move_to_and_click(link)
+			time.sleep(random.uniform(2, 3))
+
+			opened_elsewhere = len(self.driver.window_handles) > 1
+
+			if opened_elsewhere:
+				self.tab_utils.switch_to_other_tab()
+
+			# Look at what the task opened before leaving it, as for the cards.
+			time.sleep(random.uniform(3, 6))
+
+			try:
+				self.mouse.wheel_scroll_read(max_steps=3)
+			except WebDriverException as exc:
+				logger.debug("Skipped scrolling the quest page: %s", log_utils.exception_summary(exc))
+
+			if opened_elsewhere:
+				self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
+				self.driver.switch_to.window(main_tab)
+			else:
+				self.driver.get(quest_url)
+				self.tab_utils.ensure_focus()
+
+			time.sleep(random.uniform(2, 3))
 
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
@@ -302,6 +487,16 @@ class RewardsTaskUtils:
 				if not self.elements.card_is_complete(card) and self.elements.get_card_point_value(card) > 0:
 					self.move_to_and_click(card)
 					time.sleep(random.uniform(1, 2))
+
+					# Look at the page the card opened before closing it. Closed
+					# after a second or two without ever being focused, two +15
+					# Silver cards stayed uncredited; opened the same way, brought
+					# to the front, and left for a few seconds, both completed in
+					# a supervised run. A card that opens in the same tab has no
+					# other tab to switch to, which switch_to_other_tab allows.
+					self.tab_utils.switch_to_other_tab()
+					time.sleep(random.uniform(3, 6))
+
 					self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 			except Exception as exc:
 				logger.warning("Misc Card [%d] interaction failed: %s", index, exc)
@@ -318,7 +513,16 @@ class RewardsTaskUtils:
 
 		self.mouse.wheel_scroll_to_top()
 
-	def complete_required_searches(self, max_rounds: int = 6):
+	# Searches in the first round, before the points per search are known.
+	PROBE_SEARCHES = 3
+
+	def complete_required_searches(self, max_rounds: int = 6, max_searches: int | None = None):
+		"""Search until the daily quota is filled, or `max_searches` have been made.
+
+		`max_searches` is for a run that is one of several spread across the day:
+		it stops there and leaves the rest for the next one, instead of clearing
+		the whole quota in one sitting.
+		"""
 		# Points per search are not fixed. Some markets award 3 rather than 5,
 		# the daily maximum itself changes (observed 15, 30 and 60 on the same
 		# account within one day, with the counter resetting), and daily set and
@@ -329,12 +533,24 @@ class RewardsTaskUtils:
 
 		logger.info("Search points before: %s/%s", points_earned, max_pts)
 
+		# The lowest rate seen, used only to size the first round. Sizing every
+		# round on it made 15 searches out of a 50 point quota that 10 fill at
+		# 5 points each: five extra, on a loop whose worst tell is volume.
+		points_per_search = 3.0
+		budget = max_searches
+
 		for round_number in range(1, max_rounds + 1):
-			if points_earned >= max_pts:
+			if points_earned >= max_pts or (budget is not None and budget <= 0):
 				break
 
-			# Assume the lower known rate so a round never overshoots by much.
-			searches = max(1, (max_pts - points_earned) // 3)
+			searches = search_behavior.searches_needed(max_pts - points_earned, points_per_search)
+
+			if round_number == 1:
+				searches = min(searches, self.PROBE_SEARCHES)
+
+			if budget is not None:
+				searches = min(searches, budget)
+				budget -= searches
 
 			self.run_search_batch(searches)
 
@@ -346,17 +562,62 @@ class RewardsTaskUtils:
 				round_number, searches, points_earned, max_pts
 			)
 
-			if points_earned <= previous:
-				logger.warning("Round produced no points, stopping instead of searching pointlessly.")
+			if points_earned <= previous and points_earned < max_pts:
+				# Credit lags: a round read straight after its last search showed
+				# no gain, and the next run found the points there (seen in the
+				# 11:33 and 14:48 runs on 1 Oct). Look again before deciding the
+				# searches earned nothing, so a slow update is not reported as a
+				# restriction.
+				time.sleep(random.uniform(20, 35))
+				points_earned, max_pts = self.read_search_points()
+
+			if points_earned <= previous and points_earned < max_pts:
+				notify.send(
+					"Searches earned no points",
+					f"{self.account_name}: {searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
+				)
+				logger.warning(
+					"Searches earned no points. The account may be restricted, or the "
+					"searches are not being counted. Stopping instead of searching "
+					"pointlessly; check the Rewards page."
+				)
 				break
 
-		if points_earned < max_pts:
-			logger.warning("Search quota not filled: %s/%s", points_earned, max_pts)
-		else:
+			points_per_search = (points_earned - previous) / searches
+
+		if points_earned >= max_pts:
 			logger.info("Search quota complete: %s/%s", points_earned, max_pts)
+		elif budget is not None and budget <= 0:
+			logger.info(
+				"Search run stopped at its limit of %s searches, %s/%s so far. "
+				"A later run continues.",
+				max_searches, points_earned, max_pts
+			)
+		else:
+			logger.warning("Search quota not filled: %s/%s", points_earned, max_pts)
 
 	def read_search_points(self):
-		"""Open the points breakdown, read the Bing search row, close it again."""
+		"""Open the points breakdown, read the Bing search row, close it again.
+
+		The breakdown button intermittently never appears (two scheduled runs
+		on 1 Oct gave up on it, with the quota untouched). Reload the Rewards
+		page and try once more before giving up, and say which page it was.
+		"""
+		try:
+			return self._read_search_points_once()
+		except ElementNeverAppeared:
+			logger.warning(
+				"The points breakdown did not appear (page: %s). Reloading and trying once more.",
+				(self.driver.current_url or "")[:90],
+			)
+
+			self.driver.get(REWARDS_HOME_URL)
+			self.tab_utils.ensure_focus()
+			time.sleep(random.uniform(4, 7))
+
+			return self._read_search_points_once()
+
+	def _read_search_points_once(self):
 		self.switch_to_earn_page()
 
 		# 30s rather than the default 10s: this runs after the earlier tasks have
@@ -382,31 +643,80 @@ class RewardsTaskUtils:
 
 		return points_earned, max_pts
 
+	# Chance that a search is followed by a look at another results tab, and, if
+	# it is not, by reading down the results.
+	RESULTS_TAB_RATE = 0.2
+	RESULTS_SCROLL_RATE = 0.75
+
 	def run_search_batch(self, count: int):
-		self.driver.get("https://www.bing.com/")
-		self.tab_utils.ensure_focus()
-
-		self.wait_for_element(self.elements.get_bing_search_bar)
-
-		# search bar should be auto-focused
+		breaks = search_behavior.CoffeeBreaks()
 
 		for i, query in enumerate(
 			queries.related_queries(count)
 		):
-			self.keyboard.send_keys(f"{query} -noai{Keys.ENTER}")
+			# A fresh homepage for every search, the way a person starts one, in
+			# place of typing the next query into the results page's box. The
+			# search bar is auto-focused on arrival.
+			self.driver.get("https://www.bing.com/")
+			self.tab_utils.ensure_focus()
 
-			time.sleep(random.uniform(5.5, 7.5))
+			self.wait_for_element(self.elements.get_bing_search_bar)
 
-			try: self.wait_for_then_click(self.elements.get_clear_bing_search_query_button)
-			except StaleElementReferenceException:
-				logger.warning(
-					"StaleElementReferenceException when trying to click the clear button for query %s. Trying again...",
-					i + 1
-				)
-				self.wait_for_then_click(self.elements.get_clear_bing_search_query_button)
+			time.sleep(random.uniform(2.5, 5.5))
+
+			pause = breaks.before_search()
+
+			if pause:
+				logger.info("Pausing %.0fs between searches.", pause)
+				time.sleep(pause)
+
+			# No operator on the query: an identical suffix on every search is
+			# something no person does.
+			self.keyboard.send_keys(f"{search_behavior.with_typo(query)}{Keys.ENTER}")
+
+			time.sleep(random.uniform(2, 4))
+
+			self.browse_results()
+
+			time.sleep(random.uniform(2, 4))
 
 		self.driver.get(REWARDS_HOME_URL)
 		self.tab_utils.ensure_focus()
+
+	def browse_results(self):
+		"""Look at the results the way a person would: sometimes another tab, sometimes a scroll.
+
+		Best effort. Nothing here earns anything, so a control that is not where
+		it was expected is skipped, not an error.
+		"""
+		main_tab = self.driver.current_window_handle
+
+		try:
+			if random.random() < self.RESULTS_TAB_RATE:
+				tab = random.choices(("images", "videos", "news"), weights=(4, 2, 4))[0]
+
+				self.move_to_and_click(self.elements.get_search_results_tab(tab))
+
+				time.sleep(random.uniform(1, 2))
+
+				# These tabs open in a new window. Left open in the background
+				# they stalled the next driver command for minutes (seen on a
+				# throwaway profile), so follow it, look, and close it.
+				self.tab_utils.switch_to_other_tab()
+
+				time.sleep(random.uniform(3, 6))
+			elif random.random() < self.RESULTS_SCROLL_RATE:
+				self.mouse.wheel_scroll_read()
+		except WebDriverException as exc:
+			# Wide on purpose: a click that is intercepted or a target that is off
+			# screen is as skippable as a missing control. A browser that has died
+			# is not hidden by this, the next navigation raises it.
+			logger.debug("Skipped looking at the results: %s", log_utils.exception_summary(exc))
+		finally:
+			if len(self.driver.window_handles) > 1:
+				self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
+
+			self.driver.switch_to.window(main_tab)
 
 	def restore_main_tab(self):
 		"""Close the stray tabs, keeping the one the tasks work in.
@@ -477,6 +787,8 @@ class RewardsTaskUtils:
 			("Misc cards", self.complete_misc_cards),
 			("Required searches", self.complete_required_searches),
 			("Bonus points", self.claim_bonus_points),
+			# Last, so a quest that stalls the browser costs nothing else.
+			("Quests", self.complete_quests),
 		)
 
 		if skip_searches:
@@ -485,6 +797,15 @@ class RewardsTaskUtils:
 			# quota is already met, which is a wasted page load, not a wasted
 			# search.
 			steps = tuple(step for step in steps if step[0] != "Required searches")
+
+		self.brake_if_risky()
+
+		# Today's points before and after each task, so a log line says what a
+		# task paid. Credit lags a little, so a figure can land on the next
+		# task's line; the run's total is exact. REWARDS_TASK_POINTS=0 turns it
+		# off, since it opens the breakdown panel after every task.
+		track_points = os.environ.get("REWARDS_TASK_POINTS", "1") != "0"
+		last_points = self.today_points() if track_points else None
 
 		for name, step in steps:
 			# The tags stay in the message rather than being folded into the
@@ -505,6 +826,11 @@ class RewardsTaskUtils:
 					exc_info=logger.isEnabledFor(logging.DEBUG)
 				)
 
+				# A task that fails on a sign-in, verification or restriction
+				# page is not a missing control. Look before the next task makes
+				# it worse.
+				self.brake_if_risky()
+
 			# Leave a clean tab state behind for the next task. Both halves of
 			# this matter, and they are separate failures: the right tab has to
 			# survive, and it has to be showing the right page.
@@ -512,3 +838,12 @@ class RewardsTaskUtils:
 
 			if not completed:
 				self.return_to_rewards_home()
+
+			if track_points:
+				now = self.today_points()
+
+				if last_points is not None and now is not None:
+					logger.info("[POINTS] %s: %+d (today %d)", name, now - last_points, now)
+
+				if now is not None:
+					last_points = now
