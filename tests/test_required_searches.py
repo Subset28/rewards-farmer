@@ -5,6 +5,7 @@
 
 import os
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -20,6 +21,24 @@ import rewards_tasks
 import search_only
 
 Tasks = rewards_tasks.RewardsTaskUtils
+
+_journal_dir = None
+_journal_patch = None
+
+
+def setUpModule():
+	# complete_required_searches journals where the day's quota stands; keep that
+	# out of the real data-dir.
+	global _journal_dir, _journal_patch
+	import journal
+	_journal_dir = tempfile.TemporaryDirectory()
+	_journal_patch = mock.patch.object(journal, "JOURNAL_FILE", os.path.join(_journal_dir.name, "journal.jsonl"))
+	_journal_patch.start()
+
+
+def tearDownModule():
+	_journal_patch.stop()
+	_journal_dir.cleanup()
 
 
 class Quota:

@@ -21,6 +21,7 @@ import behavior
 import notify
 import points_log
 import quests
+import journal
 import query_history
 
 from constants import REPO_ROOT
@@ -612,6 +613,12 @@ class RewardsTaskUtils:
 					break
 
 			points_per_search = (points_earned - previous) / searches
+
+		# Where the day's searching stands, for the next build or run to read.
+		journal.record(
+			self.account_name, "search", "quota",
+			account=self.account_name, points=points_earned, cap=max_pts, complete=points_earned >= max_pts,
+		)
 
 		if points_earned >= max_pts:
 			logger.info("Search quota complete: %s/%s", points_earned, max_pts)

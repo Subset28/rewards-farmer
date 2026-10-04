@@ -5,9 +5,11 @@ import random
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import accounts
+import journal
 import log_utils
 import run_lock
 import safety
@@ -27,6 +29,20 @@ END_HOUR = int(os.environ.get("REWARDS_SEARCH_END_HOUR", "23"))
 # A plan made this late has no room for a run, and one made with less than this
 # left in the window waits for tomorrow instead of squeezing a run in.
 MIN_WINDOW = timedelta(minutes=30)
+
+# A planned run that was cut off or missed is redone if it is no more than this
+# late and the window is still open. A run reads the real points first, so doing
+# one again only does what is left.
+CATCH_UP = timedelta(hours=3)
+
+
+@dataclass(frozen=True)
+class Due:
+	"""A run to make: when to start it, which planned time it stands for, and whether it is a catch-up."""
+
+	when: datetime
+	planned: datetime
+	mode: str  # "scheduled" or "catch_up"
 
 
 def account_names() -> list[str] | None:
@@ -70,8 +86,8 @@ def _parse(values) -> list[datetime]:
 	return times
 
 
-def planned_times(now: datetime, owner: str) -> list[datetime]:
-	"""Today's run times still ahead of `now`, the same ones across restarts.
+def day_plan(now: datetime, owner: str) -> list[datetime]:
+	"""Every run planned for today, past ones included, the same ones across restarts.
 
 	A plan already made today is reused, so a restart does not redraw the day.
 	The first call of a day draws and saves one.
@@ -84,7 +100,76 @@ def planned_times(now: datetime, owner: str) -> list[datetime]:
 		times = draw_times(now)
 		schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in times]})
 
-	return [t for t in times if t > now]
+	return times
+
+
+def planned_times(now: datetime, owner: str) -> list[datetime]:
+	"""Today's planned run times still ahead of `now`."""
+	return [t for t in day_plan(now, owner) if t > now]
+
+
+def outstanding(now: datetime, owner: str, rng=random) -> list[Due]:
+	"""The runs still to make, using what the journal says about the ones already planned.
+
+	A planned run that ended is done. One still ahead is waited for. One whose time
+	has passed is either cut off (it started, never ended) or missed (never started),
+	and is redone shortly if it is within CATCH_UP and the window is still open; a
+	run too late to be useful is dropped.
+	"""
+	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
+	rows = journal.events(owner=owner, kind="search", now=now)
+	ended = {row.get("planned") for row in rows if row["event"] == "end"}
+	due = []
+
+	for planned in day_plan(now, owner):
+		if planned.isoformat() in ended:
+			continue
+
+		if planned > now:
+			due.append(Due(planned, planned, "scheduled"))
+		elif now - planned <= CATCH_UP and now < end:
+			# Not at once and not on the dot: a small, different wait each time.
+			due.append(Due(now + timedelta(seconds=rng.uniform(30, 180)), planned, "catch_up"))
+
+	return sorted(due, key=lambda d: d.when)
+
+
+def launch(owner: str, due: Due, run=subprocess.run) -> str:
+	"""Make one run and journal it. Returns "ok", "failed" or "skipped"."""
+	names = account_names()
+	planned = due.planned.isoformat()
+
+	if journal.quota_complete(names):
+		journal.record(owner, "search", "end", planned=planned, outcome="skipped", reason="quota already complete")
+		logger.info("Skipping this search run: today's quota is already complete.")
+
+		return "skipped"
+
+	hold = safety.blocked(names)
+
+	if hold:
+		logger.error("[BRAKE] Skipping this search run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
+		journal.record(owner, "search", "end", planned=planned, outcome="skipped", reason="paused")
+
+		return "skipped"
+
+	logger.info("=== starting scheduled search run%s ===", " (catching up)" if due.mode == "catch_up" else "")
+	journal.record(owner, "search", "start", planned=planned, mode=due.mode)
+	started = time.monotonic()
+
+	try:
+		code = run([sys.executable, "src/search_only.py"], check=False).returncode
+	except Exception as exc:
+		# A run that fails to even launch must not end the loop -- the
+		# whole point of this process is to keep coming back later today
+		# and tomorrow.
+		logger.error("[FAIL] scheduled search run did not start: %s", log_utils.exception_summary(exc))
+		code = None
+
+	outcome = "ok" if code == 0 else "failed"
+	journal.record(owner, "search", "end", planned=planned, outcome=outcome, exit_code=code, seconds=round(time.monotonic() - started))
+
+	return outcome
 
 
 def main() -> None:
@@ -93,11 +178,12 @@ def main() -> None:
 
 	while True:
 		now = datetime.now()
-		todays_runs = planned_times(now, owner)
+		runs = outstanding(now, owner)
 
-		if not todays_runs:
+		if not runs:
 			# Past today's window already (started late, or window rolled by
-			# while asleep). Wait for tomorrow's window instead of running late.
+			# while asleep), or everything planned has been done. Wait for
+			# tomorrow's window instead of running late.
 			tomorrow = (now + timedelta(days=1)).replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
 			wait = (tomorrow - now).total_seconds()
 			logger.info("No more runs left today. Next window starts in %.1f hours", wait / 3600)
@@ -105,33 +191,18 @@ def main() -> None:
 			continue
 
 		logger.info(
-			"%d search run(s) scheduled today at %s",
-			len(todays_runs),
-			", ".join(t.strftime("%H:%M") for t in todays_runs),
+			"%d search run(s) to make today at %s",
+			len(runs),
+			", ".join(due.when.strftime("%H:%M") + (" (catch-up)" if due.mode == "catch_up" else "") for due in runs),
 		)
 
-		for run_time in todays_runs:
-			wait = (run_time - datetime.now()).total_seconds()
+		for due in runs:
+			wait = (due.when - datetime.now()).total_seconds()
 
 			if wait > 0:
 				time.sleep(wait)
 
-			hold = safety.blocked(account_names())
-
-			if hold:
-				logger.error("[BRAKE] Skipping this search run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
-
-				continue
-
-			logger.info("=== starting scheduled search run ===")
-
-			try:
-				subprocess.run([sys.executable, "src/search_only.py"], check=False)
-			except Exception as exc:
-				# A run that fails to even launch must not end the loop -- the
-				# whole point of this process is to keep coming back later today
-				# and tomorrow.
-				logger.error("[FAIL] scheduled search run did not start: %s", log_utils.exception_summary(exc))
+			launch(owner, due)
 
 		# All of today's runs are done. Sleep past midnight so the next loop
 		# iteration picks fresh random times for tomorrow instead of finding

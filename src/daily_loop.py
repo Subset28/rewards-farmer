@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 
 import accounts
+import journal
 import log_utils
 import run_lock
 import safety
@@ -92,19 +93,24 @@ def main() -> None:
 
 		if hold:
 			logger.error("[BRAKE] Skipping today's run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
+			journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="skipped", reason="paused")
 			mark_done(at, owner)
 
 			continue
 
 		logger.info("=== starting scheduled run ===")
+		journal.record(owner, "daily", "start", planned=at.isoformat())
+		started = time.monotonic()
 
 		try:
-			subprocess.run([sys.executable, "src/main.py"], check=False)
+			code = subprocess.run([sys.executable, "src/main.py"], check=False).returncode
 		except Exception as exc:
 			# A run that fails to even launch must not end the loop -- the
 			# whole point of this process is to keep coming back tomorrow.
 			logger.error("[FAIL] scheduled run did not start: %s", log_utils.exception_summary(exc))
+			code = None
 
+		journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="ok" if code == 0 else "failed", exit_code=code, seconds=round(time.monotonic() - started))
 		mark_done(at, owner)
 
 
