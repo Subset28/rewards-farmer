@@ -29,11 +29,13 @@ class Quota:
 	"""
 
 	PROBE_SEARCHES = Tasks.PROBE_SEARCHES
+	DRY_SEARCHES_TO_ALERT = Tasks.DRY_SEARCHES_TO_ALERT
 	account_name = "tester"
 	complete_required_searches = Tasks.complete_required_searches
 
-	def __init__(self, earned=0, cap=50, rate=5, lag_reads=0):
+	def __init__(self, earned=0, cap=50, rate=5, lag_reads=0, dead_batches=()):
 		self.earned, self.cap, self.rate = earned, cap, rate
+		self.dead_batches = set(dead_batches)
 		self.batches = []
 		# Points a batch earned that the page only shows after this many reads.
 		self.lag_reads, self.pending, self.reads_left = lag_reads, 0, 0
@@ -50,7 +52,7 @@ class Quota:
 
 	def run_search_batch(self, count):
 		self.batches.append(count)
-		gained = count * self.rate
+		gained = 0 if len(self.batches) - 1 in self.dead_batches else count * self.rate
 
 		if self.lag_reads:
 			self.pending, self.reads_left = gained, self.lag_reads
@@ -133,6 +135,47 @@ class TestNoPoints(unittest.TestCase):
 			quota.complete_required_searches()
 
 		alert.assert_called_once()
+
+	def test_one_search_that_does_not_credit_is_noise_not_a_restriction(self):
+		# 3 Oct 16:15: a single search added nothing, the next run filled the
+		# quota normally, and the alert had already said "may be restricted".
+		quota = Quota(earned=0, cap=50, rate=5, dead_batches={1})
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="INFO") as logs:
+			quota.complete_required_searches(max_searches=4)
+
+		alert.assert_not_called()
+		self.assertEqual(quota.batches, [3, 1])
+		self.assertTrue(any("counting that as noise" in line for line in logs.output))
+
+	def test_a_small_miss_followed_by_credit_finishes_the_quota_quietly(self):
+		# 2 searches at the end of the quota earn nothing, the next one credits.
+		quota = Quota(earned=45, cap=50, rate=5, dead_batches={0})
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="INFO"):
+			quota.complete_required_searches()
+
+		alert.assert_not_called()
+		self.assertEqual(quota.batches, [2, 1])
+		self.assertEqual(quota.earned, 50)
+
+	def test_two_small_misses_in_a_row_stop_the_run_without_an_alert(self):
+		quota = Quota(earned=45, cap=47, rate=5, dead_batches={0, 1})
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="INFO"):
+			quota.complete_required_searches()
+
+		alert.assert_not_called()
+		self.assertEqual(quota.batches, [1, 1])
+
+	def test_three_searches_with_nothing_to_show_do_alert(self):
+		quota = Quota(earned=0, cap=50, rate=5, dead_batches={0})
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="WARNING"):
+			quota.complete_required_searches()
+
+		alert.assert_called_once()
+		self.assertIn("3 searches", alert.call_args.args[1])
 
 	def test_the_second_look_waits_before_reading_again(self):
 		quota = Quota(earned=0, cap=50, rate=0)

@@ -182,6 +182,11 @@ PLACEHOLDER_RULES = (
 		("MSFT", "AAPL", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "NFLX"),
 	),
 	(
+		re.compile(r"items on your shopping list|your shopping list", re.I),
+		"buy {}",
+		("laundry detergent", "paper towels", "olive oil", "coffee beans", "dish soap", "toothpaste", "peanut butter", "basmati rice"),
+	),
+	(
 		re.compile(r"favou?rite song", re.I),
 		"{} lyrics",
 		("Bohemian Rhapsody", "Imagine John Lennon", "Hotel California", "Yesterday Beatles", "Billie Jean", "Hey Jude", "Rolling in the Deep", "Shape of You", "Stairway to Heaven", "Let It Be"),
