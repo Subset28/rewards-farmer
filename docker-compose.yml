@@ -36,6 +36,8 @@ services:
         limits:
           memory: 1536M
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/manual.log
       # trends needs no account or model, which is why it is the default here.
       # To use a model instead, set QUERY_SOURCE=llm and give OLLAMA_HOST an
       # address the container can reach: localhost inside a container is the
@@ -93,6 +95,8 @@ services:
         limits:
           memory: 1536M
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler.log
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
       # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
       # batch of searches (src/openrouter_queries.py). Put the key in .env next
@@ -140,6 +144,8 @@ services:
         limits:
           memory: 1536M
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler.log
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
       # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
       # batch of searches (src/openrouter_queries.py). Put the key in .env next
@@ -176,6 +182,8 @@ services:
     extends: scheduler
     profiles: ["second"]
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler-second.log
       REWARDS_ACCOUNTS: second
       REWARDS_ANCHOR_HOUR: ${SECOND_ANCHOR_HOUR:-15}
 
@@ -183,6 +191,8 @@ services:
     extends: search-scheduler
     profiles: ["second"]
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler-second.log
       REWARDS_ACCOUNTS: second
       REWARDS_SEARCH_RUNS_PER_DAY: ${SECOND_SEARCH_RUNS_PER_DAY:-3}
 
