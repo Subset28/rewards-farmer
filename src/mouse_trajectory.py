@@ -184,6 +184,9 @@ def get_final_path_from_real_time(
 
 	return final_path_function
 
+MIN_MOVE_TIME = 0.15
+
+
 def get_movement_time_from_fitts_law(distance: float, target_width: float, a: float | None = None, b: float | None = None) -> float:
 	# Clamped at a difficulty of zero. With the pointer already on the target
 	# (clicking the Earn tab twice in a row) the distance is 0 and log2 of it is
@@ -192,7 +195,11 @@ def get_movement_time_from_fitts_law(distance: float, target_width: float, a: fl
 	index_of_difficulty = math.log2(max((2.0 * distance) / max(target_width, 1.0), 1.0))
 	movement_time = (FITTS_LAW_A if a is None else a) + (FITTS_LAW_B if b is None else b) * index_of_difficulty
 
-	return movement_time
+	# A floor under the line. Measured intercepts can be slightly negative (the line
+	# just passes near zero), which would give a tiny move a zero or negative
+	# duration. No move takes less than this, and the original constants never get
+	# near it, so they are unaffected.
+	return max(MIN_MOVE_TIME, movement_time)
 
 def get_final_path_with_fitts_law(
 	target_width: float,
