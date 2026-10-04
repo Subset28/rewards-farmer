@@ -530,12 +530,13 @@ class TestPointsLog(unittest.TestCase):
 			self.assertEqual(points_log.target_for("second"), 500)
 			self.assertIsNone(points_log.target_for("third"))
 
-	def test_default_targets_only_cover_the_default_account(self):
+	def test_default_targets_cover_the_two_known_accounts_only(self):
 		with mock.patch.dict(os.environ, clear=False) as env:
 			env.pop(points_log.LEVEL_TARGETS_ENV, None)
 
 			self.assertEqual(points_log.target_for("default"), 750)
-			self.assertIsNone(points_log.target_for("second"))
+			self.assertEqual(points_log.target_for("second"), 500)
+			self.assertIsNone(points_log.target_for("third"))
 
 	def test_the_report_keeps_accounts_apart(self):
 		points_log.record("default", {"today": 120, "month": 710, "lifetime": 1133})
@@ -548,7 +549,8 @@ class TestPointsLog(unittest.TestCase):
 		self.assertIn("month 20 ", text)
 		self.assertEqual(text.count("to the next level"), 1)
 		self.assertIn("default", text.split("\n\n")[0])
-		self.assertEqual(points_log.report("second").count("month"), 1)
+		self.assertNotIn("next level", text.split("\n\n")[1])
+		self.assertEqual(points_log.report("second").splitlines()[0], "second")
 
 	def test_the_summary_reports_a_daily_rate_over_several_days(self):
 		rows = [
