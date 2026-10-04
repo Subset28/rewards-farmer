@@ -1,8 +1,7 @@
 """Build an account's behavior profile from a person's own recordings.
 
-    python src/recordpress.py        # type for a few minutes in the Edge window
-                                     # that opens, then press Enter in the console
-                                     # -> keypress_times.txt
+    python src/typing_test.py        # a fullscreen test: type 12 search-style phrases
+                                     # -> writes keypress_times.txt when it finishes
     python src/fitts_law.py          # 18 quick clicks -> "MT = a + b * ID"
     python src/make_behavior_profile.py second --keys keypress_times.txt --fitts 0.43 0.16
 
@@ -41,7 +40,7 @@ def show(name: str) -> int:
 def main(argv: list[str]) -> int:
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("account", nargs="?", help="account name, as in REWARDS_ACCOUNTS")
-	parser.add_argument("--keys", help="keypress_times.txt from recordpress.py")
+	parser.add_argument("--keys", help="keypress_times.txt from typing_test.py")
 	parser.add_argument("--fitts", nargs=2, type=float, metavar=("A", "B"), help="a and b from fitts_law.py")
 	parser.add_argument("--show", action="store_true", help="print the profile in use and exit")
 	args = parser.parse_args(argv[1:])
