@@ -188,7 +188,7 @@ class TestBatching(OpenRouterTestCase):
 	def test_the_pool_does_not_carry_over_to_the_next_day(self):
 		self.ask(Reply(REPLY), count=3)
 
-		with mock.patch.object(o, "_today", return_value="2999-01-01"):
+		with mock.patch.object(o, "_local_day", return_value="2999-01-01"):
 			_, net = self.ask(Reply(REPLY), count=3)
 
 		self.assertEqual(net.call_count, 1)
@@ -1049,6 +1049,153 @@ class TestThirdModel(OpenRouterTestCase):
 
 		self.assertNotIn("reasoning", sent)
 		self.assertNotIn("reasoning_effort", sent)
+
+
+class TestModelMemory(OpenRouterTestCase):
+	THREE = "m/first:free,m/second:free,m/third:free"
+
+	def setUp(self):
+		super().setUp()
+		os.environ["OPENROUTER_MODEL"] = self.THREE
+
+	def run_with(self, results):
+		with mock.patch.object(o.urllib.request, "urlopen", side_effect=results) as net:
+			return o.related_queries(5), net
+
+	def asked(self, net):
+		return [json.loads(call.args[0].data)["model"] for call in net.call_args_list]
+
+	def full(self):
+		return http_error_body(429, SHARED_POOL_BODY)
+
+	def test_the_configured_order_is_used_until_something_has_worked(self):
+		self.assertEqual(o.ordered_models(), ["m/first:free", "m/second:free", "m/third:free"])
+
+	def test_a_model_that_worked_is_tried_first_next_time(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), self.full(), Reply(REPLY)])
+
+		o._write_json(o.POOL_FILE, {})
+		o._write_json(o.USAGE_FILE, {**o._read_json(o.USAGE_FILE), "quiet_until": 0})
+
+		self.assertEqual(o.ordered_models()[0], "m/third:free")
+
+	def test_after_a_success_the_next_refresh_goes_straight_to_it(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), Reply(REPLY)])
+
+		o._write_json(o.POOL_FILE, {})
+		_, net = self.run_with([Reply(REPLY)])
+
+		self.assertEqual(self.asked(net)[0], "m/second:free")
+		self.assertEqual(net.call_count, 1)
+
+	def test_a_full_model_rests_so_it_is_not_asked_again_straight_away(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), Reply(REPLY)])
+
+		self.assertNotIn("m/first:free", o.ordered_models())
+		self.assertIn("m/second:free", o.ordered_models())
+
+	def test_a_resting_model_is_skipped_by_the_next_request(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), Reply(REPLY)])
+
+		o._write_json(o.POOL_FILE, {})
+		_, net = self.run_with([Reply(REPLY)])
+
+		self.assertNotIn("m/first:free", self.asked(net))
+
+	def test_the_rest_ends_after_ten_minutes(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), Reply(REPLY)])
+
+		self.assertNotIn("m/first:free", o.ordered_models())
+		self.assertIn("m/first:free", o.ordered_models(now=time.time() + o.MODEL_COOLDOWN_SECONDS + 5))
+
+	def test_when_every_model_is_resting_nothing_is_asked_and_nothing_is_spent(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), self.full(), self.full()])
+
+		spent = o.requests_today()
+		o._write_json(o.USAGE_FILE, {**o._read_json(o.USAGE_FILE), "quiet_until": 0})
+
+		with self.assertLogs(o.logger, level="INFO") as logs:
+			got, net = self.run_with([Reply(REPLY)])
+
+		self.assertEqual(got, [])
+		net.assert_not_called()
+		self.assertEqual(o.requests_today(), spent)
+		self.assertIn("resting", "\n".join(logs.output))
+
+	def test_a_model_that_works_again_stops_resting(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), Reply(REPLY)])
+
+		state = o._read_json(o.USAGE_FILE)
+		state["models"]["m/first:free"]["quiet_until"] = 0
+		o._write_json(o.USAGE_FILE, state)
+		o._write_json(o.POOL_FILE, {})
+
+		self.run_with([Reply(REPLY)])
+
+		# The first is available again, but the second is what worked last, so it
+		# still goes first.
+		self.assertEqual(o.ordered_models()[:2], ["m/second:free", "m/first:free"])
+
+	def test_a_model_that_does_not_exist_rests_for_hours(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([http_error_body(404, {"error": {"message": "no endpoints", "code": 404}}), Reply(REPLY)])
+
+		self.assertNotIn("m/first:free", o.ordered_models(now=time.time() + 3600))
+		self.assertIn("m/first:free", o.ordered_models(now=time.time() + 7 * 3600))
+
+	def test_counting_a_request_does_not_erase_what_is_known_about_the_models(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.run_with([self.full(), Reply(REPLY)])
+
+		before = o._read_json(o.USAGE_FILE)["models"]
+		o._spend()
+
+		self.assertEqual(o._read_json(o.USAGE_FILE)["models"], before)
+
+	def test_a_damaged_model_record_is_ignored(self):
+		o._write_json(o.USAGE_FILE, {"models": {"m/first:free": "oops", "m/second:free": {"good": "x", "quiet_until": None}}})
+
+		self.assertEqual(sorted(o.ordered_models()), ["m/first:free", "m/second:free", "m/third:free"])
+
+	def test_a_models_state_that_is_not_a_dict_is_ignored(self):
+		o._write_json(o.USAGE_FILE, {"models": ["nope"]})
+
+		self.assertEqual(len(o.ordered_models()), 3)
+
+
+class TestPoolFollowsTheLocalDay(OpenRouterTestCase):
+	def test_the_pool_lasts_until_local_midnight_not_utc_midnight(self):
+		self.ask(Reply(REPLY), count=3)
+
+		# The UTC day turns over (8 PM in New York) and the local day has not.
+		with mock.patch.object(o, "_today", return_value="2999-01-01"):
+			_, net = self.ask(Reply(REPLY), count=3)
+
+		net.assert_not_called()
+
+	def test_the_pool_is_new_when_the_local_day_turns_over(self):
+		self.ask(Reply(REPLY), count=3)
+
+		with mock.patch.object(o, "_local_day", return_value="2999-01-01"):
+			_, net = self.ask(Reply(REPLY), count=3)
+
+		self.assertEqual(net.call_count, 1)
+
+	def test_the_request_budget_still_counts_by_the_utc_day_the_provider_uses(self):
+		self.ask(Reply(REPLY), count=3)
+
+		with mock.patch.object(o, "_today", return_value="2999-01-01"):
+			self.assertEqual(o.requests_today(), 0)
+
+		with mock.patch.object(o, "_local_day", return_value="2999-01-01"):
+			self.assertEqual(o.requests_today(), 1)
 
 
 if __name__ == "__main__":

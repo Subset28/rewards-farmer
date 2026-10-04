@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import random
 import subprocess
@@ -6,9 +7,11 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-import log_utils
-import safety
 import accounts
+import log_utils
+import run_lock
+import safety
+import schedule_plan
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,10 @@ RUNS_PER_DAY = int(os.environ.get("REWARDS_SEARCH_RUNS_PER_DAY", "4"))
 START_HOUR = int(os.environ.get("REWARDS_SEARCH_START_HOUR", "8"))
 END_HOUR = int(os.environ.get("REWARDS_SEARCH_END_HOUR", "23"))
 
+# A plan made this late has no room for a run, and one made with less than this
+# left in the window waits for tomorrow instead of squeezing a run in.
+MIN_WINDOW = timedelta(minutes=30)
+
 
 def account_names() -> list[str] | None:
 	"""Names of the accounts this scheduler runs, or None when they cannot be read."""
@@ -30,26 +37,63 @@ def account_names() -> list[str] | None:
 		return None
 
 
-def next_run_times(now: datetime) -> list[datetime]:
-	"""RUNS_PER_DAY random timestamps within today's [START_HOUR, END_HOUR)
-	window, sorted, keeping only those still ahead of `now`."""
-	window_start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
-	window_seconds = (END_HOUR - START_HOUR) * 3600
+def draw_times(now: datetime) -> list[datetime]:
+	"""Random run times in what is left of today's [START_HOUR, END_HOUR) window, sorted.
 
-	times = sorted(
-		window_start + timedelta(seconds=random.uniform(0, window_seconds))
-		for _ in range(RUNS_PER_DAY)
-	)
+	A full day's RUNS_PER_DAY when the day has not started, proportionally fewer
+	when this is made part way through (at least one while 30 minutes remain),
+	and none when the window is nearly over.
+	"""
+	start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
+	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
+	begin = max(start, now + timedelta(minutes=2))
+
+	if end - begin < MIN_WINDOW:
+		return []
+
+	fraction = (end - begin) / (end - start)
+	count = RUNS_PER_DAY if fraction >= 1 else max(1, math.ceil(RUNS_PER_DAY * fraction))
+	span = (end - begin).total_seconds()
+
+	return sorted(begin + timedelta(seconds=random.uniform(0, span)) for _ in range(count))
+
+
+def _parse(values) -> list[datetime]:
+	times = []
+
+	for value in values if isinstance(values, list) else []:
+		try:
+			times.append(datetime.fromisoformat(value))
+		except (TypeError, ValueError):
+			continue
+
+	return times
+
+
+def planned_times(now: datetime, owner: str) -> list[datetime]:
+	"""Today's run times still ahead of `now`, the same ones across restarts.
+
+	A plan already made today is reused, so a restart does not redraw the day.
+	The first call of a day draws and saves one.
+	"""
+	day = now.strftime("%Y-%m-%d")
+	saved = schedule_plan.read("search", owner)
+	times = _parse(saved.get("times")) if saved.get("day") == day else []
+
+	if not times:
+		times = draw_times(now)
+		schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in times]})
 
 	return [t for t in times if t > now]
 
 
 def main() -> None:
 	log_utils.setup_logging()
+	owner = run_lock.owner()
 
 	while True:
 		now = datetime.now()
-		todays_runs = next_run_times(now)
+		todays_runs = planned_times(now, owner)
 
 		if not todays_runs:
 			# Past today's window already (started late, or window rolled by
