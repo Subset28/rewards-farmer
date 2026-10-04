@@ -55,7 +55,8 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 # with 98-99% availability. Not "openrouter/free", which can land on a reasoning
 # or coding model that spends its output limit thinking and returns no queries,
 # and not the Inkling models, whose free endpoint is for agentic harnesses only.
-DEFAULT_MODEL = "google/gemma-4-26b-a4b-it:free"
+DEFAULT_MODELS = ("google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free")
+DEFAULT_MODEL = DEFAULT_MODELS[0]
 DEFAULT_DAILY_LIMIT = 40
 SESSIONS_PER_BATCH = 8
 MAX_SESSION_LENGTH = 4
@@ -76,6 +77,10 @@ CONFIG_ERRORS = {
 	404: "no such model, or no provider for it",
 }
 CONFIG_ERROR_QUIET_SECONDS = 6 * 3600
+
+# Quiet time when every free model's shared upstream pool is full. They fill and
+# drain through the day, and the public feeds cover the gap.
+SHARED_POOL_QUIET_SECONDS = 10 * 60
 
 # Quiet time after a response that reports a cost.
 BILLED_QUIET_SECONDS = 24 * 3600
@@ -314,30 +319,70 @@ def parse_sessions(text: str, avoid=None) -> list[list[str]]:
 	return [s[:MAX_SESSION_LENGTH] for s in sessions]
 
 
-def model_to_use() -> str:
-	"""The model to ask, always a free one unless paid use is switched on.
+def models_to_use() -> list[str]:
+	"""The models to try, in order, every one of them free unless paid use is switched on.
 
-	OpenRouter lists the paid model under the same name without the ":free"
-	suffix, so one missing suffix in OPENROUTER_MODEL would start charging.
-	Anything that is not free falls back to the default, with a warning;
-	OPENROUTER_ALLOW_PAID=1 is the way to mean it.
+	OPENROUTER_MODEL may name several, separated by commas. OpenRouter lists the
+	paid model under the same name without the ":free" suffix, so one missing
+	suffix would start charging: an entry that is not free is left out, with a
+	warning, and OPENROUTER_ALLOW_PAID=1 is the way to mean it. If nothing is left
+	the defaults are used.
 	"""
-	model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+	asked = [m.strip() for m in os.environ.get("OPENROUTER_MODEL", "").split(",") if m.strip()] or list(DEFAULT_MODELS)
+	allow_paid = os.environ.get("OPENROUTER_ALLOW_PAID", "").strip() == "1"
+	kept = []
 
-	if model.endswith(":free") or model == "openrouter/free" or os.environ.get("OPENROUTER_ALLOW_PAID", "").strip() == "1":
-		return model
+	for model in asked:
+		if model.endswith(":free") or model == "openrouter/free" or allow_paid:
+			kept.append(model)
+		else:
+			logger.warning(
+				"OPENROUTER_MODEL entry %r is not a free model (no ':free' suffix) and would be billed. Leaving it out. "
+				"Set OPENROUTER_ALLOW_PAID=1 to allow paid models.",
+				model,
+			)
 
-	logger.warning(
-		"OPENROUTER_MODEL=%r is not a free model (no ':free' suffix) and would be billed. Using %s instead. "
-		"Set OPENROUTER_ALLOW_PAID=1 to allow paid models.",
-		model, DEFAULT_MODEL,
-	)
+	return kept or list(DEFAULT_MODELS)
 
-	return DEFAULT_MODEL
+
+def _quiet(seconds: float) -> None:
+	"""Do not ask again for a while, without counting a request."""
+	usage = _read_json(USAGE_FILE)
+	usage["quiet_until"] = max(float(usage.get("quiet_until", 0) or 0), time.time() + seconds)
+	_write_json(USAGE_FILE, usage)
+
+
+def _describe(exc: urllib.error.HTTPError) -> tuple[str, bool]:
+	"""A short reason from OpenRouter's error body, and whether it is the shared upstream pool that is full.
+
+	The body names the model and the provider and says what to do; it carries no
+	credential. The account's user id that it also holds is deliberately not kept.
+	"""
+	try:
+		body = json.loads(exc.read().decode("utf-8", "replace"))
+	except (ValueError, OSError):
+		return "", False
+
+	error = body.get("error") if isinstance(body, dict) else None
+
+	if not isinstance(error, dict):
+		return "", False
+
+	meta = error.get("metadata") if isinstance(error.get("metadata"), dict) else {}
+	raw = meta.get("raw") if isinstance(meta.get("raw"), str) else ""
+	message = " ".join((raw or str(error.get("message", ""))).split())[:200]
+	shared = meta.get("limit_source") == "upstream_provider_shared_pool" or "rate-limited upstream" in message
+
+	return message, shared
 
 
 def _request(messages: list[dict]) -> str | None:
-	"""One chat completion. Returns the reply text, or None after recording why not."""
+	"""One chat completion, trying each model in turn. Returns the reply text, or None after recording why not.
+
+	Only a failure that is about one model (its shared pool full, an upstream
+	error, a model that does not exist) moves on to the next. A rejected key or a
+	limit on the account itself would be the same for every model, so it stops.
+	"""
 	global _last_call
 
 	key = os.environ.get("OPENROUTER_API_KEY", "").strip()
@@ -347,88 +392,109 @@ def _request(messages: list[dict]) -> str | None:
 
 		return None
 
-	wait = MIN_SPACING_SECONDS - (time.monotonic() - _last_call)
-
-	if wait > 0:
-		time.sleep(wait)
-
 	base = os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL).strip().rstrip("/")
-	model = model_to_use()
-	body = json.dumps({
-		"model": model,
-		"messages": messages,
-		"temperature": 1.0,
-		"max_tokens": 900,
-	}).encode("utf-8")
-	request = urllib.request.Request(
-		f"{base}/chat/completions",
-		data=body,
-		method="POST",
-		headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
-	)
+	failures = []
 
-	_last_call = time.monotonic()
+	for model in models_to_use():
+		wait = MIN_SPACING_SECONDS - (time.monotonic() - _last_call)
 
-	try:
-		with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-			payload = json.loads(response.read().decode("utf-8", "replace"))
-	except urllib.error.HTTPError as exc:
-		if exc.code == 429:
-			try:
-				quiet = float(exc.headers.get("Retry-After", RATE_LIMITED_QUIET_SECONDS))
-			except (TypeError, ValueError):
-				quiet = RATE_LIMITED_QUIET_SECONDS
+		if wait > 0:
+			time.sleep(wait)
 
-			_spend(quiet_for=max(quiet, 60))
-			logger.warning("OpenRouter says slow down (429). Using the trends source for a while.")
-		elif exc.code in (401, 403):
-			_spend(quiet_for=KEY_REJECTED_QUIET_SECONDS)
-			logger.warning("OpenRouter rejected the key or blocked access (%s). Using the trends source.", exc.code)
-		elif exc.code in CONFIG_ERRORS:
-			# A malformed request, a model that needs credits, or one that does not
-			# exist: asking again sends the same request and gets the same answer.
-			_spend(quiet_for=CONFIG_ERROR_QUIET_SECONDS)
-			logger.warning(
-				"OpenRouter answered %s (%s), which asking again will not fix. Using the trends source for a few hours. "
-				"Check OPENROUTER_MODEL (%s).",
-				exc.code, CONFIG_ERRORS[exc.code], model,
-			)
-		else:
-			_spend()
-			logger.warning("OpenRouter answered %s (an upstream failure, usually brief). Using the trends source for this batch.", exc.code)
-
-		exc.close()
-
-		return None
-	except (urllib.error.URLError, OSError, ValueError) as exc:
-		_spend()
-		logger.warning("OpenRouter could not be reached (%s). Using the trends source for this batch.", type(exc).__name__)
-
-		return None
-
-	# A free model should never report a cost. If one does, something is being
-	# billed: use this reply, since it is already paid for, and stop asking for a day.
-	usage = payload.get("usage") if isinstance(payload, dict) else None
-	cost = usage.get("cost") if isinstance(usage, dict) else None
-	billed = isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0
-
-	_spend(quiet_for=BILLED_QUIET_SECONDS if billed else 0.0)
-
-	if billed:
-		logger.warning(
-			"OpenRouter reported a cost of %s for %s, so this request was billed. Not asking again for a day. "
-			"Check OPENROUTER_MODEL and the account's credits.",
-			cost, model,
+		request = urllib.request.Request(
+			f"{base}/chat/completions",
+			data=json.dumps({"model": model, "messages": messages, "temperature": 1.0, "max_tokens": 900}).encode("utf-8"),
+			method="POST",
+			headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
 		)
 
-	try:
-		content = payload["choices"][0]["message"]["content"]
-	except (KeyError, IndexError, TypeError):
-		logger.warning("OpenRouter's reply had no text. Using the trends source for this batch.")
+		_last_call = time.monotonic()
 
-		return None
+		try:
+			with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+				payload = json.loads(response.read().decode("utf-8", "replace"))
+		except urllib.error.HTTPError as exc:
+			reason, shared = _describe(exc)
+			code = exc.code
 
-	return content if isinstance(content, str) else None
+			try:
+				retry_after = float(exc.headers.get("Retry-After", RATE_LIMITED_QUIET_SECONDS))
+			except (TypeError, ValueError):
+				retry_after = RATE_LIMITED_QUIET_SECONDS
+
+			exc.close()
+			_spend()
+
+			if code == 429 and not shared:
+				_quiet(max(retry_after, 60))
+				logger.warning("OpenRouter says slow down (429) for the account: %s. Using the trends source for a while.", reason or "no reason given")
+
+				return None
+
+			if code in (401, 403):
+				_quiet(KEY_REJECTED_QUIET_SECONDS)
+				logger.warning("OpenRouter rejected the key or blocked access (%s): %s. Using the trends source.", code, reason or "no reason given")
+
+				return None
+
+			failures.append("shared" if code == 429 else "config" if code in CONFIG_ERRORS else "other")
+			logger.warning(
+				"OpenRouter answered %s for %s (%s)%s.",
+				code, model,
+				CONFIG_ERRORS.get(code, "the shared free pool is full" if code == 429 else "an upstream failure, usually brief"),
+				f": {reason}" if reason else "",
+			)
+
+			continue
+		except (urllib.error.URLError, OSError, ValueError) as exc:
+			_spend()
+			failures.append("other")
+			logger.warning("OpenRouter could not be reached for %s (%s).", model, type(exc).__name__)
+
+			continue
+
+		# A free model should never report a cost. If one does, something is being
+		# billed: use this reply, since it is already paid for, and stop asking for a day.
+		usage = payload.get("usage") if isinstance(payload, dict) else None
+		cost = usage.get("cost") if isinstance(usage, dict) else None
+		billed = isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0
+
+		_spend()
+
+		if billed:
+			_quiet(BILLED_QUIET_SECONDS)
+			logger.warning(
+				"OpenRouter reported a cost of %s for %s, so this request was billed. Not asking again for a day. "
+				"Check OPENROUTER_MODEL and the account's credits.",
+				cost, model,
+			)
+
+		try:
+			content = payload["choices"][0]["message"]["content"]
+		except (KeyError, IndexError, TypeError):
+			failures.append("other")
+			logger.warning("OpenRouter's reply from %s had no text.", model)
+
+			continue
+
+		if isinstance(content, str) and content.strip():
+			return content
+
+		failures.append("other")
+		logger.warning("OpenRouter's reply from %s was empty.", model)
+
+	# Every model failed. A pool that is full is full for a few minutes; a request the
+	# models reject will be rejected again, so wait longer before asking.
+	if failures and all(f == "shared" for f in failures):
+		_quiet(SHARED_POOL_QUIET_SECONDS)
+		logger.warning("Every free model is rate limited upstream right now. Using the trends source, and asking again in %d minutes.", SHARED_POOL_QUIET_SECONDS // 60)
+	elif failures and all(f == "config" for f in failures):
+		_quiet(CONFIG_ERROR_QUIET_SECONDS)
+		logger.warning("Every model was rejected, which asking again will not fix. Check OPENROUTER_MODEL. Using the trends source for a few hours.")
+	else:
+		logger.warning("OpenRouter gave nothing usable this time. Using the trends source for this batch.")
+
+	return None
 
 
 def _pool(account: str | None) -> list[list[str]]:
