@@ -517,7 +517,38 @@ class TestPointsLog(unittest.TestCase):
 	def test_the_summary_says_how_far_off_the_next_level_is(self):
 		points_log.record("a", {"today": 120, "month": 710, "lifetime": 1133})
 
-		self.assertIn("40 to the next level", points_log.summary(points_log.history()))
+		self.assertIn("40 to the next level", points_log.summary(points_log.history(), 750))
+
+	def test_no_target_means_no_next_level_line(self):
+		points_log.record("a", {"today": 120, "month": 710, "lifetime": 1133})
+
+		self.assertNotIn("next level", points_log.summary(points_log.history()))
+
+	def test_targets_are_per_account_and_unlisted_ones_have_none(self):
+		with mock.patch.dict(os.environ, {points_log.LEVEL_TARGETS_ENV: "default=750, second=500,junk,x=y"}):
+			self.assertEqual(points_log.target_for("default"), 750)
+			self.assertEqual(points_log.target_for("second"), 500)
+			self.assertIsNone(points_log.target_for("third"))
+
+	def test_default_targets_only_cover_the_default_account(self):
+		with mock.patch.dict(os.environ, clear=False) as env:
+			env.pop(points_log.LEVEL_TARGETS_ENV, None)
+
+			self.assertEqual(points_log.target_for("default"), 750)
+			self.assertIsNone(points_log.target_for("second"))
+
+	def test_the_report_keeps_accounts_apart(self):
+		points_log.record("default", {"today": 120, "month": 710, "lifetime": 1133})
+		points_log.record("second", {"today": 5, "month": 20, "lifetime": 30})
+
+		with mock.patch.dict(os.environ, {points_log.LEVEL_TARGETS_ENV: "default=750"}):
+			text = points_log.report()
+
+		self.assertIn("month 710", text)
+		self.assertIn("month 20 ", text)
+		self.assertEqual(text.count("to the next level"), 1)
+		self.assertIn("default", text.split("\n\n")[0])
+		self.assertEqual(points_log.report("second").count("month"), 1)
 
 	def test_the_summary_reports_a_daily_rate_over_several_days(self):
 		rows = [

@@ -3,7 +3,8 @@
 One JSON line per reading in data-dir/points.jsonl, so progress and the effect
 of a change show up in numbers rather than in a feeling:
 
-    python src/points_log.py
+    python src/points_log.py            # every account, one after another
+    python src/points_log.py second     # one account
 """
 
 import json
@@ -16,9 +17,33 @@ from constants import USER_DATA_DIR
 
 LOG_FILE = os.path.join(USER_DATA_DIR, "points.jsonl")
 
-# Monthly points that reach the next level. Not read from the page, so an
-# environment override is there for when Microsoft changes it.
-GOLD_AT = int(os.environ.get("REWARDS_GOLD_AT", "750"))
+# Monthly points that reach each account's next level, as "name=points,name=points".
+# Not read from the page, and accounts sit on different levels, so each has its own
+# target; an account not listed gets no "to the next level" line rather than a wrong one.
+LEVEL_TARGETS_ENV = "REWARDS_LEVEL_TARGETS"
+DEFAULT_LEVEL_TARGETS = "default=750"
+
+
+def parse_targets(text: str) -> dict[str, int]:
+	"""{"default": 750, ...} out of "default=750,second=500". Entries that do not parse are skipped."""
+	targets = {}
+
+	for part in text.split(","):
+		name, _, value = part.partition("=")
+
+		try:
+			targets[name.strip()] = int(value)
+		except ValueError:
+			continue
+
+	targets.pop("", None)
+
+	return targets
+
+
+def target_for(account: str) -> int | None:
+	"""The monthly points that reach this account's next level, or None when it has none set."""
+	return parse_targets(os.environ.get(LEVEL_TARGETS_ENV, DEFAULT_LEVEL_TARGETS)).get(account)
 
 FIELDS = (
 	("today", re.compile(r"today'?s points\s*\|?\s*([\d,]+)", re.I)),
@@ -63,12 +88,12 @@ def history(account: str | None = None) -> list[dict]:
 	return [row for row in rows if account is None or row.get("account") == account]
 
 
-def to_next_level(month_points: int, target: int = GOLD_AT) -> int:
+def to_next_level(month_points: int, target: int) -> int:
 	"""Points still to earn this month for the next level, never negative."""
 	return max(0, target - month_points)
 
 
-def summary(rows: list[dict]) -> str:
+def summary(rows: list[dict], target: int | None = None) -> str:
 	if not rows:
 		return "no readings yet"
 
@@ -76,8 +101,8 @@ def summary(rows: list[dict]) -> str:
 	month = last.get("month")
 	parts = [f"{last['time']}  today {last.get('today', '?')}  month {month if month is not None else '?'}  lifetime {last.get('lifetime', '?')}"]
 
-	if month is not None:
-		left = to_next_level(month)
+	if month is not None and target is not None:
+		left = to_next_level(month, target)
 		parts.append(f"{left} to the next level this month" if left else "next level's monthly target reached")
 
 	first_by_day = {}
@@ -94,5 +119,16 @@ def summary(rows: list[dict]) -> str:
 	return "\n".join(parts)
 
 
+def report(account: str | None = None) -> str:
+	"""One summary per account, each with its own next-level target, or just the one asked for."""
+	rows = history()
+	names = [account] if account else sorted({row.get("account") for row in rows if row.get("account")})
+
+	if not names:
+		return summary([])
+
+	return "\n\n".join(f"{name}\n" + summary([r for r in rows if r.get("account") == name], target_for(name)) for name in names)
+
+
 if __name__ == "__main__":
-	print(summary(history(sys.argv[1] if len(sys.argv) > 1 else None)))
+	print(report(sys.argv[1] if len(sys.argv) > 1 else None))
