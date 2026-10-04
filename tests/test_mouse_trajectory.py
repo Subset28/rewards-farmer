@@ -142,5 +142,36 @@ class MoveMouseLandsOnTheTarget(unittest.TestCase):
 		self.assertEqual(driver.locations[-1], end)
 
 
+class FittsLawEdgeCases(unittest.TestCase):
+	def test_a_pointer_already_on_the_target_is_not_a_math_error(self):
+		# Seen when the Earn tab was clicked twice in a row: distance 0.
+		self.assertAlmostEqual(
+			mouse_trajectory.get_movement_time_from_fitts_law(0, 40),
+			mouse_trajectory.FITTS_LAW_A,
+		)
+
+	def test_a_move_shorter_than_half_the_target_is_not_faster_than_the_fixed_part(self):
+		self.assertAlmostEqual(
+			mouse_trajectory.get_movement_time_from_fitts_law(5, 40),
+			mouse_trajectory.FITTS_LAW_A,
+		)
+
+	def test_a_zero_width_target_does_not_divide_by_zero(self):
+		self.assertGreater(mouse_trajectory.get_movement_time_from_fitts_law(100, 0), 0)
+
+	def test_longer_moves_still_take_longer(self):
+		times = [mouse_trajectory.get_movement_time_from_fitts_law(d, 40) for d in (100, 200, 400, 800)]
+
+		self.assertEqual(times, sorted(times))
+		self.assertEqual(len(set(times)), len(times))
+
+	def test_a_path_from_a_point_to_itself_can_be_sampled(self):
+		path = mouse_trajectory.get_final_path_with_fitts_law(40, (100, 100), (100, 100))
+
+		for t in (0.0, 0.05, 0.2, 0.5):
+			x, y = path(t)
+			self.assertTrue(abs(x - 100) < 60 and abs(y - 100) < 60)
+
+
 if __name__ == "__main__":
 	unittest.main()
