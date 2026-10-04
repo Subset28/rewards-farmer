@@ -516,6 +516,9 @@ class RewardsTaskUtils:
 	# Searches in the first round, before the points per search are known.
 	PROBE_SEARCHES = 3
 
+	# Searches in a row that must add nothing before it is called a problem.
+	DRY_SEARCHES_TO_ALERT = 3
+
 	def complete_required_searches(self, max_rounds: int = 6, max_searches: int | None = None):
 		"""Search until the daily quota is filled, or `max_searches` have been made.
 
@@ -538,6 +541,7 @@ class RewardsTaskUtils:
 		# 5 points each: five extra, on a loop whose worst tell is volume.
 		points_per_search = 3.0
 		budget = max_searches
+		dry_rounds = dry_searches = 0
 
 		for round_number in range(1, max_rounds + 1):
 			if points_earned >= max_pts or (budget is not None and budget <= 0):
@@ -571,17 +575,32 @@ class RewardsTaskUtils:
 				time.sleep(random.uniform(20, 35))
 				points_earned, max_pts = self.read_search_points()
 
-			if points_earned <= previous and points_earned < max_pts:
-				notify.send(
-					"Searches earned no points",
-					f"{self.account_name}: {searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
-				)
-				logger.warning(
-					"Searches earned no points. The account may be restricted, or the "
-					"searches are not being counted. Stopping instead of searching "
-					"pointlessly; check the Rewards page."
-				)
-				break
+			if points_earned > previous or points_earned >= max_pts:
+				dry_rounds = dry_searches = 0
+			else:
+				dry_rounds += 1
+				dry_searches += searches
+
+				# One search that does not credit is noise: on 3 Oct a single
+				# search added nothing and the next run filled the quota
+				# normally, but it raised the "may be restricted" alert. Only a
+				# run of searches with no gain at all is evidence of a problem.
+				if dry_searches >= self.DRY_SEARCHES_TO_ALERT:
+					notify.send(
+						"Searches earned no points",
+						f"{self.account_name}: {dry_searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
+					)
+					logger.warning(
+						"Searches earned no points. The account may be restricted, or the "
+						"searches are not being counted. Stopping instead of searching "
+						"pointlessly; check the Rewards page."
+					)
+					break
+
+				logger.info("%d search(es) did not credit; counting that as noise, not a restriction.", searches)
+
+				if dry_rounds >= 2:
+					break
 
 			points_per_search = (points_earned - previous) / searches
 

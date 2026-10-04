@@ -461,6 +461,7 @@ class TestConcreteQuery(unittest.TestCase):
 		"Search on Bing for the latest price of a specific stock.": " stock price",
 		"Search on Bing for the lyrics of your favorite song": " lyrics",
 		"Search on Bing for the lyrics of your favourite song": " lyrics",
+		"Search on Bing to find items on your shopping list": "buy ",
 	}
 
 	def test_each_placeholder_becomes_a_real_search(self):
@@ -471,7 +472,7 @@ class TestConcreteQuery(unittest.TestCase):
 				self.assertIsNotNone(query)
 				self.assertIn(marker, query)
 				# Nothing of the placeholder wording is left in it.
-				for leftover in ("specific", "different", "favorite", "understand"):
+				for leftover in ("specific", "different", "favorite", "understand", "shopping list"):
 					self.assertNotIn(leftover, query.lower())
 
 	def test_ordinary_descriptions_are_left_alone(self):
