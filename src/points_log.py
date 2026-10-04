@@ -21,7 +21,7 @@ LOG_FILE = os.path.join(USER_DATA_DIR, "points.jsonl")
 # Not read from the page, and accounts sit on different levels, so each has its own
 # target; an account not listed gets no "to the next level" line rather than a wrong one.
 LEVEL_TARGETS_ENV = "REWARDS_LEVEL_TARGETS"
-DEFAULT_LEVEL_TARGETS = "default=750"
+DEFAULT_LEVEL_TARGETS = "default=750,second=500"
 
 
 def parse_targets(text: str) -> dict[str, int]:

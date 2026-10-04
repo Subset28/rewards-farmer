@@ -218,7 +218,7 @@ Set `NOTIFY_URL` to an [ntfy](https://ntfy.sh) topic to get a phone alert when t
 | `NOTIFY_URL` | unset | ntfy topic URL for alerts. |
 | `REWARDS_SEARCHES_PER_RUN` | `5-8` | Searches one scheduled search run makes before stopping, so the quota fills across the day. |
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
-| `REWARDS_LEVEL_TARGETS` | `default=750` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
+| `REWARDS_LEVEL_TARGETS` | `default=750,second=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
 
 ## Search queries from OpenRouter's free models
 
