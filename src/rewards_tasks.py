@@ -21,6 +21,7 @@ import behavior
 import notify
 import points_log
 import quests
+import query_history
 
 from constants import REPO_ROOT
 
@@ -272,7 +273,8 @@ class RewardsTaskUtils:
 	def search_explore_card(self, card, pick: int = 0):
 		"""Open one Explore card, search for what it asks, and look at the results."""
 		desc = self.elements.extract_card_descriptions(card)
-		query = queries.search_query_for_task(desc, pick=pick)
+		query = queries.search_query_for_task(desc, pick=pick, account=self.account_name)
+		query_history.record(self.account_name, query)
 
 		self.move_to_and_click(card)
 		self.tab_utils.switch_to_other_tab()
@@ -678,7 +680,7 @@ class RewardsTaskUtils:
 		breaks = search_behavior.CoffeeBreaks()
 
 		for i, query in enumerate(
-			queries.related_queries(count)
+			queries.related_queries(count, account=self.account_name)
 		):
 			# A fresh homepage for every search, the way a person starts one, in
 			# place of typing the next query into the results page's box. The
@@ -698,7 +700,12 @@ class RewardsTaskUtils:
 
 			# No operator on the query: an identical suffix on every search is
 			# something no person does.
+			logger.info("Search %d/%d: %r", i + 1, count, query)
 			self.keyboard.send_keys(f"{search_behavior.with_typo(query)}{Keys.ENTER}")
+
+			# Remembered as the query that was meant, so it is not searched
+			# again by this account for a month.
+			query_history.record(self.account_name, query)
 
 			time.sleep(random.uniform(2, 4))
 
