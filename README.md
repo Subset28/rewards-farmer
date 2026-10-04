@@ -247,7 +247,9 @@ REWARDS_ACCOUNTS=second docker compose run --rm --service-ports signin
 docker compose --profile second up -d scheduler-second search-scheduler-second
 ```
 
-They run one at a time with the first account (the run lock makes an overlap wait), by default at 15:00 instead of 09:00 (`SECOND_ANCHOR_HOUR`) and on 3 search runs a day (`SECOND_SEARCH_RUNS_PER_DAY`).
+They run one at a time with the first account (the run lock makes an overlap wait), by default at 15:00 instead of 09:00 (`SECOND_ANCHOR_HOUR`) and on 3 search runs a day (`SECOND_SEARCH_RUNS_PER_DAY`). A run for a different account than the one that just finished also waits out a 15 minute cooldown (`REWARDS_ACCOUNT_COOLDOWN_MINUTES`, 0 turns it off), so the two are never used back to back.
+
+None of this hides that both accounts share a connection and a machine. It only keeps their activity from overlapping or touching. Two household members on one connection is ordinary; the bot's own patterns are the part that can link them.
 
 A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
 
