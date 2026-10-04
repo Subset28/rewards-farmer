@@ -11,6 +11,12 @@ other to finish instead of colliding. The lock is an operating system file lock,
 so it is released the moment the holder exits, however it exits: a killed
 container cannot leave it behind.
 
+Two accounts must not look like they are used together, either, so a run for a
+different account than the one that just finished waits out a cooldown first
+(REWARDS_ACCOUNT_COOLDOWN_MINUTES, 15 by default, 0 turns it off). Strictly one
+at a time is not enough: the next account starting seconds after the last one
+stopped is still the same hands on the same connection.
+
 Holding it also makes the profile's own Singleton* files stale by definition,
 since no other bot browser can be running. A killed container leaves them
 pointing at its hostname, and Edge then refuses every later start, so they are
@@ -19,6 +25,7 @@ cleared once the lock is held.
 
 import contextlib
 import glob
+import json
 import logging
 import os
 import time
@@ -39,13 +46,18 @@ logger = logging.getLogger(__name__)
 
 LOCK_FILE = os.path.join(USER_DATA_DIR, ".run.lock")
 
-# A daily run takes about 7 minutes and a search run 1-3, so this is generous.
-DEFAULT_WAIT_MINUTES = 25
+# A daily run takes about 7 minutes and a search run 1-3, and a run can sit out
+# a cooldown of up to DEFAULT_COOLDOWN_MINUTES while holding the lock, so this
+# is generous.
+DEFAULT_WAIT_MINUTES = 45
+
+DEFAULT_COOLDOWN_MINUTES = 15
 
 # Exit code for a run that gave up waiting.
 TIMED_OUT = 4
 
 STALE_PATTERNS = ("Singleton*",)
+LAST_RUN_FILE = ".run.last"
 
 
 class RunLockTimeout(RuntimeError):
@@ -96,6 +108,40 @@ def clear_stale_browser_locks(root: str | None = None) -> list[str]:
 	return removed
 
 
+def owner() -> str:
+	"""Which account(s) this process works for, from REWARDS_ACCOUNTS."""
+	return os.environ.get("REWARDS_ACCOUNTS", "").strip() or "default"
+
+
+def cooldown_seconds_left(directory: str, who: str, minutes: float, now: float | None = None) -> float:
+	"""How long `who` still has to wait because a different account finished recently."""
+	if minutes <= 0:
+		return 0.0
+
+	try:
+		with open(os.path.join(directory, LAST_RUN_FILE), encoding="utf-8") as handle:
+			last = json.load(handle)
+
+		ended, previous = float(last["ended"]), str(last["owner"])
+	except (OSError, ValueError, KeyError, TypeError):
+		return 0.0
+
+	if previous == who:
+		return 0.0
+
+	elapsed = (time.time() if now is None else now) - ended
+
+	return max(0.0, minutes * 60 - elapsed) if elapsed >= 0 else 0.0
+
+
+def record_run_end(directory: str, who: str) -> None:
+	try:
+		with open(os.path.join(directory, LAST_RUN_FILE), "w", encoding="utf-8") as handle:
+			json.dump({"owner": who, "ended": time.time()}, handle)
+	except OSError as exc:
+		logger.warning("Could not record when this run ended: %s", exc)
+
+
 @contextlib.contextmanager
 def run_lock(wait_seconds: float | None = None, poll_seconds: float = 5.0, lock_file: str | None = None):
 	"""Hold the profile for the body, waiting up to `wait_seconds` for another run to finish."""
@@ -124,12 +170,23 @@ def run_lock(wait_seconds: float | None = None, poll_seconds: float = 5.0, lock_
 		if announced:
 			logger.info("The other run finished. Starting.")
 
-		removed = clear_stale_browser_locks(os.path.dirname(lock_file))
+		directory = os.path.dirname(lock_file)
+		removed = clear_stale_browser_locks(directory)
 
 		if removed:
 			logger.warning("Removed %d stale browser lock file(s) left by a run that did not exit cleanly.", len(removed))
 
-		yield
+		who = owner()
+		pause = cooldown_seconds_left(directory, who, float(os.environ.get("REWARDS_ACCOUNT_COOLDOWN_MINUTES", DEFAULT_COOLDOWN_MINUTES)))
+
+		if pause > 0:
+			logger.info("Another account ran a moment ago. Waiting %.0f minutes so they are not used back to back.", pause / 60)
+			time.sleep(pause)
+
+		try:
+			yield
+		finally:
+			record_run_end(directory, who)
 	finally:
 		_unlock(handle)
 		handle.close()

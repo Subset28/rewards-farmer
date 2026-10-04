@@ -129,6 +129,98 @@ class TestStaleBrowserLocks(LockTestCase):
 			self.assertTrue(os.path.exists(live))
 
 
+class TestAccountCooldown(LockTestCase):
+	def last_run(self, who, ended_ago_seconds):
+		with open(os.path.join(self.directory, ".run.last"), "w") as handle:
+			import json
+			json.dump({"owner": who, "ended": time.time() - ended_ago_seconds}, handle)
+
+	def left(self, who, minutes=15):
+		return run_lock.cooldown_seconds_left(self.directory, who, minutes)
+
+	def test_a_different_account_waits_out_the_rest_of_the_cooldown(self):
+		self.last_run("default", 5 * 60)
+
+		self.assertAlmostEqual(self.left("second"), 10 * 60, delta=2)
+
+	def test_the_same_account_does_not_wait(self):
+		self.last_run("second", 10)
+
+		self.assertEqual(self.left("second"), 0.0)
+
+	def test_an_expired_cooldown_is_no_wait(self):
+		self.last_run("default", 16 * 60)
+
+		self.assertEqual(self.left("second"), 0.0)
+
+	def test_the_first_ever_run_does_not_wait(self):
+		self.assertEqual(self.left("second"), 0.0)
+
+	def test_zero_minutes_turns_it_off(self):
+		self.last_run("default", 1)
+
+		self.assertEqual(self.left("second", minutes=0), 0.0)
+
+	def test_a_damaged_record_is_not_a_reason_to_wait(self):
+		with open(os.path.join(self.directory, ".run.last"), "w") as handle:
+			handle.write("{nope")
+
+		self.assertEqual(self.left("second"), 0.0)
+
+	def test_a_clock_that_ran_backwards_is_not_a_reason_to_wait(self):
+		self.last_run("default", -3600)
+
+		self.assertEqual(self.left("second"), 0.0)
+
+	def test_a_run_for_another_account_sleeps_before_it_starts(self):
+		self.last_run("default", 60)
+		slept = []
+
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": "second"}), 			mock.patch.object(run_lock.time, "sleep", slept.append), 			self.assertLogs(run_lock.logger, level="INFO"):
+			with run_lock.run_lock(wait_seconds=1, lock_file=self.lock_file):
+				pass
+
+		self.assertTrue(any(13 * 60 <= s <= 14 * 60 for s in slept), slept)
+
+	def test_a_run_for_the_same_account_does_not_sleep(self):
+		self.last_run("second", 1)
+		slept = []
+
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": "second"}), 			mock.patch.object(run_lock.time, "sleep", slept.append):
+			with run_lock.run_lock(wait_seconds=1, lock_file=self.lock_file):
+				pass
+
+		self.assertEqual(slept, [])
+
+	def test_the_end_of_a_run_is_recorded_with_its_owner(self):
+		import json
+
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": "second"}):
+			with run_lock.run_lock(wait_seconds=1, lock_file=self.lock_file):
+				pass
+
+		with open(os.path.join(self.directory, ".run.last")) as handle:
+			last = json.load(handle)
+
+		self.assertEqual(last["owner"], "second")
+		self.assertAlmostEqual(last["ended"], time.time(), delta=5)
+
+	def test_the_end_is_recorded_even_when_the_run_fails(self):
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": ""}):
+			with self.assertRaises(ValueError):
+				with run_lock.run_lock(wait_seconds=1, lock_file=self.lock_file):
+					raise ValueError("boom")
+
+		self.assertTrue(os.path.exists(os.path.join(self.directory, ".run.last")))
+
+	def test_the_owner_comes_from_the_accounts_setting(self):
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": " second "}):
+			self.assertEqual(run_lock.owner(), "second")
+
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": ""}):
+			self.assertEqual(run_lock.owner(), "default")
+
+
 class TestRunLocked(LockTestCase):
 	def test_it_returns_what_the_run_returns(self):
 		with mock.patch.object(run_lock, "LOCK_FILE", self.lock_file):
