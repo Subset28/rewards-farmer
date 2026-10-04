@@ -48,7 +48,7 @@ services:
       # batch of searches (src/openrouter_queries.py). Put the key in .env next
       # to this file, never here: OPENROUTER_API_KEY=...
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free}
       OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       # Edge runs headed on the virtual display with-xvfb provides (see command
@@ -98,7 +98,7 @@ services:
       # batch of searches (src/openrouter_queries.py). Put the key in .env next
       # to this file, never here: OPENROUTER_API_KEY=...
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free}
       OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
@@ -145,7 +145,7 @@ services:
       # batch of searches (src/openrouter_queries.py). Put the key in .env next
       # to this file, never here: OPENROUTER_API_KEY=...
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free}
       OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"

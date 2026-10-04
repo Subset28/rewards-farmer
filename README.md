@@ -229,12 +229,17 @@ Put the settings in a `.env` file next to `docker-compose.yml` on the NAS (it is
 ```
 QUERY_SOURCE=openrouter
 OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_MODEL=openrouter/free
+OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free
 ```
 
 Then `docker compose up -d --force-recreate scheduler search-scheduler`. The task cards (Explore on Bing and so on) keep using the public feeds, so the allowance goes to the daily searches.
 
-Optionally give an account interests, one per line, in `data-dir/interests/<account>.txt` (the first account is `default`). About half its queries are then about those, so its searching has a subject. Whatever an account has already searched is never offered again, from any source.
+- **Sessions and a persona.** The queries come as sessions of two to four searches that narrow a topic, used back to back. An account without interests gets a persona invented once (one request) and kept in `data-dir/persona/<account>.json`, so it has the same interests every day. That makes its searching consistent; it does not make it the owner's own.
+- **Free models only.** `OPENROUTER_MODEL` must end in `:free` (or be `openrouter/free`); the paid model has the same name without the suffix, so anything else is replaced by the default with a warning unless `OPENROUTER_ALLOW_PAID=1`. A response that reports a cost stops all requests for a day.
+- **The default model** is `google/gemma-4-26b-a4b-it:free`, picked from the free text models by their published latency and availability. The Inkling free endpoints are for agentic harnesses only, and Nemotron 3 Super thinks by default and would spend its output limit doing so.
+- **Errors** follow OpenRouter's documented codes: 429 backs off for the time given, 401/403 and 400/402/404 stop requests for hours (they would only repeat), 502 is treated as brief. Every attempt counts against `OPENROUTER_DAILY_LIMIT`.
+
+Optionally give an account interests, one per line, in `data-dir/interests/<account>.txt` (the first account is `default`). About half its queries are then about those, so its searching has a subject. Free endpoints log what they receive and may train on it, so keep anything personal out of that file. Whatever an account has already searched is never offered again, from any source.
 
 ## A second account, with its own hands
 

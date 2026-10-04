@@ -49,19 +49,32 @@ def http_error(code, retry_after=None):
 	return urllib.error.HTTPError("https://openrouter.ai/api/v1/chat/completions", code, "err", headers, io.BytesIO(b""))
 
 
+REAL_ENSURE_PERSONA = o.ensure_persona
+
+
 class OpenRouterTestCase(unittest.TestCase):
+	# The persona request is a request of its own; tests about batches and the
+	# budget leave it out so their counts stay about what they test.
+	INVENT_PERSONA = False
+
 	def setUp(self):
 		directory = tempfile.TemporaryDirectory()
 		self.addCleanup(directory.cleanup)
 		self.directory = directory.name
 
-		for patcher in (
+		patchers = [
 			mock.patch.object(o, "USAGE_FILE", os.path.join(self.directory, "usage.json")),
 			mock.patch.object(o, "POOL_FILE", os.path.join(self.directory, "pool.json")),
 			mock.patch.object(o, "INTERESTS_DIR", os.path.join(self.directory, "interests")),
+			mock.patch.object(o, "PERSONA_DIR", os.path.join(self.directory, "persona")),
 			mock.patch.object(o.time, "sleep", lambda *_: None),
 			mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": KEY}),
-		):
+		]
+
+		if not self.INVENT_PERSONA:
+			patchers.append(mock.patch.object(o, "ensure_persona", return_value=[]))
+
+		for patcher in patchers:
 			patcher.start()
 			self.addCleanup(patcher.stop)
 
@@ -289,10 +302,18 @@ class TestSecrets(OpenRouterTestCase):
 		self.assertEqual(request.full_url, "https://example.test/v1/chat/completions")
 		self.assertEqual(json.loads(request.data)["model"], "some/model:free")
 
-	def test_the_default_model_is_the_free_router(self):
+	def test_the_default_model_is_an_explicit_plain_free_model_not_the_random_router(self):
 		_, net = self.ask(Reply(REPLY))
 
-		self.assertEqual(json.loads(net.call_args.args[0].data)["model"], "openrouter/free")
+		self.assertEqual(json.loads(net.call_args.args[0].data)["model"], "google/gemma-4-26b-a4b-it:free")
+		self.assertTrue(o.DEFAULT_MODEL.endswith(":free"))
+
+	def test_the_timeout_allows_for_the_free_endpoints_slow_tail(self):
+		self.assertGreaterEqual(o.REQUEST_TIMEOUT, 90)
+
+		_, net = self.ask(Reply(REPLY))
+
+		self.assertEqual(net.call_args.kwargs["timeout"], o.REQUEST_TIMEOUT)
 
 
 class TestPersona(OpenRouterTestCase):
@@ -332,11 +353,202 @@ class TestPersona(OpenRouterTestCase):
 		self.assertIn("lower case", system)
 		self.assertIn("one per line", system)
 
-	def test_the_request_asks_for_a_batch(self):
+	def test_the_request_asks_for_a_batch_of_sessions(self):
 		_, net = self.ask(Reply(REPLY))
 		prompt = json.loads(net.call_args.args[0].data)["messages"][1]["content"]
 
-		self.assertIn(f"Write {o.BATCH_SIZE} different", prompt)
+		self.assertIn(f"Write {o.SESSIONS_PER_BATCH} different search sessions", prompt)
+
+	def test_the_prompt_defines_a_session_and_asks_for_blank_lines_between_them(self):
+		system = o.build_messages(8, None, [])[0]["content"]
+
+		self.assertIn("session", system)
+		self.assertIn("blank line between sessions", system)
+
+	def test_a_typed_interests_file_beats_a_kept_persona(self):
+		os.makedirs(o.PERSONA_DIR, exist_ok=True)
+
+		with open(os.path.join(o.PERSONA_DIR, "second.json"), "w", encoding="utf-8") as handle:
+			json.dump({"interests": ["from the persona"]}, handle)
+
+		self.assertEqual(o.interests("second"), ["from the persona"])
+
+		self.write_interests("second", "typed by the owner\n")
+
+		self.assertEqual(o.interests("second"), ["typed by the owner"])
+
+
+PERSONA_REPLY = "\n".join(["a local football team", "baking sourdough", "planning a trip to portugal", "budget laptops", "indoor herb gardening", "watching crime documentaries"])
+
+
+class TestInventedPersona(OpenRouterTestCase):
+	INVENT_PERSONA = True
+
+	def ask_persona(self, account="second", reply=PERSONA_REPLY):
+		with mock.patch.object(o.urllib.request, "urlopen", return_value=Reply(reply)) as net:
+			return o.ensure_persona(account), net
+
+	def test_one_is_invented_and_kept(self):
+		made, net = self.ask_persona()
+
+		self.assertEqual(len(made), 6)
+		self.assertEqual(net.call_count, 1)
+		self.assertEqual(o.interests("second"), made)
+		self.assertTrue(os.path.exists(os.path.join(o.PERSONA_DIR, "second.json")))
+
+	def test_it_is_not_invented_twice_so_the_account_keeps_the_same_interests(self):
+		first, _ = self.ask_persona()
+		second, net = self.ask_persona(reply="completely different\nother things\nsomething else")
+
+		net.assert_not_called()
+		self.assertEqual(first, second)
+
+	def test_it_is_not_invented_when_the_owner_wrote_one(self):
+		os.makedirs(o.INTERESTS_DIR, exist_ok=True)
+
+		with open(os.path.join(o.INTERESTS_DIR, "second.txt"), "w", encoding="utf-8") as handle:
+			handle.write("my own interest\n")
+
+		made, net = self.ask_persona()
+
+		net.assert_not_called()
+		self.assertEqual(made, ["my own interest"])
+
+	def test_each_account_gets_its_own(self):
+		a, _ = self.ask_persona("one", "alpha thing one\nalpha thing two\nalpha thing three")
+		b, _ = self.ask_persona("two", "beta thing one\nbeta thing two\nbeta thing three")
+
+		self.assertNotEqual(a, b)
+		self.assertEqual(o.interests("one"), a)
+
+	def test_it_costs_one_request_from_the_budget(self):
+		self.ask_persona()
+
+		self.assertEqual(o.requests_today(), 1)
+
+	def test_with_no_budget_it_is_not_asked_for(self):
+		with mock.patch.dict(os.environ, {"OPENROUTER_DAILY_LIMIT": "0"}):
+			made, net = self.ask_persona()
+
+		self.assertEqual(made, [])
+		net.assert_not_called()
+
+	def test_a_reply_that_is_not_a_list_of_interests_makes_no_persona(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			made, _ = self.ask_persona(reply="I am sorry, I cannot help with that.")
+
+		self.assertEqual(made, [])
+		self.assertFalse(os.path.exists(os.path.join(o.PERSONA_DIR, "second.json")))
+
+	def test_a_failed_request_makes_no_persona_and_does_not_raise(self):
+		with mock.patch.object(o.urllib.request, "urlopen", side_effect=urllib.error.URLError("down")), \
+			self.assertLogs(o.logger, level="WARNING"):
+			self.assertEqual(o.ensure_persona("second"), [])
+
+	def test_the_interests_are_cleaned_like_things_a_person_would_say(self):
+		made, _ = self.ask_persona(reply="1. The Dodgers!\n- baking (sourdough)\n* \"road trips\"\nhere are some interests:\nx")
+
+		self.assertEqual(made, ["the dodgers", "baking sourdough", "road trips"])
+
+	def test_at_most_eight_are_kept(self):
+		made, _ = self.ask_persona(reply="\n".join(f"interest number {i}" for i in range(20)))
+
+		self.assertEqual(len(made), o.MAX_INTERESTS)
+
+	def test_related_queries_makes_the_persona_first_and_uses_it_in_the_batch(self):
+		replies = [Reply(PERSONA_REPLY), Reply(REPLY)]
+
+		with mock.patch.object(o.urllib.request, "urlopen", side_effect=replies) as net:
+			got = o.related_queries(5, account="second")
+
+		self.assertEqual(net.call_count, 2)
+		self.assertEqual(len(got), 5)
+
+		batch_prompt = json.loads(net.call_args_list[1].args[0].data)["messages"][1]["content"]
+
+		self.assertIn("a local football team", batch_prompt)
+		self.assertEqual(o.requests_today(), 2)
+
+	def test_a_second_call_the_same_day_needs_neither(self):
+		replies = [Reply(PERSONA_REPLY), Reply(REPLY)]
+
+		with mock.patch.object(o.urllib.request, "urlopen", side_effect=replies):
+			o.related_queries(5, account="second")
+
+		with mock.patch.object(o.urllib.request, "urlopen") as net:
+			o.related_queries(5, account="second")
+
+		net.assert_not_called()
+
+	def test_a_failed_persona_does_not_stop_the_queries(self):
+		replies = [urllib.error.URLError("down"), Reply(REPLY)]
+
+		with mock.patch.object(o.urllib.request, "urlopen", side_effect=replies), self.assertLogs(o.logger, level="WARNING"):
+			got = o.related_queries(5, account="second")
+
+		self.assertEqual(len(got), 5)
+
+
+class TestSessions(OpenRouterTestCase):
+	REPLY = "best hiking boots\nhiking boots for wide feet\nhiking boots sale\n\nhow to bake sourdough\nsourdough starter not rising\n\ncheap flights to lisbon\nlisbon weather in march\nthings to do in lisbon\nlisbon airport transport"
+
+	def test_blank_lines_separate_sessions(self):
+		sessions = o.parse_sessions(self.REPLY)
+
+		self.assertEqual(len(sessions), 3)
+		self.assertEqual(sessions[1], ["how to bake sourdough", "sourdough starter not rising"])
+
+	def test_a_session_is_cut_to_the_maximum_length(self):
+		sessions = o.parse_sessions("\n".join(f"query about topic {i}" for i in range(4)) + "\n\n" + "\n".join(f"other topic number {i}" for i in range(9)))
+
+		self.assertTrue(all(len(s) <= o.MAX_SESSION_LENGTH for s in sessions))
+
+	def test_a_reply_with_no_blank_lines_is_cut_into_sessions_not_thrown_away(self):
+		sessions = o.parse_sessions("\n".join(f"query number {i} here" for i in range(9)))
+
+		self.assertEqual([len(s) for s in sessions], [3, 3, 3])
+
+	def test_no_query_is_used_in_two_sessions(self):
+		sessions = o.parse_sessions("same query here\nanother query here\n\nsame query here\nthird query here")
+
+		flat = [q for s in sessions for q in s]
+
+		self.assertEqual(len(flat), len(set(flat)))
+
+	def test_what_to_avoid_is_dropped_and_an_emptied_session_disappears(self):
+		sessions = o.parse_sessions("old one here\nold two here\n\nnew one here", avoid={"old one here", "old two here"})
+
+		self.assertEqual(sessions, [["new one here"]])
+
+	def test_a_preamble_block_is_ignored(self):
+		sessions = o.parse_sessions("Here are your sessions:\n\nbest hiking boots\nhiking boots sale")
+
+		self.assertEqual(sessions, [["best hiking boots", "hiking boots sale"]])
+
+	def test_nothing_in_gives_no_sessions(self):
+		self.assertEqual(o.parse_sessions(""), [])
+		self.assertEqual(o.parse_sessions(None), [])
+
+	def test_queries_come_back_in_session_order_so_topics_stay_together(self):
+		got, _ = self.ask(Reply(self.REPLY), count=5)
+
+		self.assertEqual(got, ["best hiking boots", "hiking boots for wide feet", "hiking boots sale", "how to bake sourdough", "sourdough starter not rising"])
+
+	def test_the_rest_of_a_cut_session_comes_first_next_time(self):
+		first, _ = self.ask(Reply(self.REPLY), count=4)
+		second, net = self.ask(Reply(self.REPLY), count=3)
+
+		self.assertEqual(first[-1], "how to bake sourdough")
+		self.assertEqual(second[0], "sourdough starter not rising")
+		net.assert_not_called()
+
+	def test_an_old_flat_pool_is_still_readable(self):
+		o._write_json(o.POOL_FILE, {"default": {"date": o._today(), "queries": ["old flat one", "old flat two"]}})
+
+		got, net = self.ask(Reply(self.REPLY), count=2)
+
+		self.assertEqual(got, ["old flat one", "old flat two"])
+		net.assert_not_called()
 
 
 class TestWiredIntoQueries(OpenRouterTestCase):
@@ -419,6 +631,129 @@ class TestSpacing(OpenRouterTestCase):
 
 		self.assertTrue(any(0 < s <= o.MIN_SPACING_SECONDS for s in slept), slept)
 		self.assertLess(60 / o.MIN_SPACING_SECONDS, 20 + 1)
+
+
+class TestFreeModelGuard(OpenRouterTestCase):
+	def sent_model(self, **env):
+		with mock.patch.dict(os.environ, env):
+			_, net = self.ask(Reply(REPLY))
+
+		return json.loads(net.call_args.args[0].data)["model"]
+
+	def test_a_free_model_is_used_as_given(self):
+		self.assertEqual(self.sent_model(OPENROUTER_MODEL="google/gemma-4-31b-it:free"), "google/gemma-4-31b-it:free")
+
+	def test_the_free_router_is_allowed(self):
+		self.assertEqual(self.sent_model(OPENROUTER_MODEL="openrouter/free"), "openrouter/free")
+
+	def test_a_model_without_the_free_suffix_is_replaced_not_billed(self):
+		# The paid model is listed under the same name without the suffix.
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			sent = self.sent_model(OPENROUTER_MODEL="google/gemma-4-26b-a4b-it")
+
+		self.assertEqual(sent, o.DEFAULT_MODEL)
+		self.assertIn("would be billed", logs.output[0])
+
+	def test_paid_models_need_an_explicit_yes(self):
+		self.assertEqual(
+			self.sent_model(OPENROUTER_MODEL="google/gemma-4-26b-a4b-it", OPENROUTER_ALLOW_PAID="1"),
+			"google/gemma-4-26b-a4b-it",
+		)
+
+	def test_anything_but_one_does_not_allow_paid_models(self):
+		for value in ("0", "true", "yes", ""):
+			o._write_json(o.POOL_FILE, {})
+
+			with self.subTest(value=value), self.assertLogs(o.logger, level="WARNING"):
+				self.assertEqual(self.sent_model(OPENROUTER_MODEL="some/paid-model", OPENROUTER_ALLOW_PAID=value), o.DEFAULT_MODEL)
+
+	def test_an_unset_or_blank_model_is_the_free_default(self):
+		self.assertEqual(self.sent_model(OPENROUTER_MODEL=""), o.DEFAULT_MODEL)
+
+	def test_the_default_is_itself_free(self):
+		self.assertTrue(o.DEFAULT_MODEL.endswith(":free"))
+
+
+class TestDocumentedErrors(OpenRouterTestCase):
+	def fail_with(self, code):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			got, _ = self.ask(http_error(code))
+
+		return got, logs.output[0]
+
+	def test_malformed_credits_and_unknown_model_go_quiet_for_hours_and_say_what_to_check(self):
+		for code in (400, 402, 404):
+			with self.subTest(code=code):
+				o._write_json(o.USAGE_FILE, {})
+				got, message = self.fail_with(code)
+
+				self.assertEqual(got, [])
+				self.assertGreater(o.quiet_until(), time.time() + 5 * 3600)
+				self.assertIn("OPENROUTER_MODEL", message)
+				self.assertIn(o.DEFAULT_MODEL, message)
+
+	def test_a_402_says_the_model_is_not_free(self):
+		_, message = self.fail_with(402)
+
+		self.assertIn("not a free model", message)
+
+	def test_a_502_is_brief_so_it_does_not_silence_later_requests(self):
+		self.fail_with(502)
+
+		self.assertTrue(o.may_ask())
+		self.assertEqual(o.requests_today(), 1)
+
+	def test_nothing_is_asked_during_the_quiet_spell_after_a_config_error(self):
+		self.fail_with(404)
+		_, net = self.ask(Reply(REPLY))
+
+		net.assert_not_called()
+
+
+class TestBilledResponses(OpenRouterTestCase):
+	def reply_with_cost(self, cost):
+		reply = Reply(REPLY)
+		payload = json.loads(reply.body)
+		payload["usage"] = {"prompt_tokens": 10, "completion_tokens": 20, "cost": cost}
+		reply.body = json.dumps(payload).encode("utf-8")
+
+		return reply
+
+	def test_a_reported_cost_stops_requests_for_a_day_but_keeps_the_reply(self):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			got, _ = self.ask(self.reply_with_cost(0.0013))
+
+		self.assertEqual(len(got), 5)
+		self.assertGreater(o.quiet_until(), time.time() + 23 * 3600)
+		self.assertIn("was billed", logs.output[0])
+		self.assertFalse(o.may_ask())
+
+	def test_a_zero_cost_is_fine(self):
+		got, _ = self.ask(self.reply_with_cost(0))
+
+		self.assertEqual(len(got), 5)
+		self.assertTrue(o.may_ask())
+
+	def test_a_missing_or_odd_cost_is_fine(self):
+		for cost in (None, "free", True, [], {}):
+			with self.subTest(cost=cost):
+				o._write_json(o.USAGE_FILE, {})
+				o._write_json(o.POOL_FILE, {})
+				self.ask(self.reply_with_cost(cost), account=repr(cost))
+
+				self.assertTrue(o.may_ask())
+
+	def test_a_reply_with_no_usage_at_all_is_fine(self):
+		got, _ = self.ask(Reply(REPLY))
+
+		self.assertEqual(len(got), 5)
+		self.assertTrue(o.may_ask())
+
+	def test_a_billed_request_still_counts_once_against_the_day(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.ask(self.reply_with_cost(0.5))
+
+		self.assertEqual(o.requests_today(), 1)
 
 
 if __name__ == "__main__":
