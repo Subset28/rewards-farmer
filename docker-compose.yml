@@ -44,6 +44,12 @@ services:
       #
       #   QUERY_SOURCE=llm OLLAMA_HOST=host.docker.internal:11434 docker compose run --rm rewards-farmer
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
+      # batch of searches (src/openrouter_queries.py). Put the key in .env next
+      # to this file, never here: OPENROUTER_API_KEY=...
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       # Edge runs headed on the virtual display with-xvfb provides (see command
       # below) rather than headless: headless Edge is not credited for the
@@ -88,6 +94,12 @@ services:
           memory: 1536M
     environment:
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
+      # batch of searches (src/openrouter_queries.py). Put the key in .env next
+      # to this file, never here: OPENROUTER_API_KEY=...
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
@@ -129,6 +141,12 @@ services:
           memory: 1536M
     environment:
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
+      # batch of searches (src/openrouter_queries.py). Put the key in .env next
+      # to this file, never here: OPENROUTER_API_KEY=...
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
+      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}

@@ -220,6 +220,22 @@ Set `NOTIFY_URL` to an [ntfy](https://ntfy.sh) topic to get a phone alert when t
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
 | `REWARDS_GOLD_AT` | `750` | Monthly points that reach the next level, for the progress line. |
 
+## Search queries from OpenRouter's free models
+
+`QUERY_SOURCE=openrouter` asks OpenRouter's free models for the day's search queries (`src/openrouter_queries.py`). The free tier allows 50 requests a day and 20 a minute, so a request is spent on a whole batch of 24 queries, kept as a pool for the day, and a day costs a handful of requests. A hard daily cap below the allowance is enforced across all containers (`OPENROUTER_DAILY_LIMIT`, 40), failed attempts count against it, a 429 or a rejected key makes it go quiet for a while, and anything that goes wrong falls back to the public feeds, so a run is never short of queries.
+
+Put the settings in a `.env` file next to `docker-compose.yml` on the NAS (it is gitignored; never paste the key into chat or a command line you keep in history):
+
+```
+QUERY_SOURCE=openrouter
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=openrouter/free
+```
+
+Then `docker compose up -d --force-recreate scheduler search-scheduler`. The task cards (Explore on Bing and so on) keep using the public feeds, so the allowance goes to the daily searches.
+
+Optionally give an account interests, one per line, in `data-dir/interests/<account>.txt` (the first account is `default`). About half its queries are then about those, so its searching has a subject. Whatever an account has already searched is never offered again, from any source.
+
 ## A second account, with its own hands
 
 Every account types and moves with its own profile (`src/behavior.py`), so two accounts do not look like one operator. The account that was already running keeps the original measurements. Any other account gets a **provisional** profile, stable and different from every other account's, until you record its owner's real one. The log says which kind is in use.
