@@ -793,7 +793,8 @@ class TestModelList(OpenRouterTestCase):
 	def test_the_defaults_are_two_free_gemma_models(self):
 		os.environ.pop("OPENROUTER_MODEL")
 
-		self.assertEqual(o.models_to_use(), ["google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free"])
+		self.assertEqual(o.models_to_use(), list(o.DEFAULT_MODELS))
+		self.assertEqual(len(o.DEFAULT_MODELS), 3)
 
 	def test_a_comma_separated_list_is_used_in_order_ignoring_spaces(self):
 		self.assertEqual(self.models(OPENROUTER_MODEL=" a/one:free , b/two:free,, c/three:free "), ["a/one:free", "b/two:free", "c/three:free"])
@@ -960,6 +961,94 @@ class TestFallsBackBetweenModels(OpenRouterTestCase):
 			self.run_with([http_error_body(429, SHARED_POOL_BODY), Reply(REPLY)])
 
 		self.assertGreaterEqual(len([s for s in slept if 0 < s <= o.MIN_SPACING_SECONDS]), 1)
+
+
+class TestStripThinking(unittest.TestCase):
+	def test_a_whole_think_block_is_removed(self):
+		self.assertEqual(o.strip_thinking("<think>let me plan the queries</think>best hiking boots\nsourdough starter").strip(), "best hiking boots\nsourdough starter")
+
+	def test_a_multiline_block_and_any_case_are_removed(self):
+		self.assertEqual(o.strip_thinking("<THINK>line one\nline two\n</Think>\nreal query here").strip(), "real query here")
+
+	def test_several_blocks_are_all_removed(self):
+		self.assertEqual(o.strip_thinking("<think>a</think>one query here<think>b</think> two query here").strip(), "one query here two query here")
+
+	def test_only_the_text_after_a_lone_closing_tag_is_kept(self):
+		self.assertEqual(o.strip_thinking("thoughts that ran on\nand on</think>\nbest hiking boots").strip(), "best hiking boots")
+
+	def test_a_stray_opening_tag_is_dropped(self):
+		self.assertEqual(o.strip_thinking("<think>best hiking boots").strip(), "best hiking boots")
+
+	def test_text_without_any_is_unchanged(self):
+		self.assertEqual(o.strip_thinking("best hiking boots\nsourdough starter"), "best hiking boots\nsourdough starter")
+
+	def test_only_thinking_leaves_nothing(self):
+		self.assertEqual(o.strip_thinking("<think>I should write queries now</think>").strip(), "")
+
+
+class TestThirdModel(OpenRouterTestCase):
+	ALL = "m/first:free,m/second:free,n/third:free"
+
+	def run_with(self, results):
+		with mock.patch.dict(os.environ, {"OPENROUTER_MODEL": self.ALL}), \
+			mock.patch.object(o.urllib.request, "urlopen", side_effect=results) as net:
+			return o.related_queries(5), net
+
+	def models_asked(self, net):
+		return [json.loads(call.args[0].data)["model"] for call in net.call_args_list]
+
+	def test_the_defaults_end_with_a_model_from_another_provider(self):
+		os.environ.pop("OPENROUTER_MODEL")
+
+		models = o.models_to_use()
+
+		self.assertEqual(models[:2], ["google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free"])
+		self.assertEqual(models[2], "nvidia/nemotron-3-super-120b-a12b:free")
+		self.assertTrue(all(m.endswith(":free") for m in models))
+
+	def test_the_third_is_used_when_the_first_two_are_rate_limited(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([http_error_body(429, SHARED_POOL_BODY), http_error_body(429, SHARED_POOL_BODY), Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(self.models_asked(net), ["m/first:free", "m/second:free", "n/third:free"])
+		self.assertEqual(o.requests_today(), 3)
+
+	def test_all_three_rate_limited_waits_a_few_minutes(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([http_error_body(429, SHARED_POOL_BODY) for _ in range(3)])
+
+		self.assertEqual(got, [])
+		self.assertEqual(net.call_count, 3)
+		self.assertTrue(time.time() + 8 * 60 < o.quiet_until() < time.time() + 12 * 60)
+
+	def test_a_thinking_model_that_returns_only_thinking_moves_on(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([Reply("<think>planning</think>"), Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(net.call_count, 2)
+
+	def test_thinking_that_leaks_into_the_reply_is_not_searched_for(self):
+		leaked = "<think>I need eight words at most per query so I will keep them short</think>\n" + REPLY
+		got, _ = self.run_with([Reply(leaked)])
+
+		self.assertEqual(len(got), 5)
+		self.assertTrue(all("hiking" in q for q in got))
+		self.assertFalse(any("think" in q or "eight words" in q for q in got))
+
+	def test_the_output_cap_leaves_room_to_think_and_still_answer(self):
+		_, net = self.run_with([Reply(REPLY)])
+
+		self.assertEqual(json.loads(net.call_args.args[0].data)["max_tokens"], o.MAX_TOKENS)
+		self.assertGreaterEqual(o.MAX_TOKENS, 2000)
+
+	def test_no_reasoning_parameter_is_sent_because_its_shape_is_not_documented(self):
+		_, net = self.run_with([Reply(REPLY)])
+		sent = json.loads(net.call_args.args[0].data)
+
+		self.assertNotIn("reasoning", sent)
+		self.assertNotIn("reasoning_effort", sent)
 
 
 if __name__ == "__main__":

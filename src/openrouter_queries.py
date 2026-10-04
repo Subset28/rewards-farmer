@@ -55,7 +55,11 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 # with 98-99% availability. Not "openrouter/free", which can land on a reasoning
 # or coding model that spends its output limit thinking and returns no queries,
 # and not the Inkling models, whose free endpoint is for agentic harnesses only.
-DEFAULT_MODELS = ("google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free")
+# The two Gemma models share one pool at Google AI Studio, so when it is full both
+# are. The last is served by NVIDIA itself, a different provider. It thinks by
+# default (about 2.4 times as many reasoning tokens as answer tokens on its page),
+# which is why MAX_TOKENS is generous and a reply can be stripped of thinking.
+DEFAULT_MODELS = ("google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-super-120b-a12b:free")
 DEFAULT_MODEL = DEFAULT_MODELS[0]
 DEFAULT_DAILY_LIMIT = 40
 SESSIONS_PER_BATCH = 8
@@ -64,6 +68,12 @@ MAX_SESSION_LENGTH = 4
 # percentile 20, 99th about a minute), and a timed-out request is spent all the
 # same, so give it room.
 REQUEST_TIMEOUT = 100
+
+# An output cap, not a target: a model that does not think stops after a few
+# hundred tokens, and one that does has room to think and still answer.
+MAX_TOKENS = 2500
+
+THINKING = re.compile(r"<think>.*?</think>", re.S | re.I)
 
 # Quiet time after a rejected key, and after a 429 that names no time.
 KEY_REJECTED_QUIET_SECONDS = 6 * 3600
@@ -345,6 +355,16 @@ def models_to_use() -> list[str]:
 	return kept or list(DEFAULT_MODELS)
 
 
+def strip_thinking(text: str) -> str:
+	"""A reply without any reasoning a model put in it: whole <think> blocks, or everything up to a lone </think>."""
+	text = THINKING.sub("", text)
+
+	if "</think>" in text.lower():
+		text = re.split(r"</think>", text, flags=re.I)[-1]
+
+	return text.replace("<think>", "")
+
+
 def _quiet(seconds: float) -> None:
 	"""Do not ask again for a while, without counting a request."""
 	usage = _read_json(USAGE_FILE)
@@ -403,7 +423,7 @@ def _request(messages: list[dict]) -> str | None:
 
 		request = urllib.request.Request(
 			f"{base}/chat/completions",
-			data=json.dumps({"model": model, "messages": messages, "temperature": 1.0, "max_tokens": 900}).encode("utf-8"),
+			data=json.dumps({"model": model, "messages": messages, "temperature": 1.0, "max_tokens": MAX_TOKENS}).encode("utf-8"),
 			method="POST",
 			headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
 		)
@@ -477,7 +497,9 @@ def _request(messages: list[dict]) -> str | None:
 
 			continue
 
-		if isinstance(content, str) and content.strip():
+		content = strip_thinking(content) if isinstance(content, str) else ""
+
+		if content.strip():
 			return content
 
 		failures.append("other")
