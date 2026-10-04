@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 LLM = "llm"
 TRENDS = "trends"
+OPENROUTER = "openrouter"
 
 DEFAULT_SOURCE = LLM
 
@@ -37,12 +38,21 @@ def selected_source() -> str:
 	"""Read on each call so a test can change it without reimporting."""
 	choice = os.environ.get(ENV_VAR, DEFAULT_SOURCE).strip().lower()
 
-	return choice if choice in (LLM, TRENDS) else DEFAULT_SOURCE
+	return choice if choice in (LLM, TRENDS, OPENROUTER) else DEFAULT_SOURCE
+
+
+def _public_feeds() -> bool:
+	"""Whether the public-feed paths apply: trends itself, and openrouter, which falls back to it."""
+	return selected_source() in (TRENDS, OPENROUTER)
 
 
 def search_query_for_task(task_description: str, pick: int = 0, account: str | None = None) -> str:
-	"""A query for one "Search on Bing for X" card. `pick` > 0 asks for a different one."""
-	if selected_source() == TRENDS:
+	"""A query for one "Search on Bing for X" card. `pick` > 0 asks for a different one.
+
+	OpenRouter's free allowance is spent on the daily batch of search queries, so
+	the cards use the same public feeds as the trends source.
+	"""
+	if _public_feeds():
 		query = query_sources.query_from_task_description(task_description, pick=pick, avoid=query_history.recent(account))
 
 		if query:
@@ -63,9 +73,19 @@ def search_query_for_task(task_description: str, pick: int = 0, account: str | N
 
 def related_queries(count: int, account: str | None = None):
 	"""`count` queries for the daily search quota, none this account searched lately."""
-	if selected_source() == TRENDS:
+	if _public_feeds():
 		searched = query_history.recent(account)
-		queries = query_sources.related_queries(count, exclude=searched)
+		queries = []
+
+		if selected_source() == OPENROUTER:
+			import openrouter_queries
+
+			queries = openrouter_queries.related_queries(count, account=account, exclude=searched)
+
+		# Whatever OpenRouter did not supply (no key, no budget left, an error,
+		# a short reply) comes from the public feeds, so a run is never short.
+		if len(queries) < count:
+			queries += query_sources.related_queries(count - len(queries), exclude=searched | {q.lower() for q in queries})
 
 		if queries:
 			return queries
