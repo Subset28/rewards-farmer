@@ -248,7 +248,7 @@ Every account types and moves with its own profile (`src/behavior.py`), so two a
 **1. Record the owner's typing and mouse speed**, on the machine and with the hands of the person the account belongs to:
 
 ```
-python src/recordpress.py     # type normally for a few minutes in the Edge window, then press Enter
+python src/typing_test.py     # a fullscreen test: type 12 search-style phrases the way you normally do
 python src/fitts_law.py       # 18 quick clicks; note "MT = a + b * ID"
 python src/make_behavior_profile.py second --keys keypress_times.txt --fitts 0.43 0.16
 python src/make_behavior_profile.py --show second

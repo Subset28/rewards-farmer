@@ -162,7 +162,7 @@ def load(name: str) -> Behavior:
 
 	logger.warning(
 		"%s: no recorded behavior profile at %s, so this account types and moves with a provisional one. "
-		"Record yours with src/recordpress.py and src/fitts_law.py, then src/make_behavior_profile.py.",
+		"Record yours with src/typing_test.py and src/fitts_law.py, then src/make_behavior_profile.py.",
 		name, path,
 	)
 
