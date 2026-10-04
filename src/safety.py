@@ -210,6 +210,7 @@ def trip(risk: Risk, account_name: str) -> None:
 		"Rewards bot paused",
 		f"{account_name}: {risk.kind} - {risk.reason}. Look at the account, then run: {command}",
 		priority="high",
+		account=account_name,
 	)
 
 

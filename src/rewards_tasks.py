@@ -599,6 +599,7 @@ class RewardsTaskUtils:
 					notify.send(
 						"Searches earned no points",
 						f"{self.account_name}: {dry_searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
+						account=self.account_name,
 					)
 					logger.warning(
 						"Searches earned no points. The account may be restricted, or the "
