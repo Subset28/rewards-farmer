@@ -80,7 +80,7 @@ class OpenRouterTestCase(unittest.TestCase):
 
 		o._last_call = 0.0
 		os.environ.pop("OPENROUTER_DAILY_LIMIT", None)
-		os.environ.pop("OPENROUTER_MODEL", None)
+		os.environ["OPENROUTER_MODEL"] = "test/single:free"
 
 	def ask(self, urlopen_result, **kwargs):
 		"""related_queries with the network replaced; returns (queries, calls)."""
@@ -303,10 +303,12 @@ class TestSecrets(OpenRouterTestCase):
 		self.assertEqual(json.loads(request.data)["model"], "some/model:free")
 
 	def test_the_default_model_is_an_explicit_plain_free_model_not_the_random_router(self):
+		os.environ.pop("OPENROUTER_MODEL")
 		_, net = self.ask(Reply(REPLY))
 
 		self.assertEqual(json.loads(net.call_args.args[0].data)["model"], "google/gemma-4-26b-a4b-it:free")
-		self.assertTrue(o.DEFAULT_MODEL.endswith(":free"))
+		self.assertTrue(all(m.endswith(":free") for m in o.DEFAULT_MODELS))
+		self.assertEqual(o.DEFAULT_MODEL, o.DEFAULT_MODELS[0])
 
 	def test_the_timeout_allows_for_the_free_endpoints_slow_tail(self):
 		self.assertGreaterEqual(o.REQUEST_TIMEOUT, 90)
@@ -689,8 +691,7 @@ class TestDocumentedErrors(OpenRouterTestCase):
 
 				self.assertEqual(got, [])
 				self.assertGreater(o.quiet_until(), time.time() + 5 * 3600)
-				self.assertIn("OPENROUTER_MODEL", message)
-				self.assertIn(o.DEFAULT_MODEL, message)
+				self.assertIn("test/single:free", message)
 
 	def test_a_402_says_the_model_is_not_free(self):
 		_, message = self.fail_with(402)
@@ -754,6 +755,211 @@ class TestBilledResponses(OpenRouterTestCase):
 			self.ask(self.reply_with_cost(0.5))
 
 		self.assertEqual(o.requests_today(), 1)
+
+
+# What OpenRouter actually returned when the shared free pool at Google was full.
+SHARED_POOL_BODY = {
+	"error": {
+		"message": "Provider returned error",
+		"code": 429,
+		"metadata": {
+			"raw": "google/gemma-4-26b-a4b-it:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations",
+			"provider_name": "Google AI Studio",
+			"is_byok": False,
+			"provider_error_code": "429",
+			"limit_source": "upstream_provider_shared_pool",
+		},
+	},
+	"user_id": "user_PRIVATE_ID_SHOULD_NOT_BE_LOGGED",
+}
+
+ACCOUNT_LIMIT_BODY = {"error": {"message": "Rate limit exceeded: free-models-per-day", "code": 429, "metadata": {"limit_source": "account"}}}
+
+
+def http_error_body(code, body, retry_after=None):
+	headers = email.message.Message()
+
+	if retry_after is not None:
+		headers["Retry-After"] = str(retry_after)
+
+	return urllib.error.HTTPError("https://openrouter.ai/api/v1/chat/completions", code, "err", headers, io.BytesIO(json.dumps(body).encode("utf-8")))
+
+
+class TestModelList(OpenRouterTestCase):
+	def models(self, **env):
+		with mock.patch.dict(os.environ, env):
+			return o.models_to_use()
+
+	def test_the_defaults_are_two_free_gemma_models(self):
+		os.environ.pop("OPENROUTER_MODEL")
+
+		self.assertEqual(o.models_to_use(), ["google/gemma-4-26b-a4b-it:free", "google/gemma-4-31b-it:free"])
+
+	def test_a_comma_separated_list_is_used_in_order_ignoring_spaces(self):
+		self.assertEqual(self.models(OPENROUTER_MODEL=" a/one:free , b/two:free,, c/three:free "), ["a/one:free", "b/two:free", "c/three:free"])
+
+	def test_an_entry_that_is_not_free_is_left_out_with_a_warning(self):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			self.assertEqual(self.models(OPENROUTER_MODEL="a/one:free,google/gemma-4-26b-a4b-it"), ["a/one:free"])
+
+		self.assertIn("would be billed", logs.output[0])
+
+	def test_if_nothing_is_free_the_defaults_are_used(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			self.assertEqual(self.models(OPENROUTER_MODEL="paid/model"), list(o.DEFAULT_MODELS))
+
+	def test_paid_models_need_an_explicit_yes(self):
+		self.assertEqual(self.models(OPENROUTER_MODEL="paid/model", OPENROUTER_ALLOW_PAID="1"), ["paid/model"])
+
+	def test_a_blank_setting_is_the_defaults(self):
+		self.assertEqual(self.models(OPENROUTER_MODEL="  "), list(o.DEFAULT_MODELS))
+
+
+class TestDescribe(unittest.TestCase):
+	def test_it_reads_the_reason_and_recognizes_the_shared_pool(self):
+		message, shared = o._describe(http_error_body(429, SHARED_POOL_BODY))
+
+		self.assertIn("temporarily rate-limited upstream", message)
+		self.assertTrue(shared)
+		self.assertNotIn("PRIVATE_ID", message)
+
+	def test_an_account_limit_is_not_the_shared_pool(self):
+		message, shared = o._describe(http_error_body(429, ACCOUNT_LIMIT_BODY))
+
+		self.assertIn("free-models-per-day", message)
+		self.assertFalse(shared)
+
+	def test_the_reason_is_kept_short(self):
+		body = {"error": {"message": "x" * 5000, "code": 400}}
+
+		self.assertLessEqual(len(o._describe(http_error_body(400, body))[0]), 200)
+
+	def test_a_body_that_is_not_json_gives_nothing(self):
+		exc = urllib.error.HTTPError("u", 500, "err", email.message.Message(), io.BytesIO(b"<html>bad gateway</html>"))
+
+		self.assertEqual(o._describe(exc), ("", False))
+
+	def test_an_odd_shape_gives_nothing(self):
+		for body in ([], {"error": "plain string"}, {"error": {"metadata": "nope"}}, {}):
+			self.assertEqual(o._describe(http_error_body(500, body))[1], False)
+
+
+class TestFallsBackBetweenModels(OpenRouterTestCase):
+	TWO = "m/first:free,m/second:free"
+
+	def run_with(self, results, **env):
+		"""related_queries with two models, each attempt answering from `results` in order."""
+		with mock.patch.dict(os.environ, {"OPENROUTER_MODEL": self.TWO, **env}), \
+			mock.patch.object(o.urllib.request, "urlopen", side_effect=results) as net:
+			return o.related_queries(5), net
+
+	def models_asked(self, net):
+		return [json.loads(call.args[0].data)["model"] for call in net.call_args_list]
+
+	def test_a_full_shared_pool_moves_on_to_the_next_model(self):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			got, net = self.run_with([http_error_body(429, SHARED_POOL_BODY), Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(self.models_asked(net), ["m/first:free", "m/second:free"])
+		self.assertEqual(o.requests_today(), 2)
+		self.assertIn("shared free pool is full", logs.output[0])
+		self.assertIn("temporarily rate-limited upstream", logs.output[0])
+
+	def test_the_reason_is_logged_without_the_account_id(self):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			self.run_with([http_error_body(429, SHARED_POOL_BODY), Reply(REPLY)])
+
+		self.assertNotIn("PRIVATE_ID", "\n".join(logs.output))
+		self.assertNotIn(KEY, "\n".join(logs.output))
+
+	def test_every_model_rate_limited_goes_quiet_for_a_few_minutes_only(self):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			got, net = self.run_with([http_error_body(429, SHARED_POOL_BODY) for _ in range(2)])
+
+		self.assertEqual(got, [])
+		self.assertEqual(net.call_count, 2)
+		self.assertTrue(time.time() + 8 * 60 < o.quiet_until() < time.time() + 12 * 60)
+		self.assertIn("Every free model is rate limited upstream", "\n".join(logs.output))
+
+	def test_an_account_level_429_stops_without_trying_the_next_model(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([http_error_body(429, ACCOUNT_LIMIT_BODY, retry_after=900), Reply(REPLY)])
+
+		self.assertEqual(got, [])
+		self.assertEqual(net.call_count, 1)
+		self.assertGreater(o.quiet_until(), time.time() + 800)
+
+	def test_a_rejected_key_stops_without_trying_the_next_model(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([http_error_body(401, {"error": {"message": "No auth credentials found", "code": 401}}), Reply(REPLY)])
+
+		self.assertEqual(got, [])
+		self.assertEqual(net.call_count, 1)
+		self.assertGreater(o.quiet_until(), time.time() + 5 * 3600)
+
+	def test_a_model_that_does_not_exist_moves_on_to_the_next(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([http_error_body(404, {"error": {"message": "No endpoints found", "code": 404}}), Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(net.call_count, 2)
+
+	def test_every_model_rejected_goes_quiet_for_hours(self):
+		with self.assertLogs(o.logger, level="WARNING") as logs:
+			got, _ = self.run_with([http_error_body(404, {"error": {"message": "nope", "code": 404}}) for _ in range(2)])
+
+		self.assertEqual(got, [])
+		self.assertGreater(o.quiet_until(), time.time() + 5 * 3600)
+		self.assertIn("Check OPENROUTER_MODEL", "\n".join(logs.output))
+
+	def test_a_timeout_moves_on_to_the_next_model(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([TimeoutError(), Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(net.call_count, 2)
+
+	def test_an_empty_reply_moves_on_to_the_next_model(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, net = self.run_with([Reply("   "), Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(net.call_count, 2)
+
+	def test_a_mix_of_failures_does_not_go_quiet(self):
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, _ = self.run_with([http_error_body(429, SHARED_POOL_BODY), TimeoutError()])
+
+		self.assertEqual(got, [])
+		self.assertTrue(o.may_ask())
+
+	def test_the_first_model_that_works_is_the_only_one_asked(self):
+		got, net = self.run_with([Reply(REPLY)])
+
+		self.assertEqual(len(got), 5)
+		self.assertEqual(net.call_count, 1)
+
+	def test_a_billed_reply_from_a_fallback_model_still_trips_the_breaker(self):
+		billed = Reply(REPLY)
+		payload = json.loads(billed.body)
+		payload["usage"] = {"cost": 0.01}
+		billed.body = json.dumps(payload).encode("utf-8")
+
+		with self.assertLogs(o.logger, level="WARNING"):
+			got, _ = self.run_with([http_error_body(429, SHARED_POOL_BODY), billed])
+
+		self.assertEqual(len(got), 5)
+		self.assertGreater(o.quiet_until(), time.time() + 23 * 3600)
+
+	def test_the_attempts_are_spaced_so_a_fallback_cannot_break_the_per_minute_limit(self):
+		slept = []
+
+		with mock.patch.object(o.time, "sleep", slept.append):
+			o._last_call = time.monotonic()
+			self.run_with([http_error_body(429, SHARED_POOL_BODY), Reply(REPLY)])
+
+		self.assertGreaterEqual(len([s for s in slept if 0 < s <= o.MIN_SPACING_SECONDS]), 1)
 
 
 if __name__ == "__main__":
