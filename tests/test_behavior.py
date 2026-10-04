@@ -81,13 +81,19 @@ class TestValidate(unittest.TestCase):
 	def test_a_plausible_profile_passes(self):
 		behavior.validate(0.5, 0.4, 0.4, 0.15)
 
+	def test_a_slightly_negative_intercept_is_a_normal_fitts_result(self):
+		# Measured on a real person: MT = -0.0358 + 0.2719 * ID, R^2 = 0.33.
+		behavior.validate(0.5, 0.4, -0.0358, 0.2719)
+		behavior.validate(0.5, 0.4, 0.0, 0.15)
+		behavior.validate(0.5, 0.4, behavior.MIN_FITTS_A, 0.15)
+
 	def test_implausible_ones_are_refused(self):
 		for args in (
 			(0.01, 0.4, 0.4, 0.15),     # nobody types that slowly
 			(0.7, 0.4, 0.4, 0.15),      # shares add past 1
 			(0.5, 0.5, 0.4, 0.15),      # no slow tail at all
 			(0.5, -0.1, 0.4, 0.15),
-			(0.5, 0.4, 0, 0.15),
+			(0.5, 0.4, -0.6, 0.15),
 			(0.5, 0.4, 0.4, 0),
 			(0.5, 0.4, 5.0, 0.15),
 			(0.5, 0.4, 0.4, 3.0),

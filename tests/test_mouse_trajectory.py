@@ -159,6 +159,32 @@ class FittsLawEdgeCases(unittest.TestCase):
 	def test_a_zero_width_target_does_not_divide_by_zero(self):
 		self.assertGreater(mouse_trajectory.get_movement_time_from_fitts_law(100, 0), 0)
 
+	def test_a_negative_intercept_cannot_give_a_move_less_than_the_floor(self):
+		# A measured line: MT = -0.0358 + 0.2719 * ID.
+		for distance in (0, 1, 5, 20):
+			time = mouse_trajectory.get_movement_time_from_fitts_law(distance, 100, -0.0358, 0.2719)
+
+			self.assertEqual(time, mouse_trajectory.MIN_MOVE_TIME)
+
+	def test_that_line_is_followed_exactly_for_ordinary_moves(self):
+		time = mouse_trajectory.get_movement_time_from_fitts_law(760, 80, -0.0358, 0.2719)
+
+		# ID = log2(2 * 760 / 80) = log2(19) = 4.2479
+		self.assertAlmostEqual(time, -0.0358 + 0.2719 * 4.2479, delta=0.001)
+		self.assertGreater(time, mouse_trajectory.MIN_MOVE_TIME)
+
+	def test_the_floor_is_below_anything_the_original_constants_produce(self):
+		smallest = mouse_trajectory.get_movement_time_from_fitts_law(0, 40)
+
+		self.assertGreater(smallest, mouse_trajectory.MIN_MOVE_TIME)
+		self.assertAlmostEqual(smallest, mouse_trajectory.FITTS_LAW_A)
+
+	def test_the_movement_time_is_never_zero_or_negative_whatever_the_profile(self):
+		for a in (-0.5, -0.1, 0.0, 0.3):
+			for b in (0.01, 0.1, 0.5):
+				for distance in (0, 3, 50, 900):
+					self.assertGreaterEqual(mouse_trajectory.get_movement_time_from_fitts_law(distance, 60, a, b), mouse_trajectory.MIN_MOVE_TIME)
+
 	def test_longer_moves_still_take_longer(self):
 		times = [mouse_trajectory.get_movement_time_from_fitts_law(d, 40) for d in (100, 200, 400, 800)]
 

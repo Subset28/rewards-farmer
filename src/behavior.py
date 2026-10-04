@@ -42,6 +42,9 @@ TYPING_BUCKETS = ((0.0, 0.1), (0.1, 0.2), (0.2, 0.7))
 
 # Bounds a profile must sit inside to be believable as a person's. Typing
 # shares are probabilities; the Fitts' law constants are in seconds.
+# A measured intercept can be slightly negative, because the line only has to
+# pass near zero, so a is allowed a little below it. Movement time has a floor.
+MIN_FITTS_A = -0.5
 MAX_FITTS_A = 2.0
 MAX_FITTS_B = 1.0
 MIN_FAST_SHARE = 0.05
@@ -82,8 +85,8 @@ def validate(fast_share: float, medium_share: float, fitts_a: float, fitts_b: fl
 			f"(fast at least {MIN_FAST_SHARE}, and some intervals must be slower than 0.2s)"
 		)
 
-	if not 0 < fitts_a <= MAX_FITTS_A or not 0 < fitts_b <= MAX_FITTS_B:
-		raise ProfileError(f"Fitts' law a={fitts_a}, b={fitts_b} are outside 0 < a <= {MAX_FITTS_A}, 0 < b <= {MAX_FITTS_B}")
+	if not MIN_FITTS_A <= fitts_a <= MAX_FITTS_A or not 0 < fitts_b <= MAX_FITTS_B:
+		raise ProfileError(f"Fitts' law a={fitts_a}, b={fitts_b} are outside {MIN_FITTS_A} <= a <= {MAX_FITTS_A}, 0 < b <= {MAX_FITTS_B}")
 
 
 def baseline(name: str = "default") -> Behavior:
