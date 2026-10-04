@@ -14,6 +14,7 @@ Bing, and Bing's own autosuggest answers that question directly.
 import logging
 import os
 
+import query_history
 import query_sources
 
 # llm_utils is imported inside the llm branch rather than here. It imports
@@ -39,10 +40,10 @@ def selected_source() -> str:
 	return choice if choice in (LLM, TRENDS) else DEFAULT_SOURCE
 
 
-def search_query_for_task(task_description: str, pick: int = 0) -> str:
+def search_query_for_task(task_description: str, pick: int = 0, account: str | None = None) -> str:
 	"""A query for one "Search on Bing for X" card. `pick` > 0 asks for a different one."""
 	if selected_source() == TRENDS:
-		query = query_sources.query_from_task_description(task_description, pick=pick)
+		query = query_sources.query_from_task_description(task_description, pick=pick, avoid=query_history.recent(account))
 
 		if query:
 			return query
@@ -60,18 +61,21 @@ def search_query_for_task(task_description: str, pick: int = 0) -> str:
 	return llm_utils.get_search_query_from_task_description(task_description)
 
 
-def related_queries(count: int):
-	"""`count` queries for the daily search quota."""
+def related_queries(count: int, account: str | None = None):
+	"""`count` queries for the daily search quota, none this account searched lately."""
 	if selected_source() == TRENDS:
-		queries = query_sources.related_queries(count)
+		searched = query_history.recent(account)
+		queries = query_sources.related_queries(count, exclude=searched)
 
 		if queries:
 			return queries
 
-		logger.warning("No query source reachable, falling back to the wordlist.")
+		logger.warning("No fresh query source reachable, falling back to the wordlist.")
 
 		# nouns.txt is already in the repo for exactly this kind of seed.
-		return query_sources.wordlist_queries(count)
+		words = [w for w in query_sources.wordlist_queries(count * 3) if query_history.normalize(w) not in searched]
+
+		return words[:count]
 
 	import llm_utils
 
