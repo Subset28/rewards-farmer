@@ -167,7 +167,9 @@ class TestBrake(unittest.TestCase):
 			safety.guard(page, "personal")
 
 		self.assertEqual(ctx.exception.risk.kind, safety.SIGNED_OUT)
-		self.assertIsNotNone(safety.paused())
+		# A plain sign-out pauses that account alone.
+		self.assertIsNone(safety.paused())
+		self.assertIsNotNone(safety.paused_for("personal"))
 
 	def test_guard_is_quiet_on_an_ordinary_page(self):
 		safety.guard(Page("https://rewards.bing.com/", EARN_PAGE_TEXT), "personal")
@@ -270,7 +272,7 @@ class TestBrakeInTheTaskLoop(unittest.TestCase):
 
 class TestEntryPointsRespectTheBrake(unittest.TestCase):
 	def test_main_does_not_run_while_paused(self):
-		with mock.patch.object(main_module.safety, "paused", return_value={"kind": "challenge", "reason": "x"}), \
+		with mock.patch.object(main_module.safety, "blocked", return_value={"kind": "challenge", "reason": "x"}), \
 			mock.patch.object(main_module, "run_account") as run, \
 			mock.patch.object(main_module.accounts, "configured", return_value=[mock.Mock(name="a")]), \
 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), \
@@ -291,7 +293,8 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 
 			return True
 
-		with mock.patch.object(main_module.safety, "paused", return_value=None), \
+		with mock.patch.object(main_module.safety, "blocked", return_value=None), \
+			mock.patch.object(main_module.safety, "paused_for", return_value=None), \
 			mock.patch.object(main_module, "run_account", side_effect=run), \
 			mock.patch.object(main_module.accounts, "configured", return_value=accounts), \
 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), \
@@ -307,7 +310,8 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 		accounts = [types.SimpleNamespace(name=n) for n in ("one", "two", "three")]
 		events = []
 
-		with mock.patch.object(main_module.safety, "paused", return_value=None), \
+		with mock.patch.object(main_module.safety, "blocked", return_value=None), \
+			mock.patch.object(main_module.safety, "paused_for", return_value=None), \
 			mock.patch.object(main_module, "run_account", side_effect=lambda a: events.append(("run", a.name)) or True), \
 			mock.patch.object(main_module.accounts, "configured", return_value=accounts), \
 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), \
@@ -321,7 +325,7 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 		self.assertTrue(all(20 * 60 <= e[1] <= 60 * 60 for e in events if e[0] == "sleep"))
 
 	def test_search_only_does_not_run_while_paused(self):
-		with mock.patch.object(search_only.safety, "paused", return_value={"kind": "x", "reason": "y"}), \
+		with mock.patch.object(search_only.safety, "blocked", return_value={"kind": "x", "reason": "y"}), \
 			mock.patch.object(search_only, "run_account_searches") as run, \
 			mock.patch.object(search_only.accounts, "configured", return_value=[mock.Mock()]), \
 			mock.patch.object(search_only.desktop_utils, "reset_virtual_desktop_state"), \
@@ -329,6 +333,114 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 			self.assertEqual(search_only.main(), 3)
 
 		run.assert_not_called()
+
+
+class TestScopedPause(unittest.TestCase):
+	def setUp(self):
+		directory = tempfile.TemporaryDirectory()
+		self.addCleanup(directory.cleanup)
+
+		for patcher in (
+			mock.patch.object(safety, "PAUSE_FILE", os.path.join(directory.name, "PAUSED")),
+			mock.patch.object(safety.notify, "send"),
+		):
+			patcher.start()
+			self.addCleanup(patcher.stop)
+
+	def signed_out(self, account):
+		safety.trip(safety.Risk(safety.SIGNED_OUT, "login lapsed"), account)
+
+	def challenge(self, account):
+		safety.trip(safety.Risk(safety.CHALLENGE, "human check"), account)
+
+	def test_a_sign_out_pauses_only_that_account(self):
+		self.signed_out("second")
+
+		self.assertIsNone(safety.paused())
+		self.assertIsNotNone(safety.paused_for("second"))
+		self.assertIsNone(safety.paused_for("default"))
+
+	def test_a_challenge_or_restriction_pauses_everyone(self):
+		self.challenge("second")
+
+		self.assertIsNotNone(safety.paused())
+		self.assertIsNotNone(safety.paused_for("default"))
+		self.assertIsNotNone(safety.paused_for("anyone"))
+
+	def test_the_second_account_signing_out_never_blocks_the_first(self):
+		self.signed_out("second")
+
+		self.assertIsNone(safety.blocked(["default"]))
+		self.assertIsNone(safety.blocked(["default", "second"]))
+
+	def test_a_scheduler_for_only_the_paused_account_is_blocked(self):
+		self.signed_out("second")
+
+		self.assertIsNotNone(safety.blocked(["second"]))
+
+	def test_the_whole_brake_blocks_every_scheduler(self):
+		self.challenge("default")
+
+		self.assertIsNotNone(safety.blocked(["second"]))
+		self.assertIsNotNone(safety.blocked(None))
+
+	def test_nothing_paused_blocks_nothing(self):
+		self.assertIsNone(safety.blocked(["default"]))
+		self.assertIsNone(safety.blocked(None))
+		self.assertIsNone(safety.blocked([]))
+
+	def test_a_sign_out_is_not_tripped_again_and_does_not_alert_twice(self):
+		self.signed_out("second")
+		self.signed_out("second")
+
+		self.assertEqual(safety.notify.send.call_count, 1)
+
+	def test_a_sign_out_while_everything_is_paused_adds_nothing(self):
+		self.challenge("default")
+		self.signed_out("second")
+
+		self.assertIsNone(safety._read(safety._file_for("second")))
+
+	def test_clearing_one_account_leaves_the_others(self):
+		self.signed_out("second")
+		self.signed_out("third")
+
+		self.assertTrue(safety.clear("second"))
+		self.assertIsNone(safety.paused_for("second"))
+		self.assertIsNotNone(safety.paused_for("third"))
+
+	def test_clearing_with_no_account_clears_everything(self):
+		self.signed_out("second")
+		self.challenge("default")
+
+		self.assertTrue(safety.clear())
+		self.assertIsNone(safety.paused())
+		self.assertIsNone(safety.paused_for("second"))
+		self.assertFalse(safety.clear())
+
+	def test_the_command_line_shows_and_clears_a_single_account(self):
+		self.signed_out("second")
+
+		with mock.patch("builtins.print") as shown:
+			safety.main(["safety.py", "status"])
+			self.assertIn("second", shown.call_args.args[0])
+			safety.main(["safety.py", "clear", "second"])
+			safety.main(["safety.py", "status"])
+			self.assertEqual(shown.call_args.args[0], "running normally")
+
+
+class TestMainSkipsOnlyThePausedAccount(unittest.TestCase):
+	def test_the_other_account_still_runs(self):
+		accounts = [types.SimpleNamespace(name=n) for n in ("default", "second")]
+		seen = []
+
+		def paused_for(name):
+			return {"kind": "signed-out", "reason": "x"} if name == "second" else None
+
+		with mock.patch.object(main_module.safety, "blocked", return_value=None), 			mock.patch.object(main_module.safety, "paused_for", side_effect=paused_for), 			mock.patch.object(main_module, "run_account", side_effect=lambda a: seen.append(a.name) or True), 			mock.patch.object(main_module.accounts, "configured", return_value=accounts), 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), 			mock.patch.object(main_module.desktop_utils, "cleanup_virtual_desktop"), 			mock.patch.object(main_module, "HEADLESS", True), 			mock.patch.object(main_module.time, "sleep"), 			mock.patch.object(main_module.log_utils, "setup_logging"):
+			main_module.main()
+
+		self.assertEqual(seen, ["default"])
 
 
 class TestNotify(unittest.TestCase):

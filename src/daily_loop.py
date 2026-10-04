@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 import log_utils
 import safety
+import accounts
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,14 @@ logger = logging.getLogger(__name__)
 # is undermined by a bot that is otherwise clockwork-punctual once a day.
 ANCHOR_HOUR = int(os.environ.get("REWARDS_ANCHOR_HOUR", "9"))
 JITTER_SECONDS = int(os.environ.get("REWARDS_JITTER_SECONDS", str(3 * 60 * 60)))
+
+
+def account_names() -> list[str] | None:
+	"""Names of the accounts this scheduler runs, or None when they cannot be read."""
+	try:
+		return [a.name for a in accounts.configured()]
+	except ValueError:
+		return None
 
 
 def seconds_until_next_anchor(now: datetime) -> float:
@@ -43,7 +52,7 @@ def main() -> None:
 
 		time.sleep(wait + jitter)
 
-		hold = safety.paused()
+		hold = safety.blocked(account_names())
 
 		if hold:
 			logger.error("[BRAKE] Skipping today's run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))

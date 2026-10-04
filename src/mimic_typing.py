@@ -14,8 +14,13 @@ SECOND_INTERVAL_PROBABILITY = 0.4195
 THIRD_INTERVAL_PROBABILITY = 1 - (FIRST_INTERVAL_PROBABILITY + SECOND_INTERVAL_PROBABILITY)
 
 class KeyboardUtils:
-	def __init__(self, driver: webdriver.Edge):
+	def __init__(self, driver: webdriver.Edge, behavior=None):
 		self.driver = driver
+		# The account's own typing rhythm (behavior.py). Without one, the
+		# original measured constants above.
+		self.weights = list(behavior.typing_weights) if behavior else [
+			FIRST_INTERVAL_PROBABILITY, SECOND_INTERVAL_PROBABILITY, THIRD_INTERVAL_PROBABILITY
+		]
 
 	def send_keys(self, keys: Iterable[str]):
 		actions = ActionChains(self.driver, duration=0)
@@ -25,7 +30,7 @@ class KeyboardUtils:
 
 			interval = random.choices(
 				[FIRST_INTERVAL, SECOND_INTERVAL, THIRD_INTERVAL],
-				weights=[FIRST_INTERVAL_PROBABILITY, SECOND_INTERVAL_PROBABILITY, THIRD_INTERVAL_PROBABILITY]
+				weights=self.weights
 			)[0]
 
 			actions.pause(random.uniform(interval[0], interval[1]))

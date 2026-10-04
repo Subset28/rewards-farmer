@@ -220,6 +220,37 @@ Set `NOTIFY_URL` to an [ntfy](https://ntfy.sh) topic to get a phone alert when t
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
 | `REWARDS_GOLD_AT` | `750` | Monthly points that reach the next level, for the progress line. |
 
+## A second account, with its own hands
+
+Every account types and moves with its own profile (`src/behavior.py`), so two accounts do not look like one operator. The account that was already running keeps the original measurements. Any other account gets a **provisional** profile, stable and different from every other account's, until you record its owner's real one. The log says which kind is in use.
+
+**1. Record the owner's typing and mouse speed**, on the machine and with the hands of the person the account belongs to:
+
+```
+python src/recordpress.py     # type normally for a few minutes in the Edge window, then press Enter
+python src/fitts_law.py       # 18 quick clicks; note "MT = a + b * ID"
+python src/make_behavior_profile.py second --keys keypress_times.txt --fitts 0.43 0.16
+python src/make_behavior_profile.py --show second
+```
+
+Copy the resulting `data-dir/behavior/second.json` to the same place in the NAS's `data-dir`.
+
+**2. Sign the account in** through the container, the same way as the first (type the password yourself, it never goes through the bot):
+
+```
+REWARDS_ACCOUNTS=second docker compose run --rm --service-ports signin
+```
+
+**3. Start its schedulers.** They are behind a compose profile, so a plain `docker compose up -d` leaves them off:
+
+```
+docker compose --profile second up -d scheduler-second search-scheduler-second
+```
+
+They run one at a time with the first account (the run lock makes an overlap wait), by default at 15:00 instead of 09:00 (`SECOND_ANCHOR_HOUR`) and on 3 search runs a day (`SECOND_SEARCH_RUNS_PER_DAY`).
+
+A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
+
 ## Logging
 
 The script logs to the console. Two optional environment variables change that:

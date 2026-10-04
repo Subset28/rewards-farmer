@@ -32,8 +32,7 @@ def run_account(account: accounts.Account) -> bool:
 		return False
 
 	try:
-		rewards = rewards_tasks.RewardsTaskUtils(driver)
-		rewards.account_name = account.name
+		rewards = rewards_tasks.RewardsTaskUtils(driver, account.name)
 		# Set when search_scheduler.py is running separately, so the once-a-day
 		# run does not redo what is already being spread across the day.
 		skip_searches = os.environ.get("REWARDS_SKIP_SEARCHES", "0") == "1"
@@ -77,7 +76,7 @@ def main() -> int:
 
 		return 2
 
-	hold = safety.paused()
+	hold = safety.blocked([a.name for a in configured])
 
 	if hold:
 		logger.error("[BRAKE] Not running: paused (%s: %s). Clear it with `python src/safety.py clear` once the account has been checked.", hold.get("kind"), hold.get("reason"))
@@ -93,6 +92,13 @@ def main() -> int:
 			gap = search_behavior.account_gap_seconds(os.environ.get("REWARDS_ACCOUNT_GAP_MINUTES"))
 			logger.info("Waiting %.0f minutes before the next account.", gap / 60)
 			time.sleep(gap)
+
+		one = safety.paused_for(account.name)
+
+		if one:
+			logger.error("[BRAKE] Skipping %s: paused (%s: %s). `python src/safety.py clear %s` once it is signed in again.", account.name, one.get("kind"), one.get("reason"), account.name)
+
+			continue
 
 		if len(configured) > 1:
 			logger.info("=== account: %s ===", account.name)

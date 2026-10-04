@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 import log_utils
 import safety
+import accounts
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,14 @@ logger = logging.getLogger(__name__)
 RUNS_PER_DAY = int(os.environ.get("REWARDS_SEARCH_RUNS_PER_DAY", "4"))
 START_HOUR = int(os.environ.get("REWARDS_SEARCH_START_HOUR", "8"))
 END_HOUR = int(os.environ.get("REWARDS_SEARCH_END_HOUR", "23"))
+
+
+def account_names() -> list[str] | None:
+	"""Names of the accounts this scheduler runs, or None when they cannot be read."""
+	try:
+		return [a.name for a in accounts.configured()]
+	except ValueError:
+		return None
 
 
 def next_run_times(now: datetime) -> list[datetime]:
@@ -63,7 +72,7 @@ def main() -> None:
 			if wait > 0:
 				time.sleep(wait)
 
-			hold = safety.paused()
+			hold = safety.blocked(account_names())
 
 			if hold:
 				logger.error("[BRAKE] Skipping this search run: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
