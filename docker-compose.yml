@@ -143,6 +143,31 @@ services:
       - ./data-dir:/app/data-dir
       - ./visual_search.jpg:/app/visual_search.jpg:ro
 
+  # A second account, its own profile and its own schedule. Behind a compose
+  # profile on purpose: `docker compose up -d` leaves these off, so nothing
+  # starts against an account that has not been signed in yet. After signing
+  # in (see the README), start them with
+  #
+  #   docker compose --profile second up -d scheduler-second search-scheduler-second
+  #
+  # Runs strictly one at a time with the first account (the run lock in
+  # data-dir makes an overlap wait), at a different hour, and on fewer search
+  # runs a day, because an account that has barely been used should not start
+  # at the first account's pace.
+  scheduler-second:
+    extends: scheduler
+    profiles: ["second"]
+    environment:
+      REWARDS_ACCOUNTS: second
+      REWARDS_ANCHOR_HOUR: ${SECOND_ANCHOR_HOUR:-15}
+
+  search-scheduler-second:
+    extends: search-scheduler
+    profiles: ["second"]
+    environment:
+      REWARDS_ACCOUNTS: second
+      REWARDS_SEARCH_RUNS_PER_DAY: ${SECOND_SEARCH_RUNS_PER_DAY:-3}
+
   # One off, before the first run. Opens the Rewards sign-in in a browser
   # inside the container and puts that browser on your screen as a web page,
   # so the profile is written by the same Edge that will later read it.

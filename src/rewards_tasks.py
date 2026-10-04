@@ -17,6 +17,7 @@ import mimic_typing
 import element_selectors
 import search_behavior
 import safety
+import behavior
 import notify
 import points_log
 import quests
@@ -72,8 +73,14 @@ def task_failure_report(exc: BaseException) -> tuple[str, str]:
 
 
 class RewardsTaskUtils:
-	def __init__(self, driver: webdriver.Edge):
+	def __init__(self, driver: webdriver.Edge, account_name: str = "default"):
 		self.driver = driver
+		self.account_name = account_name
+		self.behavior = behavior.load(account_name)
+		logger.info(
+			"%s: %s behavior profile (typing fast/medium/slow %.2f/%.2f/%.2f, Fitts a=%.3f b=%.3f)",
+			account_name, self.behavior.source, *self.behavior.typing_weights, self.behavior.fitts_a, self.behavior.fitts_b
+		)
 
 		# Set headers to spoof the rewards app for the rewards only quests
 		self.driver.execute_cdp_cmd("Network.enable", {})
@@ -95,8 +102,8 @@ class RewardsTaskUtils:
 		# opens a card in a new one.
 		self.main_window = driver.current_window_handle
 
-		self.mouse = mouse_trajectory.MouseUtils(driver)
-		self.keyboard = mimic_typing.KeyboardUtils(driver)
+		self.mouse = mouse_trajectory.MouseUtils(driver, self.behavior)
+		self.keyboard = mimic_typing.KeyboardUtils(driver, self.behavior)
 		self.elements = element_selectors.ElementSelectionUtils(driver)
 		self.verify_signed_in_state()
 

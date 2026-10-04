@@ -50,8 +50,7 @@ def run_account_searches(account: accounts.Account) -> bool:
 		return False
 
 	try:
-		rewards = rewards_tasks.RewardsTaskUtils(driver)
-		rewards.account_name = account.name
+		rewards = rewards_tasks.RewardsTaskUtils(driver, account.name)
 		rewards.complete_required_searches(max_searches=searches_this_run())
 		logger.info("[OK] Required searches")
 	except safety.AccountAtRisk:
@@ -93,7 +92,7 @@ def main() -> int:
 		logger.error("[FAIL] %s", exc)
 		return 2
 
-	hold = safety.paused()
+	hold = safety.blocked([a.name for a in configured])
 
 	if hold:
 		logger.error("[BRAKE] Not searching: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
@@ -107,6 +106,13 @@ def main() -> int:
 			gap = search_behavior.account_gap_seconds(os.environ.get("REWARDS_ACCOUNT_GAP_MINUTES"))
 			logger.info("Waiting %.0f minutes before the next account.", gap / 60)
 			time.sleep(gap)
+
+		one = safety.paused_for(account.name)
+
+		if one:
+			logger.error("[BRAKE] Skipping %s: paused (%s: %s).", account.name, one.get("kind"), one.get("reason"))
+
+			continue
 
 		if len(configured) > 1:
 			logger.info("=== account: %s ===", account.name)

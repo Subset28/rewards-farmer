@@ -249,7 +249,7 @@ class TestFailureIsolation(RunLoopTestCase):
 				quit_cleanly.append(self.name)
 
 		class Tasks:
-			def __init__(self, driver):
+			def __init__(self, driver, account_name="default"):
 				self.driver = driver
 
 				if driver.name == "two" and fail_at == "connect":

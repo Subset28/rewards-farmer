@@ -184,13 +184,13 @@ def get_final_path_from_real_time(
 
 	return final_path_function
 
-def get_movement_time_from_fitts_law(distance: float, target_width: float) -> float:
+def get_movement_time_from_fitts_law(distance: float, target_width: float, a: float | None = None, b: float | None = None) -> float:
 	# Clamped at a difficulty of zero. With the pointer already on the target
 	# (clicking the Earn tab twice in a row) the distance is 0 and log2 of it is
 	# a math domain error; a distance under half the target is negative and
 	# would shorten the move below the fixed part of the time.
 	index_of_difficulty = math.log2(max((2.0 * distance) / max(target_width, 1.0), 1.0))
-	movement_time = FITTS_LAW_A + FITTS_LAW_B * index_of_difficulty
+	movement_time = (FITTS_LAW_A if a is None else a) + (FITTS_LAW_B if b is None else b) * index_of_difficulty
 
 	return movement_time
 
@@ -230,8 +230,12 @@ def choose_target_in_element(x: int, y: int, height: int, width: int) -> Point:
 	)
 
 class MouseUtils:
-	def __init__(self, driver: webdriver.Edge):
+	def __init__(self, driver: webdriver.Edge, behavior=None):
 		self.driver = driver
+		# This account's own pointer speed (behavior.py); None keeps the
+		# original measured constants.
+		self.fitts_a = behavior.fitts_a if behavior else None
+		self.fitts_b = behavior.fitts_b if behavior else None
 		self.fallback_init_pos = (0, 0) # default fallback position if mouse position is not initialized
 		# Nothing renders the visual cursor on a headless NAS deployment, so
 		# painting it every animation frame is a CDP round-trip for no reason.
@@ -465,7 +469,9 @@ class MouseUtils:
 
 		move_time = get_movement_time_from_fitts_law(
 			math.dist(current_mouse_position, target_position),
-			(rect['width'] + rect['height']) / 2
+			(rect['width'] + rect['height']) / 2,
+			self.fitts_a,
+			self.fitts_b
 		)
 
 		path_fn = get_final_path_from_real_time(

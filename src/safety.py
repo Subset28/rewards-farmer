@@ -9,10 +9,14 @@ person looks at the account and clears it:
     python src/safety.py status
     python src/safety.py clear
 
-The brake is shared by every account on purpose. Accounts that run from one
-connection are not independent, so a warning on one is a reason to stop all.
+A human check or a restriction notice stops every account, on purpose: accounts
+that run from one connection are not independent, so a warning on one is a reason
+to stop all. A plain sign-out is different. It means that one account's login
+lapsed, says nothing about the others, and must not stop them, so it pauses only
+the account it happened on (PAUSED.<account>).
 """
 
+import glob
 import json
 import logging
 import os
@@ -120,22 +124,66 @@ def inspect(driver) -> Risk | None:
 	return classify(url, text)
 
 
-def paused() -> dict | None:
-	"""The pause record if the brake is on, else None."""
+def _file_for(account: str | None) -> str:
+	return PAUSE_FILE if account is None else f"{PAUSE_FILE}.{account}"
+
+
+def _read(path: str) -> dict | None:
 	try:
-		with open(PAUSE_FILE, encoding="utf-8") as handle:
+		with open(path, encoding="utf-8") as handle:
 			return json.load(handle)
 	except FileNotFoundError:
 		return None
 	except (OSError, ValueError):
 		# Present but unreadable still means somebody, or something, stopped
 		# the bot. Treat it as on rather than quietly carrying on.
-		return {"kind": "unknown", "reason": "the PAUSED file exists but could not be read", "time": ""}
+		return {"kind": "unknown", "reason": f"{os.path.basename(path)} exists but could not be read", "time": ""}
+
+
+def paused(accounts: list[str] | None = None) -> dict | None:
+	"""The pause record if the whole brake is on (or, given accounts, any of them), else None."""
+	record = _read(PAUSE_FILE)
+
+	if record:
+		return record
+
+	for account in accounts or []:
+		record = _read(_file_for(account))
+
+		if record:
+			return record
+
+	return None
+
+
+def paused_for(account: str) -> dict | None:
+	"""The pause record for one account alone, or the whole brake's."""
+	return _read(PAUSE_FILE) or _read(_file_for(account))
+
+
+def blocked(accounts: list[str] | None) -> dict | None:
+	"""Why a scheduler should not start a run for these accounts, or None.
+
+	The whole brake blocks it. An account's own pause blocks it only when that
+	leaves nothing to run: the entry points skip a paused account themselves.
+	"""
+	record = _read(PAUSE_FILE)
+
+	if record:
+		return record
+
+	if accounts and all(_read(_file_for(a)) for a in accounts):
+		return _read(_file_for(accounts[0]))
+
+	return None
 
 
 def trip(risk: Risk, account_name: str) -> None:
 	"""Turn the brake on and say so. Idempotent: an existing pause is kept."""
-	if paused():
+	scope = account_name if risk.kind == SIGNED_OUT else None
+	path = _file_for(scope)
+
+	if _read(path) or _read(PAUSE_FILE):
 		return
 
 	record = {
@@ -146,30 +194,42 @@ def trip(risk: Risk, account_name: str) -> None:
 	}
 
 	try:
-		os.makedirs(os.path.dirname(PAUSE_FILE), exist_ok=True)
+		os.makedirs(os.path.dirname(path), exist_ok=True)
 
-		with open(PAUSE_FILE, "w", encoding="utf-8") as handle:
+		with open(path, "w", encoding="utf-8") as handle:
 			json.dump(record, handle)
 	except OSError as exc:
 		logger.error("Could not write the pause file: %s", exc)
 
-	logger.error("[BRAKE] %s on %s: %s. Runs are paused until `python src/safety.py clear`.", risk.kind, account_name, risk.reason)
+	command = "python src/safety.py clear" if scope is None else f"python src/safety.py clear {scope}"
+	stops = "Runs are" if scope is None else f"Runs for {scope} are"
+
+	logger.error("[BRAKE] %s on %s: %s. %s paused until `%s`.", risk.kind, account_name, risk.reason, stops, command)
 
 	notify.send(
 		"Rewards bot paused",
-		f"{account_name}: {risk.kind} - {risk.reason}. Look at the account, then run: python src/safety.py clear",
+		f"{account_name}: {risk.kind} - {risk.reason}. Look at the account, then run: {command}",
 		priority="high",
 	)
 
 
-def clear() -> bool:
-	"""Turn the brake off. Returns whether it was on."""
-	try:
-		os.remove(PAUSE_FILE)
-	except FileNotFoundError:
-		return False
+def clear(account: str | None = None) -> bool:
+	"""Turn the brake off: the whole brake and every account's pause, or one account's. Returns whether any was on."""
+	if account is not None:
+		targets = [_file_for(account)]
+	else:
+		targets = [PAUSE_FILE] + glob.glob(f"{glob.escape(PAUSE_FILE)}.*")
 
-	return True
+	removed = False
+
+	for path in targets:
+		try:
+			os.remove(path)
+			removed = True
+		except FileNotFoundError:
+			pass
+
+	return removed
 
 
 def guard(driver, account_name: str) -> None:
@@ -184,19 +244,21 @@ def guard(driver, account_name: str) -> None:
 
 def main(argv: list[str]) -> int:
 	command = argv[1] if len(argv) > 1 else "status"
-	record = paused()
+	account = argv[2] if len(argv) > 2 else None
 
 	if command == "status":
-		print("PAUSED: %s" % json.dumps(record) if record else "running normally")
+		records = [r for r in [_read(PAUSE_FILE)] + [_read(p) for p in sorted(glob.glob(f"{glob.escape(PAUSE_FILE)}.*"))] if r]
+
+		print(chr(10).join("PAUSED: %s" % json.dumps(r) for r in records) if records else "running normally")
 
 		return 0
 
 	if command == "clear":
-		print("brake cleared" if clear() else "was not paused")
+		print("cleared" if clear(account) else "was not paused")
 
 		return 0
 
-	print("usage: safety.py [status|clear]")
+	print("usage: safety.py [status | clear [account]]")
 
 	return 2
 
