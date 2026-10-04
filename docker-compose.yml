@@ -61,6 +61,11 @@ services:
       # profile in data-dir, which is the existing behaviour.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # address is a secret: put these in .env next to this file, never here.
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
+      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
     command: ["with-xvfb", "python", "src/main.py"]
     volumes:
       # Keeps the sign-in across container rebuilds.
@@ -108,6 +113,11 @@ services:
       REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # address is a secret: put these in .env next to this file, never here.
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
+      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
       # Hour to anchor the run to, and how many seconds after that hour the
       # actual start may be delayed by, both in TZ below rather than UTC.
       REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
@@ -157,6 +167,11 @@ services:
       REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # address is a secret: put these in .env next to this file, never here.
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
+      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
       # How many times a day to run, and the waking-hours window (in TZ below)
       # they are randomly placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
