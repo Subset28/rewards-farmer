@@ -185,7 +185,11 @@ def get_final_path_from_real_time(
 	return final_path_function
 
 def get_movement_time_from_fitts_law(distance: float, target_width: float) -> float:
-	index_of_difficulty = math.log2((2.0 * distance) / target_width)
+	# Clamped at a difficulty of zero. With the pointer already on the target
+	# (clicking the Earn tab twice in a row) the distance is 0 and log2 of it is
+	# a math domain error; a distance under half the target is negative and
+	# would shorten the move below the fixed part of the time.
+	index_of_difficulty = math.log2(max((2.0 * distance) / max(target_width, 1.0), 1.0))
 	movement_time = FITTS_LAW_A + FITTS_LAW_B * index_of_difficulty
 
 	return movement_time
