@@ -92,6 +92,11 @@ CONFIG_ERROR_QUIET_SECONDS = 6 * 3600
 # drain through the day, and the public feeds cover the gap.
 SHARED_POOL_QUIET_SECONDS = 10 * 60
 
+# One model's own rest after its shared pool reports full. The models' pools fill
+# and drain separately (the 31B answered while the 26B was full), so a full one is
+# skipped for a while and the others are tried first.
+MODEL_COOLDOWN_SECONDS = 10 * 60
+
 # Quiet time after a response that reports a cost.
 BILLED_QUIET_SECONDS = 24 * 3600
 
@@ -159,15 +164,76 @@ def may_ask(now: float | None = None) -> bool:
 
 
 def _spend(quiet_for: float = 0.0) -> None:
-	"""Count one request against today, and optionally go quiet for a while."""
+	"""Count one request against today, and optionally go quiet for a while.
+
+	Everything else in the usage file (which models are cooling off, which one
+	worked last) is carried over, not rewritten.
+	"""
 	usage = _read_json(USAGE_FILE)
 	count = int(usage.get("count", 0)) if usage.get("date") == _today() else 0
 
-	_write_json(USAGE_FILE, {
+	usage.update({
 		"date": _today(),
 		"count": count + 1,
 		"quiet_until": max(float(usage.get("quiet_until", 0) or 0), time.time() + quiet_for) if quiet_for else usage.get("quiet_until", 0),
 	})
+	_write_json(USAGE_FILE, usage)
+
+
+def _local_day() -> str:
+	"""Today by the clock the machine runs on, for things that should last until the owner's midnight."""
+	return datetime.now().strftime("%Y-%m-%d")
+
+
+def _models_state() -> dict:
+	state = _read_json(USAGE_FILE).get("models", {})
+
+	return state if isinstance(state, dict) else {}
+
+
+def _note_model(model: str, good: bool = False, cool_for: float = 0.0) -> None:
+	"""Remember how a model just did: it worked (try it first next time) or should rest for a while."""
+	usage = _read_json(USAGE_FILE)
+	models = usage.get("models") if isinstance(usage.get("models"), dict) else {}
+	entry = dict(models.get(model, {})) if isinstance(models.get(model), dict) else {}
+
+	if good:
+		entry["good"] = time.time()
+		entry["quiet_until"] = 0
+
+	if cool_for:
+		entry["quiet_until"] = time.time() + cool_for
+
+	models[model] = entry
+	usage["models"] = models
+	_write_json(USAGE_FILE, usage)
+
+
+def ordered_models(now: float | None = None) -> list[str]:
+	"""The models worth trying now: the one that worked last first, any that are resting left out."""
+	now = time.time() if now is None else now
+	state = _models_state()
+
+	def entry(model):
+		value = state.get(model)
+
+		return value if isinstance(value, dict) else {}
+
+	def number(model, field):
+		# A hand-edited or damaged record must never be able to stop a run.
+		value = entry(model).get(field, 0)
+
+		return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+	available = [m for m in models_to_use() if number(m, "quiet_until") <= now]
+	worked = [m for m in available if number(m, "good") > 0]
+
+	if worked:
+		best = max(worked, key=lambda m: number(m, "good"))
+		available.remove(best)
+		available.insert(0, best)
+
+	return available
 
 
 def _name(account: str | None) -> str:
@@ -246,7 +312,7 @@ def ensure_persona(account: str | None) -> list[str]:
 
 		return []
 
-	_write_json(os.path.join(PERSONA_DIR, f"{_name(account)}.json"), {"interests": made, "made": _today()})
+	_write_json(os.path.join(PERSONA_DIR, f"{_name(account)}.json"), {"interests": made, "made": _local_day()})
 	logger.info("%s: invented a persona to search from (%d interests).", _name(account), len(made))
 
 	return made
@@ -415,7 +481,15 @@ def _request(messages: list[dict]) -> str | None:
 	base = os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL).strip().rstrip("/")
 	failures = []
 
-	for model in models_to_use():
+	candidates = ordered_models()
+
+	if not candidates:
+		# Every model was rate limited a moment ago and is still resting.
+		logger.info("Every free model is resting after a rate limit. Using the trends source.")
+
+		return None
+
+	for model in candidates:
 		wait = MIN_SPACING_SECONDS - (time.monotonic() - _last_call)
 
 		if wait > 0:
@@ -458,6 +532,12 @@ def _request(messages: list[dict]) -> str | None:
 				return None
 
 			failures.append("shared" if code == 429 else "config" if code in CONFIG_ERRORS else "other")
+
+			if code == 429:
+				_note_model(model, cool_for=MODEL_COOLDOWN_SECONDS)
+			elif code in CONFIG_ERRORS:
+				_note_model(model, cool_for=CONFIG_ERROR_QUIET_SECONDS)
+
 			logger.warning(
 				"OpenRouter answered %s for %s (%s)%s.",
 				code, model,
@@ -500,6 +580,8 @@ def _request(messages: list[dict]) -> str | None:
 		content = strip_thinking(content) if isinstance(content, str) else ""
 
 		if content.strip():
+			_note_model(model, good=True)
+
 			return content
 
 		failures.append("other")
@@ -522,7 +604,7 @@ def _request(messages: list[dict]) -> str | None:
 def _pool(account: str | None) -> list[list[str]]:
 	entry = _read_json(POOL_FILE).get(_name(account), {})
 
-	if entry.get("date") != _today():
+	if entry.get("date") != _local_day():
 		return []
 
 	# An older pool was a flat list of queries; each becomes a session of one.
@@ -536,7 +618,7 @@ def _pool(account: str | None) -> list[list[str]]:
 
 def _save_pool(account: str | None, sessions: list[list[str]]) -> None:
 	pools = _read_json(POOL_FILE)
-	pools[_name(account)] = {"date": _today(), "sessions": sessions}
+	pools[_name(account)] = {"date": _local_day(), "sessions": sessions}
 	_write_json(POOL_FILE, pools)
 
 
