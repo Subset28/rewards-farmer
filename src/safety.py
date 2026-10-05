@@ -22,9 +22,9 @@ import logging
 import os
 import re
 import sys
-import time
 from dataclasses import dataclass
 
+import clock
 from constants import USER_DATA_DIR
 import notify
 
@@ -190,7 +190,7 @@ def trip(risk: Risk, account_name: str) -> None:
 		"kind": risk.kind,
 		"reason": risk.reason,
 		"account": account_name,
-		"time": time.strftime("%Y-%m-%d %H:%M:%S"),
+		"time": clock.stamp(),
 	}
 
 	try:

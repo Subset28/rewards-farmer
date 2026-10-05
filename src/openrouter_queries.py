@@ -39,6 +39,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+import clock
 from constants import USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,7 @@ def _spend(quiet_for: float = 0.0) -> None:
 
 def _local_day() -> str:
 	"""Today by the clock the machine runs on, for things that should last until the owner's midnight."""
-	return datetime.now().strftime("%Y-%m-%d")
+	return clock.now().strftime("%Y-%m-%d")
 
 
 def _models_state() -> dict:

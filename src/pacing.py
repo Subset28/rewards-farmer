@@ -36,8 +36,9 @@ import json
 import logging
 import os
 import random
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
+import clock
 import points_log
 from constants import USER_DATA_DIR
 
@@ -80,7 +81,7 @@ def ramp_days() -> int:
 
 
 def _today() -> date:
-	return datetime.now().date()
+	return clock.today()
 
 
 def _unit(account: str, day: date, salt: str) -> float:
@@ -111,6 +112,7 @@ def first_day(account: str, today: date | None = None) -> date:
 		pass
 
 	first = today
+	rows = []
 
 	try:
 		rows = points_log.history(account)
@@ -120,17 +122,45 @@ def first_day(account: str, today: date | None = None) -> date:
 	except (ValueError, KeyError, TypeError):
 		pass
 
+	if not rows:
+		logger.warning(
+			"%s has no first day in %s and no points history, so it is treated as new (a %d-day ramp). "
+			"If it is not new, set its first_day there.", account, STATE_FILE, ramp_days(),
+		)
+
+	_save_first_day(account, first)
+
+	return first
+
+
+def _save_first_day(account: str, first: date) -> None:
+	"""Remember an account's first day without ever leaving a half-written file for a reader.
+
+	Written to a temporary file and moved into place, and read again just before, so two
+	processes (the schedulers, status.py) cannot overwrite each other's entries.
+	"""
+	state = _read_state()
+
+	if account in state:
+		return
+
 	state[account] = {"first_day": first.isoformat()}
+	temporary = f"{STATE_FILE}.{os.getpid()}.tmp"
 
 	try:
 		os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
-		with open(STATE_FILE, "w", encoding="utf-8") as handle:
+		with open(temporary, "w", encoding="utf-8") as handle:
 			json.dump(state, handle, indent=1)
+
+		os.replace(temporary, STATE_FILE)
 	except OSError as exc:
 		logger.debug("Could not save the pacing state: %s", exc)
 
-	return first
+		try:
+			os.unlink(temporary)
+		except OSError:
+			pass
 
 
 def age_days(account: str, today: date | None = None) -> int:
