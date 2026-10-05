@@ -66,6 +66,9 @@ services:
       NOTIFY_URL: ${NOTIFY_URL:-}
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
+      # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
+      # plain request. Unset, nothing uses it. Never used for account pages.
+      TRAWL_URL: ${TRAWL_URL:-}
     command: ["with-xvfb", "python", "src/main.py"]
     volumes:
       # Keeps the sign-in across container rebuilds.
@@ -118,6 +121,9 @@ services:
       NOTIFY_URL: ${NOTIFY_URL:-}
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
+      # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
+      # plain request. Unset, nothing uses it. Never used for account pages.
+      TRAWL_URL: ${TRAWL_URL:-}
       # Hour to anchor the run to, and how many seconds after that hour the
       # actual start may be delayed by, both in TZ below rather than UTC.
       REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
@@ -172,6 +178,9 @@ services:
       NOTIFY_URL: ${NOTIFY_URL:-}
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
+      # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
+      # plain request. Unset, nothing uses it. Never used for account pages.
+      TRAWL_URL: ${TRAWL_URL:-}
       # How many times a day to run, and the waking-hours window (in TZ below)
       # they are randomly placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
