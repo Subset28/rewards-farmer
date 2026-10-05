@@ -11,6 +11,8 @@ import rewards_tasks
 import safety
 import run_lock
 import notify
+import isolation
+import pacing
 import points_log
 import search_behavior
 import time
@@ -85,6 +87,21 @@ def main() -> int:
 
 		return 3
 
+	# A different order each run, and an account on a rest day is left out
+	# altogether, so the gap below is not spent waiting for nothing.
+	configured = pacing.ordered(configured)
+
+	for account in configured:
+		if pacing.is_rest_day(account.name):
+			logger.info("%s: rest day, nothing today.", account.name)
+
+	configured = [a for a in configured if not pacing.is_rest_day(a.name)]
+
+	if not configured:
+		desktop_utils.cleanup_virtual_desktop()
+
+		return 0
+
 	started = 0
 
 	for position, account in enumerate(configured):
@@ -112,7 +129,7 @@ def main() -> int:
 		# never loads - reached here and took the remaining accounts with it.
 		# KeyboardInterrupt is deliberately not caught: Ctrl-C means stop.
 		try:
-			if run_account(account):
+			if isolation.run(account.name, "src/main.py", lambda: run_account(account)):
 				started += 1
 		except safety.AccountAtRisk as exc:
 			# The brake is shared: a warning on one account stops the rest too.
@@ -142,4 +159,6 @@ def main() -> int:
 
 if __name__ == "__main__":
 	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
-	sys.exit(run_lock.run_locked(main))
+
+	# Inside an account's VPN namespace the parent already holds the lock.
+	sys.exit(main() if isolation.inside() else run_lock.run_locked(main))

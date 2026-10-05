@@ -201,6 +201,57 @@ class TestRunLoop(RunLoopTestCase):
 		self.assertEqual(self.calls, ["default"])
 
 
+class TestPacingInTheRunLoop(RunLoopTestCase):
+	"""Rest days and the order of accounts, which act before any account is touched."""
+
+	def setUp(self):
+		super().setUp()
+
+		self.calls = []
+		real = main.run_account
+		self.addCleanup(setattr, main, "run_account", real)
+
+	def _record(self, started):
+		def run_account(account):
+			self.calls.append(account.name)
+
+			return started(account.name)
+
+		main.run_account = run_account
+
+	def test_an_account_on_a_rest_day_is_left_out_and_the_rest_still_run(self):
+		accounts_for("personal,spare")
+		self._record(lambda name: True)
+
+		with mock.patch.object(main.pacing, "is_rest_day", side_effect=lambda name: name == "personal"):
+			self.assertEqual(main.main(), 0)
+
+		self.assertEqual(self.calls, ["spare"])
+
+	def test_when_every_account_rests_nothing_runs_and_that_is_not_a_failure(self):
+		accounts_for("personal,spare")
+		self._record(lambda name: True)
+
+		with mock.patch.object(main.pacing, "is_rest_day", return_value=True):
+			self.assertEqual(main.main(), 0)
+
+		self.assertEqual(self.calls, [])
+
+	def test_the_accounts_are_taken_in_a_different_order_from_run_to_run(self):
+		accounts_for("a,b,c,d")
+		self._record(lambda name: True)
+		orders = set()
+
+		with mock.patch.dict(os.environ, {"REWARDS_KEEP_ORDER": "0"}):
+			for _ in range(25):
+				self.calls.clear()
+				main.main()
+				orders.add(tuple(self.calls))
+
+		self.assertGreater(len(orders), 3)
+		self.assertTrue(all(sorted(order) == ["a", "b", "c", "d"] for order in orders))
+
+
 class TestFailureIsolation(RunLoopTestCase):
 	"""One account failing, every way it can, without ending the batch.
 

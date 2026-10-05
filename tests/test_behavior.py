@@ -8,7 +8,6 @@ import os
 import random
 import sys
 import tempfile
-import types
 import unittest
 from unittest import mock
 

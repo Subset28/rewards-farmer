@@ -215,7 +215,7 @@ def main() -> None:
 
 		print("Fitts Law calibration results")
 		print("=" * 40)
-		print(f"Target width term W = (height + width) / 2")
+		print("Target width term W = (height + width) / 2")
 		print(f"Regression: MT = {a:.4f} + {b:.4f} * ID")
 		print(f"R^2 = {r_squared:.4f}")
 		print("\nSample trials:")

@@ -24,7 +24,6 @@ import rewards_tasks
 import safety
 import search_behavior
 import search_only
-from fakes import FakeDriver
 
 # What an ordinary Rewards earn page reads like, including the words a loose
 # pattern would trip on: a "puzzle" card, terms links, a download-the-app offer.
