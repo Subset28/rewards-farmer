@@ -16,6 +16,29 @@ import vpn_config as v
 ALPHA = "client\ndev tun\nproto udp\nremote alpha.example.net 1194\nremote-cert-tls server\n"
 BETA = "client\ndev tun\nproto tcp\nremote beta.example.net 443\nremote-cert-tls server\n"
 
+# The shape of a Surfshark config: a login prompt, and ping-restart 0.
+SURFSHARK_LIKE = """client
+dev tun
+proto udp
+remote alpha.example.net 1194
+resolv-retry infinite
+remote-random
+nobind
+persist-key
+persist-tun
+ping 15
+ping-restart 0
+ping-timer-rem
+reneg-sec 0
+remote-cert-tls server
+auth-user-pass
+verb 3
+pull
+fast-io
+cipher AES-256-CBC
+auth SHA512
+"""
+
 ADDRESSES = {"alpha.example.net": ["198.51.100.4", "198.51.100.5"], "beta.example.net": ["203.0.113.9"], "203.0.113.9": ["203.0.113.9"]}
 
 
@@ -210,6 +233,17 @@ class TestPlan(VpnTestCase):
 	def test_an_account_without_a_config_stops_everything_rather_than_running_unprotected(self):
 		with self.assertRaisesRegex(RuntimeError, "gamma"):
 			v.plan(["alpha", "gamma"])
+
+	def test_a_config_that_asks_for_a_login_needs_an_auth_file_rather_than_hanging(self):
+		self.put_config("alpha", SURFSHARK_LIKE)
+
+		with self.assertRaisesRegex(RuntimeError, "auth.txt"):
+			v.plan(["alpha"])
+
+	def test_a_config_that_names_its_own_login_file_needs_no_auth_file(self):
+		self.put_config("alpha", SURFSHARK_LIKE.replace("auth-user-pass\n", "auth-user-pass /somewhere/creds\n"))
+
+		self.assertEqual(len(v.plan(["alpha"])), 1)
 
 	def test_a_name_that_could_walk_out_of_the_data_folder_is_refused(self):
 		for name in ("../escape", "a/b", "..", "x.", "a b", ""):
@@ -421,13 +455,22 @@ class TestOpenvpn(VpnTestCase):
 		self.assertIn("--auth-nocache", command)
 		self.assertTrue(command[command.index("--log-append") + 1].endswith("openvpn-alpha.log"))
 
-	def test_it_is_told_to_give_up_on_a_dead_tunnel_unless_the_config_says_how(self):
+	def test_it_is_always_told_to_give_up_on_a_dead_tunnel(self):
 		(alpha, _) = self.ready(self.tunnels())
+		command = self.command(alpha)
+
+		self.assertEqual(command[command.index("--ping") + 1], "15")
+		self.assertEqual(command[command.index("--ping-exit") + 1], "90")
+
+	def test_a_providers_ping_restart_zero_is_removed_so_a_dead_tunnel_is_still_noticed(self):
+		self.put_config("alpha", SURFSHARK_LIKE, auth="user\npass\n")
+		(alpha,) = self.ready(self.tunnels("alpha"))
+		kept = alpha.pinned.read_text()
+
+		self.assertNotIn("ping-restart", kept)
+		self.assertNotIn("ping-exit", kept)
+		self.assertIn("remote-cert-tls server", kept)
 		self.assertIn("--ping-exit", self.command(alpha))
-
-		alpha.pinned.write_text(alpha.pinned.read_text() + "ping-restart 30\n")
-
-		self.assertNotIn("--ping-exit", self.command(alpha))
 
 	def test_a_login_file_and_extra_options_are_passed_on(self):
 		self.put_config("alpha", ALPHA, auth="user\npass\n")
