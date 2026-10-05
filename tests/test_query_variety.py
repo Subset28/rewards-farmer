@@ -285,7 +285,7 @@ class Batch:
 		self.driver = types.SimpleNamespace(get=lambda url: None)
 		self.tab_utils = types.SimpleNamespace(ensure_focus=lambda: None)
 		self.elements = types.SimpleNamespace(get_bing_search_bar=lambda: object())
-		self.keyboard = types.SimpleNamespace(send_keys=lambda text: self.typed.append(text))
+		self.keyboard = types.SimpleNamespace(send_keys=lambda text, **kw: self.typed.append(text))
 
 	def wait_for_element(self, getter, *a, **k):
 		return getter()
