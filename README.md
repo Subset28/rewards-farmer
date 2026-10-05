@@ -11,6 +11,8 @@ Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.
 - [If Edge will not start](#if-edge-will-not-start)
 - [Running more than one account](#running-more-than-one-account)
 - [Docker](#docker)
+- [Pacing](#pacing-not-a-machine-that-does-the-maximum-every-day)
+- [A VPN per account (Docker)](#a-vpn-per-account-docker)
 - [Logging](#logging)
 - [Windows Virtual Desktop (Windows only)](#windows-virtual-desktop-windows-only)
 
@@ -285,6 +287,77 @@ They run one at a time with the first account (the run lock makes an overlap wai
 None of this hides that both accounts share a connection and a machine. It only keeps their activity from overlapping or touching. Two household members on one connection is ordinary; the bot's own patterns are the part that can link them.
 
 A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
+
+## Pacing: not a machine that does the maximum every day
+
+An account that earns its full quota at the same rate, every day, from its first day, with nothing ever skipped, is the clearest pattern an automated account leaves. `src/pacing.py` makes each account behave more like a person. Everything is worked out from the account's name and the date, so a restart or a new build gives the same answer and nothing has to be saved.
+
+- **Rest days.** Now and then an account does nothing at all (about one day in seven), never two days running. A search run is skipped when every account is resting, and a resting account does not hold a run open.
+- **Variable totals.** On a working day an account fills a share of its search quota (60% to 100%), not always all of it.
+- **A ramp.** For an account's first 7 days it asks for less each day (30% rising to a full day), takes no rest days, and does only the daily set and its searches.
+- **Order.** The accounts of one run are taken in a different order each time.
+- **No shared queries.** An account avoids the queries any other account searched in the last 7 days, as well as its own from the last 30.
+
+`python src/pacing.py` prints what today holds for each account. An account's first day is the date of its first points reading, or the day it was first seen; `data-dir/pacing.json` holds it, and you can edit it (`{"default": {"first_day": "2026-09-01"}}`) to say an account is not new.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `REWARDS_REST_DAY_CHANCE` | `0.15` | Chance a day is a rest day. `0` turns rest days off. |
+| `REWARDS_MIN_DAILY_FRACTION` | `0.6` | Least share of the search quota filled on a working day. `1` means always all of it. |
+| `REWARDS_RAMP_DAYS` | `7` | Days of an account's ramp. `0` turns it off. |
+| `REWARDS_KEEP_ORDER` | `0` | `1` keeps the accounts in the order listed. |
+
+None of this makes automation allowed or undetectable; it only avoids the most regular pattern.
+
+## A VPN per account (Docker)
+
+`docker-compose.vpn.yml` puts every account behind its own OpenVPN tunnel, in one container, each with its own kill switch and its own VPN location. It is modelled on the binhex `qbittorrentvpn` images (a default-drop iptables firewall, a tunnel that must come up before anything runs, a supervisor that notices a dead tunnel) and on ArmaanOChrome's entrypoint, with one change: a tunnel per account.
+
+**Why namespaces.** This NAS's kernel (4.4) has no iptables `owner` match and ignores per-user routing rules, so accounts cannot be told apart by user. Each account gets a network namespace instead:
+
+```
+account namespace                       container
+  tun0   <- OpenVPN, the only way out     vh<N>  may reach this account's VPN servers
+  vn<N>  ------ veth pair ------------           only (FORWARD), then NAT out of eth0
+  firewall: drop all, allow lo, tun0,
+  and this account's VPN servers
+```
+
+Nothing in a namespace can see another account's tunnel or interfaces. The browser for an account runs inside its namespace (`src/isolation.py`), without the capabilities that could change the firewall. An account whose tunnel is down, or that has no namespace, is skipped and never run on the real connection.
+
+**Per account**, put the provider's files in `data-dir/<account>/openvpn/`, where `<account>` is `default` for the unnamed profile:
+
+```
+config.ovpn   the provider's config (certs inline, or beside it in the same folder)
+auth.txt      optional: username on the first line, password on the second
+timezone      optional: the exit's timezone, such as America/Chicago (the browser reports it)
+```
+
+Give every account a different server. The container checks each exit address and refuses a tunnel whose exit is a second account's, or is listed in `HOME_IP_BLACKLIST`.
+
+**Check it** before relying on it. On a host that allows `NET_ADMIN` and `SYS_ADMIN`, `tests/integration/vpn_netns.sh` builds real namespaces with a stand-in for OpenVPN and checks the separation, the kill switch (tunnel dropped, route pointed at the real side, nothing gets out), the restart and the capability drop. The command to run it is at the top of the script.
+
+**Start it** (the four per-account services would work the accounts on the real connection, so stop them first):
+
+```sh
+docker compose stop scheduler search-scheduler scheduler-second search-scheduler-second
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
+```
+
+One container runs both schedulers. `VPN_ACCOUNTS` in `.env` (default `default,second`) says which accounts get a tunnel; they are worked one at a time with the usual gap.
+
+**Failures.** A tunnel that dies is restarted on its own (at most every 30 seconds) and its account is held until it is back. If one will not come back after 10 tries the container exits so Docker rebuilds it. Each of these sends that account's Discord channel a message (down, restored, not up, will not come back). Until the tunnel is back nothing leaves except through it.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VPN_ACCOUNTS` | `default,second` | Accounts that get a tunnel. |
+| `NAME_SERVERS` | `1.1.1.1,1.0.0.1` | Resolvers used through the tunnels. Avoid Google and OpenDNS: they pass on the client subnet. |
+| `HOME_IP_BLACKLIST` | unset | Comma-separated addresses that must never be an exit (put your real public address here). |
+| `VPN_OPTIONS` | unset | Extra OpenVPN command-line options. |
+
+Only the supervisor and the two schedulers run outside the namespaces, on the container's own connection. They send the Discord alerts and nothing else; every account's browser, searches and queries go through its tunnel. The tunnel logs are `data-dir/logs/openvpn-<account>.log`. `auth.txt` is a secret; `data-dir` is gitignored, keep it that way. The container needs `NET_ADMIN` and `SYS_ADMIN` (for the namespaces) and `/dev/net/tun`. WireGuard is not supported: this kernel has no module for it.
+
+**What this does and does not do.** It gives each account its own address and keeps the real one off the wire. It does not make automation allowed, and a commercial VPN address can itself be treated with suspicion by Microsoft. Use one location per account, keep it stable, and put the account's real timezone in `timezone`. Start with one account and watch for sign-in challenges before adding more.
 
 ## Logging
 

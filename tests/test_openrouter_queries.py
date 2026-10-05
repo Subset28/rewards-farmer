@@ -6,7 +6,6 @@
 import email.message
 import io
 import json
-import logging
 import os
 import sys
 import tempfile

@@ -4,6 +4,8 @@ import os
 import random
 import sys
 import dotenv
+import isolation
+import pacing
 import log_utils
 import accounts
 import browser
@@ -99,6 +101,21 @@ def main() -> int:
 
 		return 3
 
+	# A different order each run, and an account on a rest day is left out
+	# altogether, so the gap below is not spent waiting for nothing.
+	configured = pacing.ordered(configured)
+
+	for account in configured:
+		if pacing.is_rest_day(account.name):
+			logger.info("%s: rest day, nothing today.", account.name)
+
+	configured = [a for a in configured if not pacing.is_rest_day(a.name)]
+
+	if not configured:
+		desktop_utils.cleanup_virtual_desktop()
+
+		return 0
+
 	started = 0
 
 	for position, account in enumerate(configured):
@@ -118,7 +135,7 @@ def main() -> int:
 			logger.info("=== account: %s ===", account.name)
 
 		try:
-			if run_account_searches(account):
+			if isolation.run(account.name, "src/search_only.py", lambda: run_account_searches(account)):
 				started += 1
 		except safety.AccountAtRisk as exc:
 			logger.error("[BRAKE] %s: %s. Stopping every account.", account.name, exc)
@@ -146,4 +163,6 @@ def main() -> int:
 
 if __name__ == "__main__":
 	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
-	sys.exit(run_lock.run_locked(main))
+
+	# Inside an account's VPN namespace the parent already holds the lock.
+	sys.exit(main() if isolation.inside() else run_lock.run_locked(main))

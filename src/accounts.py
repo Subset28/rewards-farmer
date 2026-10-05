@@ -106,6 +106,13 @@ def configured() -> list[Account]:
 			continue
 
 		seen.add(name.lower())
-		accounts.append(_named(name))
+
+		# "default" is the unnamed profile that sits in the data directory itself,
+		# the one used when nothing is set. Listing it must not create a second,
+		# empty profile beside it, which would sign in as a stranger.
+		if name.lower() == "default":
+			accounts.append(Account(name="default", user_data_dir=USER_DATA_DIR, profile_name=PROFILE_NAME))
+		else:
+			accounts.append(_named(name))
 
 	return accounts
