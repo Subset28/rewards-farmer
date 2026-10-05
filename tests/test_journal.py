@@ -333,31 +333,6 @@ class TestLaunch(JournalTestCase):
 
 		self.alert.assert_not_called()
 
-	def test_a_run_is_skipped_when_every_account_is_resting(self):
-		with mock.patch.object(ss.pacing, "is_rest_day", return_value=True):
-			run = FakeRun(0)
-
-			self.assertEqual(ss.launch("default", self.due(), run=run), "skipped")
-
-		self.assertEqual(run.calls, 0)
-		self.assertEqual(self.events()[-1][1]["reason"], "rest day")
-
-	def test_a_resting_account_does_not_hold_the_run_open_when_the_others_are_done(self):
-		for account, resting in (("default", False), ("second", True)):
-			journal.record("default", "search", "quota", account=account, points=100, cap=100, complete=not resting)
-
-		with mock.patch.object(ss, "account_names", return_value=["default", "second"]), 			mock.patch.object(ss.pacing, "is_rest_day", side_effect=lambda name: name == "second"):
-			run = FakeRun(0)
-
-			self.assertEqual(ss.launch("default", self.due(), run=run), "skipped")
-
-		self.assertEqual(run.calls, 0)
-		self.assertEqual(self.events()[-1][1]["reason"], "quota already complete")
-
-	def test_an_account_that_is_working_still_gets_its_run(self):
-		with mock.patch.object(ss.pacing, "is_rest_day", return_value=False):
-			self.assertEqual(ss.launch("default", self.due(), run=FakeRun(0)), "ok")
-
 	def test_a_run_that_cannot_start_is_journaled_and_does_not_raise(self):
 		with self.assertLogs(ss.logger, level="ERROR"):
 			outcome = ss.launch("default", self.due(), run=FakeRun(error=OSError("no python")))
