@@ -112,7 +112,7 @@ class RewardsTaskUtils:
 		self.main_window = driver.current_window_handle
 
 		self.mouse = mouse_trajectory.MouseUtils(driver, self.behavior)
-		self.keyboard = mimic_typing.KeyboardUtils(driver, self.behavior)
+		self.keyboard = mimic_typing.KeyboardUtils(driver, self.behavior, account=account_name)
 		self.elements = element_selectors.ElementSelectionUtils(driver)
 		self.verify_signed_in_state()
 

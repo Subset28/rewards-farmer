@@ -24,3 +24,11 @@ def neutral_pacing(tmp_path, monkeypatch):
 	monkeypatch.setenv("REWARDS_MIN_DAILY_FRACTION", "1")
 	monkeypatch.setenv("REWARDS_RAMP_DAYS", "0")
 	monkeypatch.setenv("REWARDS_KEEP_ORDER", "1")
+
+	# The new behaviours (features.py) are off by default in real use and go live one account
+	# at a time. The suite exercises them, so they are on here, with a features file of its own;
+	# tests/test_features.py clears this to check the default.
+	import features
+
+	monkeypatch.setattr(features, "FEATURES_FILE", str(tmp_path / "features.json"))
+	monkeypatch.setenv("REWARDS_FEATURES", ",".join(features.KNOWN))

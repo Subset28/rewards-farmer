@@ -14,6 +14,7 @@ Bing, and Bing's own autosuggest answers that question directly.
 import logging
 import os
 
+import features
 import query_history
 import query_sources
 
@@ -85,7 +86,10 @@ def related_queries(count: int, account: str | None = None):
 		# Whatever OpenRouter did not supply (no key, no budget left, an error,
 		# a short reply) comes from the public feeds, so a run is never short.
 		if len(queries) < count:
-			queries += query_sources.related_queries(count - len(queries), exclude=searched | {q.lower() for q in queries})
+			queries += query_sources.related_queries(
+				count - len(queries), exclude=searched | {q.lower() for q in queries},
+				sessions=features.enabled("query_sessions", account),
+			)
 
 		if queries:
 			return queries
