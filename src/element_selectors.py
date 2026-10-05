@@ -446,5 +446,28 @@ return (
 	def get_bing_search_bar(self):
 		return self.driver.find_element(By.TAG_NAME, "textarea")
 
+	def get_quest_links(self) -> list[WebElement]:
+		"""The quest (punch card) cards on the earn page, each a link to /earn/quest/<id>."""
+		return self._container_by_id("quests").find_elements(By.CSS_SELECTOR, "a[href*='/earn/quest/']")
+
+	def get_quest_page_links(self) -> list[WebElement]:
+		"""Links in the body of a quest page, leaving out the header, navigation and footer."""
+		return self.driver.execute_script(
+			"return Array.from(document.querySelectorAll('a[href]')).filter("
+			"a => !a.closest('header, nav, footer, [role=navigation]'));"
+		)
+
 	def get_clear_bing_search_query_button(self):
 		return self.driver.find_element(By.ID, "sw_clx")
+
+	# The ids Bing gives the scope tabs of a results page, read off a live one.
+	# Videos is "video" there, which is easy to get wrong.
+	SEARCH_TAB_IDS = {
+		"images": "b-scopeListItem-images",
+		"videos": "b-scopeListItem-video",
+		"news": "b-scopeListItem-news",
+	}
+
+	def get_search_results_tab(self, name: str) -> WebElement:
+		"""The link of the Images, Videos or News tab on a results page."""
+		return self.driver.find_element(By.CSS_SELECTOR, f"#{self.SEARCH_TAB_IDS[name]} a")

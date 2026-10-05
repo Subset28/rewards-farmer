@@ -182,7 +182,7 @@ class FailureReport(unittest.TestCase):
 
 
 class TaskLoop(unittest.TestCase):
-	"""complete_all_tasks, with the six tasks replaced by recorded calls."""
+	"""complete_all_tasks, with the seven tasks replaced by recorded calls."""
 
 	STEPS = (
 		("Bing daily set", "complete_bing_daily_set"),
@@ -191,6 +191,7 @@ class TaskLoop(unittest.TestCase):
 		("Misc cards", "complete_misc_cards"),
 		("Required searches", "complete_required_searches"),
 		("Bonus points", "claim_bonus_points"),
+		("Quests", "complete_quests"),
 	)
 
 	def setUp(self):

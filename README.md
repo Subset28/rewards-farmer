@@ -162,7 +162,7 @@ One account at a time, since it is one browser window:
 REWARDS_ACCOUNTS=personal docker compose run --rm --service-ports signin
 ```
 
-The port is published on `127.0.0.1` only, so it is not reachable from the network. While the service is up it is showing a live Microsoft sign-in page.
+The port is published on `127.0.0.1` only by default, so it is not reachable from the network. On a headless NAS whose SSH blocks tunnelling, set `SIGNIN_BIND` in `.env` to the NAS's LAN address and open `http://<that address>:6080` instead; that exposes the sign-in page to your home network while the container runs, so stop it when you are done. While the service is up it is showing a live Microsoft sign-in page.
 
 Signing in signs the browser in, not just the website, so Edge may sync bookmarks and autofill into the profile it just created. `data-dir` is a bot profile living in the project directory rather than your everyday browser profile, and it is gitignored, but it is worth knowing what ends up there.
 
@@ -199,6 +199,92 @@ REWARDS_ACCOUNTS=personal,spare docker compose run --rm rewards-farmer
 ```
 
 `REWARDS_HEADLESS=1` is set in the image. It also works on the host if you want a run with no visible window; the pointer code needs an explicit window size in that mode, which `main.py` sets.
+
+## The brake, alerts and the points record
+
+A run that lands on a sign-in page, a human check or a restriction notice stops, writes `data-dir/PAUSED`, and every scheduled run after it is skipped until someone clears it. The pause covers all accounts, because accounts run from one connection are not independent.
+
+```
+python src/safety.py status
+python src/safety.py clear
+```
+
+Alerts go to a Discord webhook or an [ntfy](https://ntfy.sh) topic, and each account can have its own: set `NOTIFY_URL_DEFAULT` and `NOTIFY_URL_SECOND` (the account's name, upper-cased) in `.env`. `NOTIFY_URL` is the fallback for an account with none of its own. A webhook address is a secret, so keep it in `.env`, which is not committed. Unset, alerts only log.
+
+What is sent: the brake tripping (including an account signed out), a round of searches that earns nothing, a scheduled search or daily run that fails (any exit code but the brake's own 3, which has already alerted), and once per account after each daily run a line with today, month and lifetime points and how far the next level is.
+
+## The journal and the logs
+
+A container's own log is gone when it is recreated, so a new build used to have no idea what the old one had done. Two things in `data-dir` now survive a rebuild:
+
+- `journal.jsonl` records every scheduled run (start, end and outcome, plus each search run's quota reading). A new build reads it to see which planned runs finished, which were cut off and which were missed, and redoes a cut-off or missed search run up to 3 hours late while the 08:00 to 23:00 window is open. A run is skipped when every account's quota is already full. Read it with `python src/journal.py` (today) or `python src/journal.py 3` (three days). The file keeps its newest 6000 lines.
+- `logs/<service>.log` holds the readable log lines of each service (`scheduler.log`, `search-scheduler-second.log` and so on), capped at 5 MB each.
+
+Swapping a build mid-day is therefore safe, but not while a run is live: recreating a container kills the run in it. Check that no `msedge --user-data-dir` process is running first.
+
+`data-dir/points.jsonl` gets one line per daily run (today, this month, lifetime). `python src/points_log.py` prints, for each account, the latest reading, the points to that account's next level this month (`REWARDS_LEVEL_TARGETS`) and the daily rate. Pass an account name to see just one.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NOTIFY_URL` | unset | Shared alert address (Discord webhook or ntfy topic) for any account without its own. |
+| `NOTIFY_URL_<ACCOUNT>` | unset | One account's own alert address, e.g. `NOTIFY_URL_SECOND`. |
+| `REWARDS_SEARCHES_PER_RUN` | `5-8` | Searches one scheduled search run makes before stopping, so the quota fills across the day. |
+| `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
+| `REWARDS_LEVEL_TARGETS` | `default=750,second=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
+
+## Search queries from OpenRouter's free models
+
+`QUERY_SOURCE=openrouter` asks OpenRouter's free models for the day's search queries (`src/openrouter_queries.py`). The free tier allows 50 requests a day and 20 a minute, so a request is spent on a whole batch of 24 queries, kept as a pool for the day, and a day costs a handful of requests. A hard daily cap below the allowance is enforced across all containers (`OPENROUTER_DAILY_LIMIT`, 40), failed attempts count against it, a 429 or a rejected key makes it go quiet for a while, and anything that goes wrong falls back to the public feeds, so a run is never short of queries.
+
+Put the settings in a `.env` file next to `docker-compose.yml` on the NAS (it is gitignored; never paste the key into chat or a command line you keep in history):
+
+```
+QUERY_SOURCE=openrouter
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free
+```
+
+Then `docker compose up -d --force-recreate scheduler search-scheduler`. The task cards (Explore on Bing and so on) keep using the public feeds, so the allowance goes to the daily searches.
+
+- **Sessions and a persona.** The queries come as sessions of two to four searches that narrow a topic, used back to back. An account without interests gets a persona invented once (one request) and kept in `data-dir/persona/<account>.json`, so it has the same interests every day. That makes its searching consistent; it does not make it the owner's own.
+- **Free models only.** `OPENROUTER_MODEL` must end in `:free` (or be `openrouter/free`); the paid model has the same name without the suffix, so anything else is replaced by the default with a warning unless `OPENROUTER_ALLOW_PAID=1`. A response that reports a cost stops all requests for a day.
+- **The default models** are `google/gemma-4-26b-a4b-it:free`, then `google/gemma-4-31b-it:free`, then NVIDIA's `nvidia/nemotron-3-super-120b-a12b:free` (a different provider, for when Google's shared pool is full; it thinks by default, so replies are stripped of reasoning and the output cap is generous), picked from the free text models by their published latency and availability. `OPENROUTER_MODEL` takes a comma-separated list, tried in order. A 429 whose body says the shared upstream pool is full moves on to the next model; if every model is full it waits 10 minutes and the public feeds cover the gap. A 429 about the account itself stops requests instead. The Inkling free endpoints are for agentic harnesses only, and Nemotron 3 Super thinks by default and would spend its output limit doing so.
+- **Errors** follow OpenRouter's documented codes: 429 backs off for the time given, 401/403 and 400/402/404 stop requests for hours (they would only repeat), 502 is treated as brief. Every attempt counts against `OPENROUTER_DAILY_LIMIT`.
+
+Optionally give an account interests, one per line, in `data-dir/interests/<account>.txt` (the first account is `default`). About half its queries are then about those, so its searching has a subject. Free endpoints log what they receive and may train on it, so keep anything personal out of that file. Whatever an account has already searched is never offered again, from any source.
+
+## A second account, with its own hands
+
+Every account types and moves with its own profile (`src/behavior.py`), so two accounts do not look like one operator. The account that was already running keeps the original measurements. Any other account gets a **provisional** profile, stable and different from every other account's, until you record its owner's real one. The log says which kind is in use.
+
+**1. Record the owner's typing and mouse speed**, on the machine and with the hands of the person the account belongs to:
+
+```
+python src/typing_test.py     # a fullscreen test: type 12 search-style phrases the way you normally do
+python src/fitts_law.py       # 18 quick clicks; note "MT = a + b * ID"
+python src/make_behavior_profile.py second --keys keypress_times.txt --fitts 0.43 0.16
+python src/make_behavior_profile.py --show second
+```
+
+Copy the resulting `data-dir/behavior/second.json` to the same place in the NAS's `data-dir`.
+
+**2. Sign the account in** through the container, the same way as the first (type the password yourself, it never goes through the bot):
+
+```
+REWARDS_ACCOUNTS=second docker compose run --rm --service-ports signin
+```
+
+**3. Start its schedulers.** They are behind a compose profile, so a plain `docker compose up -d` leaves them off:
+
+```
+docker compose --profile second up -d scheduler-second search-scheduler-second
+```
+
+They run one at a time with the first account (the run lock makes an overlap wait), by default at 15:00 instead of 09:00 (`SECOND_ANCHOR_HOUR`) and on 3 search runs a day (`SECOND_SEARCH_RUNS_PER_DAY`). A run for a different account than the one that just finished also waits out a 15 minute cooldown (`REWARDS_ACCOUNT_COOLDOWN_MINUTES`, 0 turns it off), so the two are never used back to back.
+
+None of this hides that both accounts share a connection and a machine. It only keeps their activity from overlapping or touching. Two household members on one connection is ordinary; the bot's own patterns are the part that can link them.
+
+A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
 
 ## Logging
 
