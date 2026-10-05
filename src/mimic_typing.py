@@ -4,6 +4,8 @@ from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 
+import features
+
 # Measured from recordpress.py + analyze_keypresses.py against this user's
 # own typing (267 keypress intervals, keypress_times.txt).
 FIRST_INTERVAL = (0.0, 0.1)
@@ -20,8 +22,9 @@ CORRECTION_RATE = 0.7
 HESITATION_RATE = 0.02
 
 class KeyboardUtils:
-	def __init__(self, driver: webdriver.Edge, behavior=None):
+	def __init__(self, driver: webdriver.Edge, behavior=None, account: str | None = None):
 		self.driver = driver
+		self.account = account
 		# The account's own typing rhythm (behavior.py). Without one, the
 		# original measured constants above.
 		self.weights = list(behavior.typing_weights) if behavior else [
@@ -60,6 +63,31 @@ class KeyboardUtils:
 		return first, noticed
 
 	def send_keys(self, keys: Iterable[str], intended: str | None = None, rng=None):
+		"""Type `keys`: the original timing, or the more human one when the "typing" feature is on for this account.
+
+		The new typing changes what Microsoft sees, so it goes live one account at a time
+		(features.py); until it is switched on the original code runs, unchanged."""
+		if not features.enabled("typing", self.account):
+			return self._send_keys_classic(keys)
+
+		return self._send_keys_human(keys, intended, rng)
+
+	def _send_keys_classic(self, keys: Iterable[str]):
+		actions = ActionChains(self.driver, duration=0)
+
+		for key in keys:
+			actions.send_keys(key)
+
+			interval = random.choices(
+				[FIRST_INTERVAL, SECOND_INTERVAL, THIRD_INTERVAL],
+				weights=self.weights
+			)[0]
+
+			actions.pause(random.uniform(interval[0], interval[1]))
+
+		actions.perform()
+
+	def _send_keys_human(self, keys: Iterable[str], intended: str | None = None, rng=None):
 		"""Type `keys` with human timing.
 
 		`intended` is the text that was meant (without any trailing Enter). When

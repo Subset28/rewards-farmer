@@ -30,7 +30,7 @@ class HabitTestCase(unittest.TestCase):
 		patcher = mock.patch.dict(os.environ)
 		patcher.start()
 		self.addCleanup(patcher.stop)
-		os.environ.pop("REWARDS_SEARCH_HABITS", None)
+		os.environ.pop("REWARDS_SEARCH_HABITS", None)  # no longer read; the "habits" feature is the switch
 
 
 class TestHabitWindows(HabitTestCase):
@@ -216,20 +216,19 @@ class TestHabitsOff(HabitTestCase):
 	def test_the_switch_turns_habits_off(self):
 		now = WEEKDAY.replace(hour=0, minute=5)
 
-		for value in ("0", "false", "off"):
-			os.environ["REWARDS_SEARCH_HABITS"] = value
+		# The "habits" feature (features.py) is the switch; the suite turns it on for everyone.
+		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}):
 			random.seed(11)
 			with_owner = search_scheduler.draw_times(now, "someone")
 			random.seed(11)
 
 			self.assertEqual(with_owner, search_scheduler.draw_times(now))
 
-	def test_the_switch_defaults_to_on(self):
-		self.assertTrue(search_scheduler.habits_enabled())
+	def test_the_switch_is_the_features_file_not_a_default(self):
+		self.assertTrue(search_scheduler.habits_enabled("someone"))
 
-		os.environ["REWARDS_SEARCH_HABITS"] = "1"
-
-		self.assertTrue(search_scheduler.habits_enabled())
+		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}):
+			self.assertFalse(search_scheduler.habits_enabled("someone"))
 
 	def test_day_plan_passes_the_owner_through(self):
 		with mock.patch.object(search_scheduler.schedule_plan, "read", return_value={}), mock.patch.object(search_scheduler.schedule_plan, "write"), mock.patch.object(search_scheduler, "draw_times", return_value=[]) as draw:

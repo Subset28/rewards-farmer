@@ -10,6 +10,7 @@ and today's runs. Read-only: it opens no browser and changes nothing.
 import logging
 
 import accounts
+import features
 import journal
 import pacing
 import points_log
@@ -48,6 +49,7 @@ def account_block(name: str) -> str:
 	return "\n".join([
 		name,
 		f"  {pacing.describe(name)}",
+		"  features switched on: " + (", ".join(features.active_for(name)) or "none"),
 		"  " + points.replace("\n", "\n  "),
 		f"  {bonus_line(name)}",
 		f"  {quota_line(name)}",

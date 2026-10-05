@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import accounts
+import features
 import journal
 import log_utils
 import notify
@@ -79,8 +80,12 @@ _WEEKEND_SHIFT_MINUTES = (60, 90)
 _WEEKEND_WIDEN = 1.5
 
 
-def habits_enabled() -> bool:
-	return os.environ.get("REWARDS_SEARCH_HABITS", "1").strip().lower() not in ("0", "false", "no", "off")
+def habits_enabled(owner: str | None = None) -> bool:
+	"""Whether this owner's runs follow its own favoured times of day.
+
+	That changes what Microsoft sees, so it goes live one account at a time (features.py);
+	until the "habits" feature is on for the owner, run times are drawn uniformly as before."""
+	return features.enabled("habits", owner)
 
 
 def _unit(owner: str, salt: str) -> float:
@@ -145,7 +150,7 @@ def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
 	and none when the window is nearly over.
 
 	With an owner, most times fall in that owner's habitual windows (see
-	habit_windows) instead of uniformly; with no owner, or REWARDS_SEARCH_HABITS=0,
+	habit_windows) instead of uniformly, once the "habits" feature is on for it (features.py); otherwise,
 	they are uniform.
 	"""
 	start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
@@ -159,7 +164,7 @@ def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
 	count = RUNS_PER_DAY if fraction >= 1 else max(1, math.ceil(RUNS_PER_DAY * fraction))
 	span = (end - begin).total_seconds()
 
-	if owner is None or not habits_enabled():
+	if owner is None or not habits_enabled(owner):
 		return sorted(begin + timedelta(seconds=random.uniform(0, span)) for _ in range(count))
 
 	return sorted(_habit_time(owner, begin, end, start) for _ in range(count))

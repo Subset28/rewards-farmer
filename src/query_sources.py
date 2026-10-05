@@ -28,6 +28,7 @@ import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 
+import features
 import trawl_client
 
 from constants import REPO_ROOT
@@ -271,6 +272,12 @@ def query_from_task_description(description: str, pick: int = 0, avoid=None) -> 
 # feed is as real as its head; only taking the head repeated the same few.
 POOL_LIMIT = 30
 
+# Chance that a search follows up on the one before it with one of Bing's own
+# suggestions for it, the way a person narrows a query, instead of jumping to
+# an unrelated topic every time. (The original behaviour, used until the
+# "query_sessions" feature is switched on for an account.)
+REFINE_CHANCE = 0.25
+
 # A person searches in short topical sessions, "x", then "x review", then
 # "x price", so a batch is grouped into sessions of 1-4 related queries. The
 # weights give a mean of two queries per session, which makes about half of all
@@ -327,7 +334,99 @@ def _norm(query: str) -> str:
 	return " ".join((query or "").lower().split())
 
 
-def related_queries(count: int, seed: str | None = None, exclude=None, rng=random) -> list[str]:
+def related_queries(count: int, seed: str | None = None, exclude=None, rng=random, sessions: bool | None = None) -> list[str]:
+	"""`count` queries for the day's searches.
+
+	Queries come grouped into topical sessions with follow-ups only when the "query_sessions"
+	feature is on (features.py), which goes live one account at a time; otherwise it is the
+	original draw, where now and then a query follows up the one before it. `sessions` says
+	which; left as None, the feature switch with no account (so only "*" or the environment)
+	decides.
+	"""
+	if sessions is None:
+		sessions = features.enabled("query_sessions")
+
+	if sessions:
+		return _related_queries_sessions(count, seed, exclude, rng)
+
+	return _related_queries_classic(count, seed, exclude, rng)
+
+
+def _related_queries_classic(count: int, seed: str | None = None, exclude=None, rng=random) -> list[str]:
+	"""`count` distinct queries, none of them in `exclude`.
+
+	Drawn at random from the whole trending feed, topped up with Wikipedia's
+	most-read topics, rather than from the top of the feed in order: taking the
+	top in order made the second batch of a run repeat the first, and every run
+	that day repeat the one before. Now and then a query is a follow-up to the
+	one before it instead of a new topic.
+
+	Fewer than `count` come back when nothing reachable is fresh; the caller
+	decides what to do then, rather than typing junk.
+	"""
+	avoid = {_norm(q) for q in (exclude or ())}
+	collected: list[str] = []
+
+	def fresh(candidate: str) -> bool:
+		return bool(candidate) and len(candidate) > 2 and _norm(candidate) not in avoid
+
+	def add(candidate: str) -> None:
+		collected.append(candidate)
+		avoid.add(_norm(candidate))
+
+	def unique(candidates) -> list[str]:
+		seen, out = set(), []
+
+		for candidate in candidates:
+			key = _norm(candidate)
+
+			if fresh(candidate) and key not in seen:
+				seen.add(key)
+				out.append(candidate)
+
+		return out
+
+	pool = unique((suggestions(seed) if seed else []) + trending_queries()[:POOL_LIMIT])
+
+	if len(pool) < count * 3:
+		pool = unique(pool + wikipedia_topics()[:POOL_LIMIT])
+
+	rng.shuffle(pool)
+
+	while len(collected) < count:
+		candidate = None
+
+		if collected and rng.random() < REFINE_CHANCE:
+			options = [s for s in suggestions(collected[-1]) if fresh(s)]
+
+			if options:
+				candidate = rng.choice(options[:5])
+
+		while candidate is None and pool:
+			picked = pool.pop()
+
+			if fresh(picked):
+				candidate = picked
+
+		if candidate is None:
+			# The pool is spent: ask Bing what follows something already searched.
+			for term in reversed(collected):
+				options = [s for s in suggestions(term) if fresh(s)]
+
+				if options:
+					candidate = rng.choice(options[:5])
+
+					break
+
+		if candidate is None:
+			break
+
+		add(candidate)
+
+	return collected
+
+
+def _related_queries_sessions(count: int, seed: str | None = None, exclude=None, rng=random) -> list[str]:
 	"""`count` distinct queries, none of them in `exclude`.
 
 	Drawn at random from the whole trending feed, topped up with Wikipedia's
