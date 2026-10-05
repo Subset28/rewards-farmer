@@ -235,6 +235,10 @@ Swapping a build mid-day is therefore safe, but not while a run is live: recreat
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
 | `REWARDS_LEVEL_TARGETS` | `default=750,second=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
 
+## Browser identity
+
+A request that says Windows and Chrome 151 while the page says Linux and Edge 154 is a mismatch a bot check looks for. `src/fingerprint_probe.py` compares identity variants on a throwaway profile (never an account's): what the page sees (`navigator.*`, Client Hints), what a server sees, and what two public bot checks say. Run it with `with-xvfb python src/fingerprint_probe.py [baseline|header-hack|linux|windows]`. It found that the old header override set a User-Agent and an `X-Rewards-Source` header on every request, Bing searches included, that disagreed with the browser, so the override is now off unless `REWARDS_APP_HEADERS=1`.
+
 ## What the Rewards pages say, and the monthly bonuses
 
 `src/inspect_rewards.py` is a read-only look: it opens each account's Rewards home, earn and dashboard pages, clicks nothing, and saves their text to `data-dir/inspect/<account>-<page>.txt` (it takes the same lock as a scheduled run, so it never overlaps one). Run it with `REWARDS_ACCOUNTS=default,second with-xvfb python src/inspect_rewards.py`.
@@ -330,6 +334,7 @@ An account that earns its full quota at the same rate, every day, from its first
 | `REWARDS_MIN_DAILY_FRACTION` | `0.6` | Least share of the search quota filled on a working day. `1` means always all of it. |
 | `REWARDS_RAMP_DAYS` | `7` | Days of an account's ramp. `0` turns it off. |
 | `REWARDS_KEEP_ORDER` | `0` | `1` keeps the accounts in the order listed. |
+| `REWARDS_APP_HEADERS` | unset | `1` sends the old Windows/`MSRewards` header override. Off by default: it made the request header disagree with the browser's own identity. Set it only if a rewards-only quest stops earning. |
 
 None of this makes automation allowed or undetectable; it only avoids the most regular pattern.
 

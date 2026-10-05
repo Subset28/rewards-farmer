@@ -85,15 +85,21 @@ class RewardsTaskUtils:
 			account_name, self.behavior.source, *self.behavior.typing_weights, self.behavior.fitts_a, self.behavior.fitts_b
 		)
 
-		# Set headers to spoof the rewards app for the rewards only quests
-		self.driver.execute_cdp_cmd("Network.enable", {})
+		# Off by default. Probed on a throwaway profile (src/fingerprint_probe.py):
+		# with these set, the request header said Windows and Chrome/151 while
+		# navigator.userAgent and Sec-CH-UA said Linux and Edge 154, and every
+		# request, Bing searches included, carried an X-Rewards-Source header no
+		# browser sends. An honest Linux Edge agreed with itself everywhere. Set
+		# REWARDS_APP_HEADERS=1 only if a rewards-only quest stops earning.
+		if os.environ.get("REWARDS_APP_HEADERS") == "1":
+			self.driver.execute_cdp_cmd("Network.enable", {})
 
-		headers = {
-			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0 MSRewards/Desktop/1.1.0",
-			"X-Rewards-Source": "msrewards-desktop",
-		}
+			headers = {
+				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0 MSRewards/Desktop/1.1.0",
+				"X-Rewards-Source": "msrewards-desktop",
+			}
 
-		self.driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers})
+			self.driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers})
 
 		self.driver.get(REWARDS_HOME_URL)
 
