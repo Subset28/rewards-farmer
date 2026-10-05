@@ -27,6 +27,7 @@ class IsolationTestCase(unittest.TestCase):
 		environment.start()
 		self.addCleanup(environment.stop)
 		os.environ.pop(isolation.CHILD_ENV, None)
+		os.environ.pop(isolation.REQUIRED_ENV, None)
 
 		self.in_process = mock.Mock(return_value=True)
 		self.runner = mock.Mock(return_value=SimpleNamespace(returncode=0))
@@ -68,6 +69,26 @@ class TestWithVpn(IsolationTestCase):
 
 		self.assertFalse(self.run_it("alpha"))
 
+		self.in_process.assert_not_called()
+		self.runner.assert_not_called()
+
+	def test_once_the_supervisor_has_started_a_missing_state_file_means_run_nothing_not_no_vpn(self):
+		os.environ[isolation.REQUIRED_ENV] = "1"
+
+		self.assertFalse(self.run_it())
+
+		self.in_process.assert_not_called()
+		self.runner.assert_not_called()
+
+	def test_a_deleted_state_file_does_not_send_an_account_out_on_the_real_connection(self):
+		self.write({"alpha": self.UP})
+		os.environ[isolation.REQUIRED_ENV] = "1"
+		self.assertTrue(self.run_it())
+
+		self.state.unlink()
+		self.runner.reset_mock()
+
+		self.assertFalse(self.run_it())
 		self.in_process.assert_not_called()
 		self.runner.assert_not_called()
 

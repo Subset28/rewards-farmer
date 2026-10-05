@@ -211,6 +211,19 @@ class TestPlan(VpnTestCase):
 		with self.assertRaisesRegex(RuntimeError, "gamma"):
 			v.plan(["alpha", "gamma"])
 
+	def test_a_name_that_could_walk_out_of_the_data_folder_is_refused(self):
+		for name in ("../escape", "a/b", "..", "x.", "a b", ""):
+			with self.assertRaises(RuntimeError, msg=name):
+				v.plan([name])
+
+	def test_the_supervisor_makes_the_namespaces_mandatory_for_what_it_starts(self):
+		os.environ.pop("REWARDS_VPN_REQUIRED", None)
+		self.addCleanup(os.environ.pop, "REWARDS_VPN_REQUIRED", None)
+		self.system.command_exit_after = 0
+		TestRun.run_it(self)
+
+		self.assertEqual(os.environ.get("REWARDS_VPN_REQUIRED"), "1")
+
 	def test_no_accounts_is_an_error(self):
 		with self.assertRaises(RuntimeError):
 			v.plan([])
