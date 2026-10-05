@@ -11,6 +11,7 @@ Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.
 - [If Edge will not start](#if-edge-will-not-start)
 - [Running more than one account](#running-more-than-one-account)
 - [Docker](#docker)
+- [Runbook: checking, rolling out, rolling back](docs/RUNBOOK.md)
 - [Rolling changes out one at a time](#rolling-changes-out-one-at-a-time)
 - [Pacing](#pacing-not-a-machine-that-does-the-maximum-every-day)
 - [A VPN per account (Docker)](#a-vpn-per-account-docker)
