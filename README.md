@@ -316,6 +316,10 @@ None of this hides that both accounts share a connection and a machine. It only 
 
 A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
 
+## One command for the whole picture
+
+`python src/status.py` prints, for each account, what today holds (a working or light day, the ramp), its points and how far the next level is, what last month's bonuses paid, and how today's search quota stands, then the brake and today's runs. It is read-only: no browser, nothing changed. On the NAS: `docker exec rewards-farmer-scheduler-1 python src/status.py`.
+
 ## Pacing: not a machine that does the maximum every day
 
 An account that earns its full quota at the same rate, every day, from its first day, is the clearest pattern an automated account leaves. `src/pacing.py` makes each account behave more like a person. Everything is worked out from the account's name and the date, so a restart or a new build gives the same answer and nothing has to be saved.
