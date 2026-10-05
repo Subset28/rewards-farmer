@@ -22,6 +22,7 @@ import notify
 import points_log
 import quests
 import journal
+import pacing
 import query_history
 
 from constants import REPO_ROOT
@@ -544,7 +545,10 @@ class RewardsTaskUtils:
 		# Measure, search, measure again.
 		points_earned, max_pts = self.read_search_points()
 
-		logger.info("Search points before: %s/%s", points_earned, max_pts)
+		# Not always all of it: how much of the quota to fill today varies by day.
+		goal = pacing.search_target(self.account_name, max_pts)
+
+		logger.info("Search points before: %s/%s (aiming for %s today)", points_earned, max_pts, goal)
 
 		# The lowest rate seen, used only to size the first round. Sizing every
 		# round on it made 15 searches out of a 50 point quota that 10 fill at
@@ -554,10 +558,10 @@ class RewardsTaskUtils:
 		dry_rounds = dry_searches = 0
 
 		for round_number in range(1, max_rounds + 1):
-			if points_earned >= max_pts or (budget is not None and budget <= 0):
+			if points_earned >= goal or (budget is not None and budget <= 0):
 				break
 
-			searches = search_behavior.searches_needed(max_pts - points_earned, points_per_search)
+			searches = search_behavior.searches_needed(goal - points_earned, points_per_search)
 
 			if round_number == 1:
 				searches = min(searches, self.PROBE_SEARCHES)
@@ -570,13 +574,14 @@ class RewardsTaskUtils:
 
 			previous = points_earned
 			points_earned, max_pts = self.read_search_points()
+			goal = pacing.search_target(self.account_name, max_pts)
 
 			logger.info(
-				"Round %s: %s searches -> %s/%s",
-				round_number, searches, points_earned, max_pts
+				"Round %s: %s searches -> %s/%s (aiming for %s)",
+				round_number, searches, points_earned, max_pts, goal
 			)
 
-			if points_earned <= previous and points_earned < max_pts:
+			if points_earned <= previous and points_earned < goal:
 				# Credit lags: a round read straight after its last search showed
 				# no gain, and the next run found the points there (seen in the
 				# 11:33 and 14:48 runs on 1 Oct). Look again before deciding the
@@ -584,8 +589,9 @@ class RewardsTaskUtils:
 				# restriction.
 				time.sleep(random.uniform(20, 35))
 				points_earned, max_pts = self.read_search_points()
+				goal = pacing.search_target(self.account_name, max_pts)
 
-			if points_earned > previous or points_earned >= max_pts:
+			if points_earned > previous or points_earned >= goal:
 				dry_rounds = dry_searches = 0
 			else:
 				dry_rounds += 1
@@ -618,11 +624,11 @@ class RewardsTaskUtils:
 		# Where the day's searching stands, for the next build or run to read.
 		journal.record(
 			self.account_name, "search", "quota",
-			account=self.account_name, points=points_earned, cap=max_pts, complete=points_earned >= max_pts,
+			account=self.account_name, points=points_earned, cap=max_pts, target=goal, complete=points_earned >= goal,
 		)
 
-		if points_earned >= max_pts:
-			logger.info("Search quota complete: %s/%s", points_earned, max_pts)
+		if points_earned >= goal:
+			logger.info("Search quota complete: %s/%s (today's aim was %s)", points_earned, max_pts, goal)
 		elif budget is not None and budget <= 0:
 			logger.info(
 				"Search run stopped at its limit of %s searches, %s/%s so far. "
@@ -831,6 +837,13 @@ class RewardsTaskUtils:
 			# Last, so a quest that stalls the browser costs nothing else.
 			("Quests", self.complete_quests),
 		)
+
+		# An account in its first days does only the daily set and its searches.
+		allowed = pacing.steps_allowed(self.account_name)
+
+		if allowed is not None:
+			logger.info("%s is new: only %s today.", self.account_name, ", ".join(allowed))
+			steps = tuple(step for step in steps if step[0] in allowed)
 
 		if skip_searches:
 			# search_scheduler.py already spreads these across the day; redoing

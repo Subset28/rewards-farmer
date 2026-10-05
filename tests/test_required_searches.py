@@ -108,6 +108,51 @@ class TestSizing(unittest.TestCase):
 		self.assertEqual(sum(quota.batches), 3)
 
 
+class TestDailyAim(unittest.TestCase):
+	"""An account does not always fill its whole quota: pacing sets the day's aim."""
+
+	def aim(self, target):
+		return mock.patch.object(rewards_tasks.pacing, "search_target", return_value=target)
+
+	def test_a_run_stops_at_the_days_aim_not_the_cap(self):
+		quota = Quota(earned=0, cap=100, rate=5)
+
+		with self.aim(60):
+			quota.complete_required_searches()
+
+		self.assertEqual(quota.earned, 60)
+		self.assertEqual(sum(quota.batches), 12)
+
+	def test_an_account_already_past_the_aim_searches_nothing(self):
+		quota = Quota(earned=70, cap=100, rate=5)
+
+		with self.aim(60):
+			quota.complete_required_searches()
+
+		self.assertEqual(quota.batches, [])
+
+	def test_reaching_the_aim_is_reported_as_the_days_quota_being_complete(self):
+		import journal
+
+		quota = Quota(earned=0, cap=100, rate=5)
+
+		with self.aim(60):
+			quota.complete_required_searches()
+
+		last = [r for r in journal.read_all() if r["event"] == "quota"][-1]
+
+		self.assertTrue(last["complete"])
+		self.assertEqual((last["points"], last["cap"], last["target"]), (60, 100, 60))
+
+	def test_an_aim_short_of_the_cap_is_not_a_dry_run(self):
+		quota = Quota(earned=0, cap=100, rate=5)
+
+		with self.aim(40), mock.patch.object(rewards_tasks.notify, "send") as alert:
+			quota.complete_required_searches()
+
+		alert.assert_not_called()
+
+
 class TestRunLimit(unittest.TestCase):
 	def test_a_run_stops_at_its_limit_and_leaves_the_rest(self):
 		quota = Quota(earned=0, cap=50, rate=5)

@@ -11,6 +11,7 @@ Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.
 - [If Edge will not start](#if-edge-will-not-start)
 - [Running more than one account](#running-more-than-one-account)
 - [Docker](#docker)
+- [Pacing](#pacing-not-a-machine-that-does-the-maximum-every-day)
 - [A VPN per account (Docker)](#a-vpn-per-account-docker)
 - [Logging](#logging)
 - [Windows Virtual Desktop (Windows only)](#windows-virtual-desktop-windows-only)
@@ -286,6 +287,27 @@ They run one at a time with the first account (the run lock makes an overlap wai
 None of this hides that both accounts share a connection and a machine. It only keeps their activity from overlapping or touching. Two household members on one connection is ordinary; the bot's own patterns are the part that can link them.
 
 A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
+
+## Pacing: not a machine that does the maximum every day
+
+An account that earns its full quota at the same rate, every day, from its first day, with nothing ever skipped, is the clearest pattern an automated account leaves. `src/pacing.py` makes each account behave more like a person. Everything is worked out from the account's name and the date, so a restart or a new build gives the same answer and nothing has to be saved.
+
+- **Rest days.** Now and then an account does nothing at all (about one day in seven), never two days running. A search run is skipped when every account is resting, and a resting account does not hold a run open.
+- **Variable totals.** On a working day an account fills a share of its search quota (60% to 100%), not always all of it.
+- **A ramp.** For an account's first 7 days it asks for less each day (30% rising to a full day), takes no rest days, and does only the daily set and its searches.
+- **Order.** The accounts of one run are taken in a different order each time.
+- **No shared queries.** An account avoids the queries any other account searched in the last 7 days, as well as its own from the last 30.
+
+`python src/pacing.py` prints what today holds for each account. An account's first day is the date of its first points reading, or the day it was first seen; `data-dir/pacing.json` holds it, and you can edit it (`{"default": {"first_day": "2026-09-01"}}`) to say an account is not new.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `REWARDS_REST_DAY_CHANCE` | `0.15` | Chance a day is a rest day. `0` turns rest days off. |
+| `REWARDS_MIN_DAILY_FRACTION` | `0.6` | Least share of the search quota filled on a working day. `1` means always all of it. |
+| `REWARDS_RAMP_DAYS` | `7` | Days of an account's ramp. `0` turns it off. |
+| `REWARDS_KEEP_ORDER` | `0` | `1` keeps the accounts in the order listed. |
+
+None of this makes automation allowed or undetectable; it only avoids the most regular pattern.
 
 ## A VPN per account (Docker)
 

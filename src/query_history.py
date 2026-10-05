@@ -61,6 +61,28 @@ def recent(account: str | None, days: int = DAYS, now: float | None = None) -> s
 	}
 
 
+# Queries another account searched this recently are left alone, so two accounts do
+# not search the same things in the same few days.
+OTHER_ACCOUNTS_DAYS = 7
+
+
+def recent_by_others(account: str | None, days: int = OTHER_ACCOUNTS_DAYS, now: float | None = None) -> set[str]:
+	"""Normalized queries any other account searched in the last `days` days."""
+	cutoff = (time.time() if now is None else now) - days * 86400
+	me = account or "default"
+
+	return {
+		normalize(row["q"])
+		for row in _read()
+		if row.get("account") != me and isinstance(row.get("t"), (int, float)) and row["t"] >= cutoff
+	}
+
+
+def avoid_for(account: str | None, now: float | None = None) -> set[str]:
+	"""Everything this account should not search: its own recent queries and other accounts' very recent ones."""
+	return recent(account, now=now) | recent_by_others(account, now=now)
+
+
 def record(account: str | None, query: str, now: float | None = None) -> None:
 	"""Remember one search. Trims the file now and then."""
 	line = json.dumps({"t": time.time() if now is None else now, "account": account or "default", "q": query})
