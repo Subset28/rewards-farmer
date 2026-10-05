@@ -291,6 +291,10 @@ class TestLaunch(JournalTestCase):
 			patcher.start()
 			self.addCleanup(patcher.stop)
 
+		alert = mock.patch.object(ss.notify, "send_each")
+		self.alert = alert.start()
+		self.addCleanup(alert.stop)
+
 	def due(self, mode="scheduled"):
 		return ss.Due(self.PLANNED, self.PLANNED, mode)
 
@@ -315,6 +319,19 @@ class TestLaunch(JournalTestCase):
 
 		self.assertEqual(self.events()[-1][1]["outcome"], "failed")
 		self.assertEqual(self.events()[-1][1]["exit_code"], 1)
+
+	def test_a_failing_run_alerts_every_account_it_covers(self):
+		ss.launch("default", self.due(), run=FakeRun(1))
+
+		self.alert.assert_called_once()
+		self.assertEqual(self.alert.call_args.args[0], ["default"])
+		self.assertIn("code 1", self.alert.call_args.args[2])
+
+	def test_a_good_run_and_a_braked_run_send_no_failure_alert(self):
+		ss.launch("default", self.due(), run=FakeRun(0))
+		ss.launch("default", self.due(), run=FakeRun(3))
+
+		self.alert.assert_not_called()
 
 	def test_a_run_that_cannot_start_is_journaled_and_does_not_raise(self):
 		with self.assertLogs(ss.logger, level="ERROR"):

@@ -237,9 +237,10 @@ services:
       # One name. Signing in is one browser window, so one account at a time.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
     ports:
-      # Bound to the NAS's LAN IP for this one-time sign-in (SSH tunneling is
-      # blocked by this NAS's sshd, AllowTcpForwarding no). Trusted home LAN
-      # only, same as this NAS's other containers (qbit, sonarr, radarr).
-      - "192.168.35.12:6080:6080"
+      # Loopback unless SIGNIN_BIND says otherwise. On a machine you sit at,
+      # leave it alone. On a NAS whose sshd blocks tunnelling, set SIGNIN_BIND
+      # in .env to the NAS's LAN address for the one-time sign-in; that puts a
+      # live Microsoft sign-in on the home LAN while the container runs.
+      - "${SIGNIN_BIND:-127.0.0.1}:6080:6080"
     volumes:
       - ./data-dir:/app/data-dir

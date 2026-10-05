@@ -533,6 +533,20 @@ class TestNotify(unittest.TestCase):
 
 		self.assertNotIn("token", "\n".join(logs.output))
 
+	def test_send_each_reaches_each_accounts_own_destination(self):
+		env = {"NOTIFY_URL": "", "NOTIFY_URL_DEFAULT": "https://ntfy.sh/a", "NOTIFY_URL_SECOND": "https://ntfy.sh/b"}
+
+		with mock.patch.dict(os.environ, env), mock.patch.object(notify.urllib.request, "urlopen") as post:
+			notify.send_each(["default", "second"], "t", "m")
+
+		self.assertEqual([c.args[0].full_url for c in post.call_args_list], ["https://ntfy.sh/a", "https://ntfy.sh/b"])
+
+	def test_send_each_with_no_accounts_sends_once_to_the_shared_destination(self):
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": "https://ntfy.sh/shared"}), mock.patch.object(notify.urllib.request, "urlopen") as post:
+			notify.send_each(None, "t", "m")
+
+		self.assertEqual(post.call_count, 1)
+
 	def test_a_failing_server_never_raises(self):
 		with mock.patch.dict(os.environ, {"NOTIFY_URL": "https://ntfy.sh/t"}), \
 			mock.patch.object(notify.urllib.request, "urlopen", side_effect=notify.urllib.error.URLError("down")):
@@ -611,6 +625,18 @@ class TestPointsLog(unittest.TestCase):
 		self.assertIn("default", text.split("\n\n")[0])
 		self.assertNotIn("next level", text.split("\n\n")[1])
 		self.assertEqual(points_log.report("second").splitlines()[0], "second")
+
+	def test_the_daily_message_names_the_account_and_how_far_off_the_next_level_is(self):
+		with mock.patch.dict(os.environ, {points_log.LEVEL_TARGETS_ENV: "second=500"}):
+			text = points_log.digest("second", {"today": 295, "month": 295, "lifetime": 295})
+			none = points_log.digest("other", {"today": 5, "month": 5, "lifetime": 5})
+
+		self.assertEqual(text, "second: today 295, month 295, lifetime 295, 205 to the next level")
+		self.assertEqual(none, "other: today 5, month 5, lifetime 5")
+
+	def test_the_daily_message_says_so_when_the_target_is_reached(self):
+		with mock.patch.dict(os.environ, {points_log.LEVEL_TARGETS_ENV: "default=750"}):
+			self.assertIn("next level reached", points_log.digest("default", {"month": 900}))
 
 	def test_the_summary_reports_a_daily_rate_over_several_days(self):
 		rows = [
