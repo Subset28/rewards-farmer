@@ -12,7 +12,6 @@ import accounts
 import journal
 import log_utils
 import notify
-import pacing
 import run_lock
 import safety
 import schedule_plan
@@ -141,16 +140,7 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 	names = account_names()
 	planned = due.planned.isoformat()
 
-	# An account on a rest day has nothing to do, and does not hold the run open.
-	active = [n for n in names if not pacing.is_rest_day(n)] if names else names
-
-	if names and not active:
-		journal.record(owner, "search", "end", planned=planned, outcome="skipped", reason="rest day")
-		logger.info("Skipping this search run: every account is resting today.")
-
-		return "skipped"
-
-	if journal.quota_complete(active):
+	if journal.quota_complete(names):
 		journal.record(owner, "search", "end", planned=planned, outcome="skipped", reason="quota already complete")
 		logger.info("Skipping this search run: today's quota is already complete.")
 

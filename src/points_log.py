@@ -66,7 +66,33 @@ def parse_breakdown(text: str) -> dict[str, int]:
 	return found
 
 
-def record(account: str, reading: dict[str, int]) -> dict:
+BONUSES = (
+	("bing_star", "Bing Star bonus"),
+	("level_up", "Monthly level up bonus"),
+	("default_search", "Default search bonus"),
+)
+
+
+def parse_bonuses(text: str) -> dict[str, str]:
+	"""What each monthly bonus paid last month, out of the dashboard's text, e.g. {"level_up": "300/700"}.
+
+	The dashboard lists each bonus under its name with an "Earned last month" line: a
+	figure out of the most it can pay, or "Pending" while it is still being counted.
+	The level-up bonus is the one paid on the first of the month, by the level held at
+	the end of the month before.
+	"""
+	found = {}
+
+	for key, label in BONUSES:
+		match = re.search(re.escape(label) + r"\s*\n\s*Earned last month:\s*([^\n]+)", text, re.I)
+
+		if match:
+			found[f"{key}_last_month"] = match.group(1).strip()
+
+	return found
+
+
+def record(account: str, reading: dict) -> dict:
 	"""Append a reading, and return the line written."""
 	line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "account": account, **reading}
 

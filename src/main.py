@@ -45,6 +45,13 @@ def run_account(account: accounts.Account) -> bool:
 			reading = rewards.read_points_summary()
 
 			if reading:
+				# What last month's bonuses paid goes in the same line, so the first of
+				# each month is on record. Best effort: the points reading comes first.
+				try:
+					reading.update(rewards.read_monthly_bonuses())
+				except Exception as exc:
+					logger.debug("Could not read the monthly bonuses: %s", log_utils.exception_summary(exc))
+
 				points_log.record(account.name, reading)
 				logger.info("Points: %s", reading)
 				notify.send("Daily points", points_log.digest(account.name, reading), account=account.name)
@@ -87,20 +94,13 @@ def main() -> int:
 
 		return 3
 
-	# A different order each run, and an account on a rest day is left out
-	# altogether, so the gap below is not spent waiting for nothing.
+	# A different order each run. An account on a light day still runs (its streaks
+	# must not break), it just does less: see pacing.py.
 	configured = pacing.ordered(configured)
 
 	for account in configured:
 		if pacing.is_rest_day(account.name):
-			logger.info("%s: rest day, nothing today.", account.name)
-
-	configured = [a for a in configured if not pacing.is_rest_day(a.name)]
-
-	if not configured:
-		desktop_utils.cleanup_virtual_desktop()
-
-		return 0
+			logger.info("%s: light day, only the daily set and a small search.", account.name)
 
 	started = 0
 

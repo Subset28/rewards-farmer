@@ -637,6 +637,34 @@ class TestPointsLog(unittest.TestCase):
 		with mock.patch.dict(os.environ, {points_log.LEVEL_TARGETS_ENV: "default=750"}):
 			self.assertIn("next level reached", points_log.digest("default", {"month": 900}))
 
+	DASHBOARD = """Up to
+3,500
+Points
+Bing Star bonus
+Earned last month: 5/3,500
+700
+Points
+Monthly level up bonus
+Earned last month: 300/700
+350
+Points
+Default search bonus
+Earned last month: Pending
+"""
+
+	def test_last_months_bonuses_are_read_off_the_dashboard(self):
+		self.assertEqual(points_log.parse_bonuses(self.DASHBOARD), {
+			"bing_star_last_month": "5/3,500", "level_up_last_month": "300/700", "default_search_last_month": "Pending",
+		})
+
+	def test_a_dashboard_without_bonuses_gives_nothing(self):
+		self.assertEqual(points_log.parse_bonuses("Member\nProgress towards Silver"), {})
+
+	def test_the_bonuses_are_kept_with_the_reading(self):
+		points_log.record("a", {"today": 1, "month": 2, "lifetime": 3, **points_log.parse_bonuses(self.DASHBOARD)})
+
+		self.assertEqual(points_log.history("a")[-1]["level_up_last_month"], "300/700")
+
 	def test_the_summary_reports_a_daily_rate_over_several_days(self):
 		rows = [
 			{"time": "2026-09-29 10:00:00", "account": "a", "lifetime": 878},

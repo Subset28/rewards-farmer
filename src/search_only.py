@@ -101,20 +101,13 @@ def main() -> int:
 
 		return 3
 
-	# A different order each run, and an account on a rest day is left out
-	# altogether, so the gap below is not spent waiting for nothing.
+	# A different order each run. An account on a light day still runs (its streaks
+	# must not break), it just does less: see pacing.py.
 	configured = pacing.ordered(configured)
 
 	for account in configured:
 		if pacing.is_rest_day(account.name):
-			logger.info("%s: rest day, nothing today.", account.name)
-
-	configured = [a for a in configured if not pacing.is_rest_day(a.name)]
-
-	if not configured:
-		desktop_utils.cleanup_virtual_desktop()
-
-		return 0
+			logger.info("%s: light day, only the daily set and a small search.", account.name)
 
 	started = 0
 
