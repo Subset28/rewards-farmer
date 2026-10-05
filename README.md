@@ -11,6 +11,7 @@ Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.
 - [If Edge will not start](#if-edge-will-not-start)
 - [Running more than one account](#running-more-than-one-account)
 - [Docker](#docker)
+- [A VPN per account (Docker)](#a-vpn-per-account-docker)
 - [Logging](#logging)
 - [Windows Virtual Desktop (Windows only)](#windows-virtual-desktop-windows-only)
 
@@ -285,6 +286,32 @@ They run one at a time with the first account (the run lock makes an overlap wai
 None of this hides that both accounts share a connection and a machine. It only keeps their activity from overlapping or touching. Two household members on one connection is ordinary; the bot's own patterns are the part that can link them.
 
 A plain sign-out pauses only the account it happened on (`python src/safety.py clear second`). A human check or a restriction notice still pauses every account.
+
+## A VPN per account (Docker)
+
+`docker-compose.vpn.yml` puts each account's containers behind their own OpenVPN tunnel with a kill switch. Each account is its own container and so its own network stack. Before OpenVPN starts, `src/vpn_config.py` closes the firewall to everything except loopback, `tun0` and the VPN servers named in `config.ovpn`, and IPv6 is dropped. If the tunnel does not come up, the bot does not start, so an account never falls back to the host's address. If it drops later, traffic stops rather than leaking.
+
+Per account, put the provider's files in `data-dir/<account>/openvpn/`, where `<account>` is `default` for the unnamed profile or `second`:
+
+```
+config.ovpn   the provider's config (certs inline, or beside it in the same folder)
+auth.txt      optional: username on the first line, password on the second
+```
+
+Then start with the overlay:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d scheduler search-scheduler
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml --profile second up -d scheduler-second search-scheduler-second
+```
+
+Check the exit address before a live run:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml run --rm rewards-farmer with-vpn default curl -s ifconfig.me
+```
+
+Names in `remote` lines are replaced by their addresses before the firewall closes, because OpenVPN cannot look anything up afterwards, and lookups made by the bot go through the tunnel to `1.1.1.1` and `9.9.9.9` (set `VPN_DNS` to use the provider's resolver instead). Give each account a different server or login, or they share one exit address. `auth.txt` is a secret; `data-dir` is gitignored, keep it that way. The tunnel log is `/var/log/openvpn.log` inside the container.
 
 ## Logging
 
