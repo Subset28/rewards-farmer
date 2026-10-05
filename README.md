@@ -379,6 +379,15 @@ docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 
 One container runs both schedulers. `VPN_ACCOUNTS` in `.env` (default `default,second`) says which accounts get a tunnel; they are worked one at a time with the usual gap.
 
+**Using a real provider (Surfshark as the worked example).**
+- Download the provider's OpenVPN config (UDP) and put it at `data-dir/<account>/openvpn/config.ovpn`. The login the config asks for goes in `auth.txt` next to it: the provider's *service* username on line 1 and password on line 2 (for Surfshark: Manual setup, Credentials, not your account login). A config that asks for a login and has no `auth.txt` is refused at once.
+- **Pin each account to one server.** A provider's city name is usually a pool, and each connection can land on a different server with a different exit address. Edit the `remote` line to a single server's IP and delete `remote-random`, so the account always leaves from the same address. `getent ahostsv4 <the pool name>` lists the pool's servers; the exit address is usually the server's address plus one.
+- **A different server per account.** Two accounts on one server share an exit address, which the container refuses. The same login can be used on several tunnels at once. Prefer servers on different networks (check the owner with `curl http://ip-api.com/json/<exit address>`), not just different addresses next to each other.
+- A provider's own `ping-restart` / `ping-exit` lines are removed and ours applied, so a dead tunnel is always noticed (Surfshark's `ping-restart 0` would otherwise hide it).
+- **Check an address before an account uses it.** `src/vpn_browser_check.py` starts Edge on a throwaway profile, loads a Bing search, the Rewards page and the Microsoft sign-in page, and reports whether any looks like a human check. Run it inside the tunnel: `nsenter --net=<the account's namespace> with-xvfb python src/vpn_browser_check.py`. It signs in to nothing. A clean result is a sample, not a guarantee: challenges more often appear after sign-in or after repeated behaviour.
+- `tests/integration/vpn_real_provider.sh` runs the real tunnels end to end against the configs in `data-dir` (copies of them, so nothing live is touched): exits, the kill switch with a real OpenVPN killed, restart, a soak, speed, DNS and IPv6.
+- **Stage the rollout.** Start with one account, the cheapest to lose, and leave the others on the normal schedulers: `VPN_ACCOUNTS=second` in `.env`, stop only that account's two schedulers, start the `vpn` service. Add the next account after a few clean days.
+
 **Failures.** A tunnel that dies is restarted on its own (at most every 30 seconds) and its account is held until it is back. If one will not come back after 10 tries the container exits so Docker rebuilds it. Each of these sends that account's Discord channel a message (down, restored, not up, will not come back); an account added later needs its own `NOTIFY_URL_<NAME>` in `.env`, which the container reads in full. Until the tunnel is back nothing leaves except through it.
 
 | Variable | Default | Meaning |
