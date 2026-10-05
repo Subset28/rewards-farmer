@@ -5,6 +5,7 @@ import random
 import sys
 import dotenv
 import isolation
+import pacing
 import log_utils
 import accounts
 import browser
@@ -99,6 +100,21 @@ def main() -> int:
 		logger.error("[BRAKE] Not searching: paused (%s: %s).", hold.get("kind"), hold.get("reason"))
 
 		return 3
+
+	# A different order each run, and an account on a rest day is left out
+	# altogether, so the gap below is not spent waiting for nothing.
+	configured = pacing.ordered(configured)
+
+	for account in configured:
+		if pacing.is_rest_day(account.name):
+			logger.info("%s: rest day, nothing today.", account.name)
+
+	configured = [a for a in configured if not pacing.is_rest_day(a.name)]
+
+	if not configured:
+		desktop_utils.cleanup_virtual_desktop()
+
+		return 0
 
 	started = 0
 

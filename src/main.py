@@ -12,6 +12,7 @@ import safety
 import run_lock
 import notify
 import isolation
+import pacing
 import points_log
 import search_behavior
 import time
@@ -85,6 +86,21 @@ def main() -> int:
 		logger.error("[BRAKE] Not running: paused (%s: %s). Clear it with `python src/safety.py clear` once the account has been checked.", hold.get("kind"), hold.get("reason"))
 
 		return 3
+
+	# A different order each run, and an account on a rest day is left out
+	# altogether, so the gap below is not spent waiting for nothing.
+	configured = pacing.ordered(configured)
+
+	for account in configured:
+		if pacing.is_rest_day(account.name):
+			logger.info("%s: rest day, nothing today.", account.name)
+
+	configured = [a for a in configured if not pacing.is_rest_day(a.name)]
+
+	if not configured:
+		desktop_utils.cleanup_virtual_desktop()
+
+		return 0
 
 	started = 0
 

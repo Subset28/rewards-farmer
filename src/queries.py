@@ -53,7 +53,7 @@ def search_query_for_task(task_description: str, pick: int = 0, account: str | N
 	the cards use the same public feeds as the trends source.
 	"""
 	if _public_feeds():
-		query = query_sources.query_from_task_description(task_description, pick=pick, avoid=query_history.recent(account))
+		query = query_sources.query_from_task_description(task_description, pick=pick, avoid=query_history.avoid_for(account))
 
 		if query:
 			return query
@@ -74,7 +74,7 @@ def search_query_for_task(task_description: str, pick: int = 0, account: str | N
 def related_queries(count: int, account: str | None = None):
 	"""`count` queries for the daily search quota, none this account searched lately."""
 	if _public_feeds():
-		searched = query_history.recent(account)
+		searched = query_history.avoid_for(account)
 		queries = []
 
 		if selected_source() == OPENROUTER:
