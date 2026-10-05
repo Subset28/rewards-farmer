@@ -96,7 +96,14 @@ REMOTE_HOST = re.compile(r"^(\s*remote\s+)(\S+)", re.I | re.M)
 REMOTE = re.compile(r"^\s*remote\s+(\S+)(?:\s+(\d+))?(?:\s+(udp|tcp)\S*)?", re.I | re.M)
 DEFAULT_PORT = re.compile(r"^\s*port\s+(\d+)", re.I | re.M)
 DEFAULT_PROTO = re.compile(r"^\s*proto\s+(udp|tcp)\S*", re.I | re.M)
-OWN_PING = re.compile(r"^\s*(ping|ping-exit|ping-restart)\b", re.I | re.M)
+# A provider's own dead-tunnel setting is removed: some (Surfshark's, with
+# `ping-restart 0`) turn it off, and then OpenVPN never exits on a dead tunnel and
+# the supervisor never finds out. ping-restart and ping-exit also cannot both be set.
+STRIP_PING = re.compile(r"^[ \t]*(ping-restart|ping-exit)\b[^\n]*\n?", re.I | re.M)
+
+# `auth-user-pass` with no file after it makes OpenVPN ask on the terminal, and there
+# is none, so a config like that needs an auth.txt.
+ASKS_FOR_LOGIN = re.compile(r"^[ \t]*auth-user-pass[ \t]*(?:#[^\n]*)?$", re.I | re.M)
 
 
 @dataclass(frozen=True)
@@ -234,12 +241,19 @@ def plan(accounts: list[str]) -> list[Tunnel]:
 			raise RuntimeError(f"{config} not found; refusing to run {account} without its tunnel")
 
 		text = config.read_text(errors="replace")
+
+		if ASKS_FOR_LOGIN.search(text) and not (folder / "auth.txt").is_file():
+			raise RuntimeError(
+				f"{account}: the config asks for a login (auth-user-pass) but {folder / 'auth.txt'} is missing; "
+				"put the provider's service username on the first line and its password on the second"
+			)
+
 		endpoints = parse_endpoints(text)
 
 		# A copy with the servers as addresses, kept out of data-dir because its
 		# inline certificates and keys are secrets and would be left lying around.
 		pinned = Path(tempfile.gettempdir()) / f"vpn-{account}.ovpn"
-		pinned.write_text(pin_remotes(text))
+		pinned.write_text(STRIP_PING.sub("", pin_remotes(text)))
 		pinned.chmod(0o600)
 
 		tunnels.append(Tunnel(account, number, endpoints, pinned, folder))
@@ -348,10 +362,8 @@ def start_openvpn(tunnel: Tunnel, popen=subprocess.Popen):
 		"--log-append", str(LOG_DIR / f"openvpn-{tunnel.account}.log"),
 	)
 
-	# OpenVPN has to give up on a dead tunnel for the supervisor to see it, unless
-	# the provider's config already says how.
-	if not OWN_PING.search(tunnel.pinned.read_text(errors="replace")):
-		command += ["--ping", "15", "--ping-exit", "90"]
+	# OpenVPN has to give up on a dead tunnel for the supervisor to see it.
+	command += ["--ping", "15", "--ping-exit", "90"]
 
 	auth = tunnel.folder / "auth.txt"
 	if auth.is_file():
