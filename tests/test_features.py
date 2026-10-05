@@ -204,7 +204,9 @@ class TestTheOldBehaviourRunsUntilSwitchedOn(FeatureTestCase):
 		features.switch("habits", "second", True)
 		now = datetime(2026, 10, 5, 7, 0)
 
-		with mock.patch.object(ss, "_habit_time", return_value=datetime(2026, 10, 5, 12, 0)) as habit:
+		distinct = (datetime(2026, 10, 5, 12, minute) for minute in range(0, 59))
+
+		with mock.patch.object(ss, "_habit_time", side_effect=lambda *args: next(distinct)) as habit:
 			ss.draw_times(now, "second")
 
 		self.assertEqual(habit.call_count, ss.RUNS_PER_DAY)

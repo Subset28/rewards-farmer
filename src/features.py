@@ -28,10 +28,12 @@ Features:
     habits           each owner's own favoured times of day for search runs (search_scheduler.py)
 """
 
+import contextlib
 import json
 import logging
 import os
 import sys
+import time
 
 from constants import USER_DATA_DIR
 
@@ -67,6 +69,11 @@ def _from_env() -> set[str]:
 	return {name.strip() for name in os.environ.get(ENV, "").split(",") if name.strip()}
 
 
+def _fold(name: str) -> str:
+	"""Account names are matched without regard to case, as accounts.py does ("Default" is "default")."""
+	return name.strip().casefold()
+
+
 def enabled(feature: str, account: str | None = None) -> bool:
 	"""Whether `feature` is on for `account`.
 
@@ -79,7 +86,7 @@ def enabled(feature: str, account: str | None = None) -> bool:
 	if feature in _from_env():
 		return True
 
-	listed = _read().get(feature, [])
+	listed = {_fold(name) for name in _read().get(feature, [])}
 
 	if EVERY_ACCOUNT in listed:
 		return True
@@ -87,7 +94,7 @@ def enabled(feature: str, account: str | None = None) -> bool:
 	if not account:
 		return False
 
-	return any(name.strip() in listed for name in account.split(","))
+	return any(_fold(name) in listed for name in account.split(","))
 
 
 def active_for(account: str | None) -> list[str]:
@@ -98,10 +105,59 @@ def _write(data: dict[str, list[str]]) -> None:
 	os.makedirs(os.path.dirname(FEATURES_FILE), exist_ok=True)
 	temporary = f"{FEATURES_FILE}.{os.getpid()}.tmp"
 
-	with open(temporary, "w", encoding="utf-8") as handle:
-		json.dump({feature: data.get(feature, []) for feature in KNOWN}, handle, indent=1)
+	try:
+		with open(temporary, "w", encoding="utf-8") as handle:
+			json.dump({feature: data.get(feature, []) for feature in KNOWN}, handle, indent=1)
 
-	os.replace(temporary, FEATURES_FILE)
+		os.replace(temporary, FEATURES_FILE)
+	except OSError:
+		try:
+			os.unlink(temporary)
+		except OSError:
+			pass
+
+		raise
+
+
+LOCK_WAIT_SECONDS = 5.0
+LOCK_STALE_SECONDS = 30.0
+
+
+@contextlib.contextmanager
+def _locked():
+	"""Hold a lock file while the file is read, changed and written back.
+
+	Without it two switches racing could each read the old file and the later write would
+	undo the earlier one. A lost "off" would leave a feature on, which is the unsafe way
+	round. A lock left by a process that died is taken over once it is old enough."""
+	lock = f"{FEATURES_FILE}.lock"
+	os.makedirs(os.path.dirname(FEATURES_FILE), exist_ok=True)
+	deadline = time.monotonic() + LOCK_WAIT_SECONDS
+
+	while True:
+		try:
+			os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+			break
+		except FileExistsError:
+			try:
+				if time.time() - os.path.getmtime(lock) > LOCK_STALE_SECONDS:
+					os.unlink(lock)
+					continue
+			except OSError:
+				continue
+
+			if time.monotonic() >= deadline:
+				raise OSError(f"{lock} is held by another switch; try again in a moment")
+
+			time.sleep(0.05)
+
+	try:
+		yield
+	finally:
+		try:
+			os.unlink(lock)
+		except OSError:
+			pass
 
 
 def switch(feature: str, account: str, on: bool) -> None:
@@ -109,14 +165,22 @@ def switch(feature: str, account: str, on: bool) -> None:
 	if feature not in KNOWN:
 		raise ValueError(f"unknown feature {feature!r}; known: {', '.join(KNOWN)}")
 
-	data = _read()
-	names = [n for n in data.get(feature, []) if n != account]
+	account = account.strip()
 
-	if on:
-		names.append(account)
+	# One account per entry: "default,second" would be stored as a single name that no
+	# account matches, and the feature would silently stay off.
+	if not account or "," in account:
+		raise ValueError(f"give one account name (or {EVERY_ACCOUNT}), not {account!r}; run it once per account")
 
-	data[feature] = names
-	_write(data)
+	with _locked():
+		data = _read()
+		names = [n for n in data.get(feature, []) if _fold(n) != _fold(account)]
+
+		if on:
+			names.append(account)
+
+		data[feature] = names
+		_write(data)
 
 
 def describe() -> str:
@@ -133,19 +197,39 @@ def describe() -> str:
 	return "\n".join(lines)
 
 
-if __name__ == "__main__":
-	args = sys.argv[1:]
-
+def main(args: list[str]) -> int:
 	if not args:
 		print(describe())
-	elif len(args) == 3 and args[0] in ("on", "off"):
+
+		return 0
+
+	if len(args) == 3 and args[0] in ("on", "off"):
 		try:
 			switch(args[1], args[2], args[0] == "on")
-		except ValueError as exc:
+		except (ValueError, OSError) as exc:
 			print(exc)
-			sys.exit(2)
+
+			return 2
 
 		print(describe())
-	else:
-		print("usage: features.py [on|off <feature> <account or *>]")
-		sys.exit(2)
+
+		# A name no account answers to would silently do nothing, so say so.
+		try:
+			import status
+
+			known = {_fold(n) for n in status.known_names()}
+
+			if args[2] != EVERY_ACCOUNT and _fold(args[2]) not in known:
+				print(f"note: {args[2]!r} is not an account this setup knows (known: {', '.join(sorted(known)) or 'none'}).")
+		except Exception:
+			pass
+
+		return 0
+
+	print("usage: features.py [on|off <feature> <account or *>]")
+
+	return 2
+
+
+if __name__ == "__main__":
+	sys.exit(main(sys.argv[1:]))

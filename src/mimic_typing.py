@@ -45,7 +45,12 @@ class KeyboardUtils:
 		Only a same-length slip (what with_typo makes) is corrected, so the
 		Backspace count is exact and the final text is the intended one.
 		"""
-		if len(typed) < len(intended) or any(len(str(k)) != 1 for k in typed[:len(intended)]):
+		# Only the same text with letters changed (plus the Enter after it): an inserted or
+		# dropped character would leave the Backspace count wrong and a stray letter behind.
+		if not (len(typed) == len(intended) or (len(typed) == len(intended) + 1 and typed[-1] == Keys.ENTER)):
+			return None
+
+		if any(len(str(k)) != 1 for k in typed[:len(intended)]):
 			return None
 
 		wrong = [i for i, (a, b) in enumerate(zip(typed, intended)) if a != b]
