@@ -15,8 +15,29 @@ import accounts
 import isolation
 
 
+# What /proc/<pid>/ns/net links read as in these tests: the container's root namespace
+# is shared by this process unless a test says otherwise.
+NAMESPACES = {"/proc/1/ns/net": "net:[1]", "/proc/self/ns/net": "net:[1]", "/proc/42/ns/net": "net:[42]"}
+
+
 class IsolationTestCase(unittest.TestCase):
 	def setUp(self):
+		self.links = dict(NAMESPACES)
+		real = os.readlink
+
+		def readlink(path, *args, **kwargs):
+			if str(path).startswith("/proc/"):
+				if path not in self.links:
+					raise FileNotFoundError(path)
+
+				return self.links[path]
+
+			return real(path, *args, **kwargs)
+
+		readlinks = mock.patch.object(isolation.os, "readlink", side_effect=readlink)
+		readlinks.start()
+		self.addCleanup(readlinks.stop)
+
 		directory = tempfile.TemporaryDirectory()
 		self.addCleanup(directory.cleanup)
 		self.state = Path(directory.name) / "namespaces.json"
@@ -55,10 +76,79 @@ class TestWithoutVpn(IsolationTestCase):
 		self.write({"alpha": {"netns": "/proc/9/ns/net", "up": True}})
 		os.environ[isolation.CHILD_ENV] = "1"
 
-		self.assertTrue(self.run_it())
+		with mock.patch.object(isolation, "own_namespace", return_value=True):
+			self.assertTrue(self.run_it())
 
 		self.in_process.assert_called_once()
 		self.runner.assert_not_called()
+
+	def test_the_variable_alone_does_not_make_a_process_inside(self):
+		os.environ[isolation.CHILD_ENV] = "1"
+
+		with mock.patch.object(isolation, "own_namespace", return_value=False), self.assertLogs(isolation.logger, "WARNING"):
+			self.assertFalse(isolation.inside())
+
+	def test_a_process_in_its_own_namespace_with_the_variable_is_inside(self):
+		os.environ[isolation.CHILD_ENV] = "1"
+		self.links["/proc/self/ns/net"] = "net:[42]"
+
+		self.assertTrue(isolation.inside())
+
+	def test_a_process_in_its_own_namespace_without_the_variable_is_not_inside(self):
+		self.links["/proc/self/ns/net"] = "net:[42]"
+
+		self.assertFalse(isolation.inside())
+
+	def test_the_own_namespace_check_compares_with_the_container_root(self):
+		self.assertFalse(isolation.own_namespace())
+
+		self.links["/proc/self/ns/net"] = "net:[42]"
+
+		self.assertTrue(isolation.own_namespace())
+
+	def test_a_child_that_cannot_read_proc_1_still_knows_it_is_inside_by_the_recorded_root(self):
+		"""Seen on the NAS: the child has no capabilities and /proc/1/ns/net is refused to it.
+
+		Without this the child decided it was not inside, took the run lock its parent already
+		held, and every run in a namespace would have failed."""
+		del self.links["/proc/1/ns/net"]
+		self.links["/proc/self/ns/net"] = "net:[42]"
+
+		self.assertFalse(isolation.own_namespace(), "with nothing recorded and /proc/1 unreadable it cannot tell")
+
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[1]", isolation.CHILD_ENV: "1"}):
+			self.assertTrue(isolation.own_namespace())
+			self.assertTrue(isolation.inside())
+
+	def test_a_process_in_the_recorded_root_namespace_is_not_inside_whatever_it_claims(self):
+		self.links["/proc/self/ns/net"] = "net:[1]"
+
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[1]", isolation.CHILD_ENV: "1"}), \
+			self.assertLogs(isolation.logger, "WARNING"):
+			self.assertFalse(isolation.inside())
+
+	def test_the_recorded_root_wins_over_whatever_proc_1_says(self):
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[99]"}):
+			self.assertEqual(isolation.root_namespace(), "net:[99]")
+
+		self.assertEqual(isolation.root_namespace(), "net:[1]")
+
+	def test_a_namespace_path_is_judged_against_the_recorded_root_too(self):
+		del self.links["/proc/1/ns/net"]
+		self.links["/proc/9/ns/net"] = "net:[1]"
+
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[1]"}):
+			self.assertTrue(isolation.valid_netns("/proc/42/ns/net"))
+			self.assertFalse(isolation.valid_netns("/proc/9/ns/net"), "a process in the root namespace must never be joined")
+
+	def test_a_forged_variable_in_the_root_namespace_still_goes_through_the_namespaces(self):
+		self.write({"alpha": {"netns": "/proc/42/ns/net", "up": True}})
+		os.environ[isolation.CHILD_ENV] = "1"
+
+		self.assertTrue(self.run_it())
+
+		self.in_process.assert_not_called()
+		self.runner.assert_called_once()
 
 
 class TestWithVpn(IsolationTestCase):
@@ -126,6 +216,42 @@ class TestWithVpn(IsolationTestCase):
 
 		self.assertIn("setpriv", command)
 		self.assertIn("--bounding-set=-sys_admin,-net_admin,-net_raw", command)
+		self.assertIn("--inh-caps=-all", command)
+		self.assertIn("--ambient-caps=-all", command)
+		self.assertIn("--no-new-privs", command)
+		self.assertLess(command.index("--no-new-privs"), command.index("--"))
+
+	def test_a_namespace_path_that_is_not_a_plain_proc_path_runs_nothing(self):
+		for path in ("/proc/42/ns/net/../../1/ns/net", "/proc/self/ns/net", "/tmp/x", "/proc/42/ns/net\n", "--net=/x", "/proc/x/ns/net", 7):
+			self.runner.reset_mock()
+			self.write({"alpha": {**self.UP, "netns": path}})
+
+			with self.subTest(path=path), self.assertLogs(isolation.logger, "ERROR"):
+				self.assertFalse(self.run_it())
+
+			self.runner.assert_not_called()
+			self.in_process.assert_not_called()
+
+	def test_the_root_namespace_and_our_own_are_refused_even_by_a_proc_path(self):
+		self.links["/proc/7/ns/net"] = "net:[1]"
+		self.links["/proc/8/ns/net"] = "net:[99]"
+		self.links["/proc/self/ns/net"] = "net:[99]"
+
+		for path in ("/proc/1/ns/net", "/proc/7/ns/net", "/proc/8/ns/net"):
+			self.write({"alpha": {**self.UP, "netns": path}})
+
+			with self.subTest(path=path), self.assertLogs(isolation.logger, "ERROR"):
+				self.assertFalse(self.run_it())
+
+			self.runner.assert_not_called()
+
+	def test_a_namespace_that_cannot_be_read_runs_nothing(self):
+		self.write({"alpha": {**self.UP, "netns": "/proc/4242/ns/net"}})
+
+		with self.assertLogs(isolation.logger, "ERROR"):
+			self.assertFalse(self.run_it())
+
+		self.runner.assert_not_called()
 
 	def test_the_child_works_exactly_one_account_and_knows_it_is_inside(self):
 		self.write({"alpha": self.UP})
