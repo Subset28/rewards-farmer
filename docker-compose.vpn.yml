@@ -1,0 +1,49 @@
+# Puts each account behind its own OpenVPN tunnel with a kill switch.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d scheduler search-scheduler
+#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml --profile second up -d scheduler-second search-scheduler-second
+#
+# Every service is its own container and so its own network stack, which is what
+# keeps the accounts apart: each one dials its own tunnel and cannot reach the
+# internet any other way (src/vpn_config.py closes the firewall to everything but
+# tun0 and the VPN servers before OpenVPN starts, and refuses to start the bot if
+# the tunnel does not come up). Give each account a different server or provider
+# login, or they share one exit address and the separation buys nothing.
+#
+# Per account, before starting, put the provider's files in data-dir:
+#
+#   data-dir/<account>/openvpn/config.ovpn    the provider's config, certs inline
+#   data-dir/<account>/openvpn/auth.txt       optional: username, then password
+#
+# <account> is "default" for the unnamed profile, "second" for the second one.
+# Files the config points at (ca.crt and so on) sit in the same folder.
+# auth.txt is a secret: data-dir is gitignored, keep it that way.
+
+x-vpn: &vpn
+  cap_add:
+    - NET_ADMIN
+  devices:
+    - /dev/net/tun:/dev/net/tun
+  sysctls:
+    net.ipv6.conf.all.disable_ipv6: "1"
+
+services:
+  rewards-farmer:
+    <<: *vpn
+    command: ["with-vpn", "default", "with-xvfb", "python", "src/main.py"]
+
+  scheduler:
+    <<: *vpn
+    command: ["with-vpn", "default", "with-xvfb", "python", "src/daily_loop.py"]
+
+  search-scheduler:
+    <<: *vpn
+    command: ["with-vpn", "default", "with-xvfb", "python", "src/search_scheduler.py"]
+
+  scheduler-second:
+    <<: *vpn
+    command: ["with-vpn", "second", "with-xvfb", "python", "src/daily_loop.py"]
+
+  search-scheduler-second:
+    <<: *vpn
+    command: ["with-vpn", "second", "with-xvfb", "python", "src/search_scheduler.py"]
