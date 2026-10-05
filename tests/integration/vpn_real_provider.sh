@@ -55,7 +55,15 @@ nsx default curl -6 -s -m 5 -o /dev/null https://api64.ipify.org && bad "IPv6 re
 
 echo "=== kill switch with the REAL tunnel: kill default's OpenVPN"
 T0=$(date +%s)
-pkill -f "vpn-default.ovpn" ; sleep 1
+# Find default's OpenVPN by the namespace it runs in: its config now sits in a private,
+# randomly named directory, so a name match finds nothing.
+DEFAULT_NS=$(readlink "$(st default netns)")
+KILLED=0
+for pid in $(pgrep -x openvpn); do
+  if [ "$(readlink /proc/$pid/ns/net 2>/dev/null)" = "$DEFAULT_NS" ]; then kill $pid && KILLED=$((KILLED+1)); fi
+done
+[ $KILLED -ge 1 ] && ok "killed default's OpenVPN ($KILLED process)" || bad "found default's OpenVPN to kill"
+sleep 1
 nsx default curl -s -m 4 -o /dev/null https://api.ipify.org && bad "default leaked while its tunnel was down" || ok "default has no internet while its tunnel is down"
 nsx default ip route add default via 10.200.1.1 2>/dev/null
 nsx default curl -s -m 4 -o /dev/null https://api.ipify.org && bad "default leaked with the route pointed at the real side" || ok "pointing the route at the real side still gets nothing out"
