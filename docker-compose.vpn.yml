@@ -25,7 +25,7 @@
 # in .env (default: default,second). Other settings, all in .env:
 #
 #   NAME_SERVERS=1.1.1.1,1.0.0.1    resolvers used through the tunnels (not Google or OpenDNS)
-#   HOME_IP_BLACKLIST=<your IP>     refuse any tunnel that exits from this address
+#   HOME_IP_BLACKLIST=              optional, not needed: the firewall already blocks any leak
 #   VPN_OPTIONS=                    extra OpenVPN options
 #
 # auth.txt is a secret: data-dir is gitignored, keep it that way.
