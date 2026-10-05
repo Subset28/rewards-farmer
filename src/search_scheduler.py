@@ -119,7 +119,8 @@ def outstanding(now: datetime, owner: str, rng=random) -> list[Due]:
 	"""
 	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
 	rows = journal.events(owner=owner, kind="search", now=now)
-	ended = {row.get("planned") for row in rows if row["event"] == "end"}
+	# A run that gave up waiting for the profile ("deferred") did not happen, so it is not done.
+	ended = {row.get("planned") for row in rows if row["event"] == "end" and row.get("outcome") != "deferred"}
 	due = []
 
 	for planned in day_plan(now, owner):
@@ -166,6 +167,14 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 		# and tomorrow.
 		logger.error("[FAIL] scheduled search run did not start: %s", log_utils.exception_summary(exc))
 		code = None
+
+	if code == run_lock.TIMED_OUT:
+		# The profile was still busy when this run gave up waiting: nothing was searched. Not a
+		# failure to alert about; it is redone shortly, as a missed run is.
+		journal.record(owner, "search", "end", planned=planned, outcome="deferred", exit_code=code, reason="profile busy", seconds=round(time.monotonic() - started))
+		logger.warning("The search run found the profile busy; it will be tried again.")
+
+		return "deferred"
 
 	outcome = "ok" if code == 0 else "failed"
 
