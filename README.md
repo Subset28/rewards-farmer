@@ -11,6 +11,7 @@ Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.
 - [If Edge will not start](#if-edge-will-not-start)
 - [Running more than one account](#running-more-than-one-account)
 - [Docker](#docker)
+- [Rolling changes out one at a time](#rolling-changes-out-one-at-a-time)
 - [Pacing](#pacing-not-a-machine-that-does-the-maximum-every-day)
 - [A VPN per account (Docker)](#a-vpn-per-account-docker)
 - [Logging](#logging)
@@ -319,6 +320,35 @@ A plain sign-out pauses only the account it happened on (`python src/safety.py c
 ## One command for the whole picture
 
 `python src/status.py` prints, for each account, what today holds (a working or light day, the ramp), its points and how far the next level is, what last month's bonuses paid, and how today's search quota stands, then the brake and today's runs. It is read-only: no browser, nothing changed. On the NAS: `docker exec rewards-farmer-scheduler-1 python src/status.py`.
+
+## Rolling changes out one at a time
+
+Each of the behaviour changes below changes what Microsoft sees from a real account. Tests only prove the code runs; they cannot show whether Microsoft finds the behaviour natural. Only live results do: points earned, verification prompts, and the Bing Star score. Turned on together, an account that gets flagged cannot be traced to the change that did it, and a ban costs the account. So every one of them is **off until it is switched on**, per account, a few days apart, starting with the account that matters least.
+
+| Feature | What it changes |
+|---|---|
+| `typing` | Typing in the search box: typos are mostly noticed and corrected (backspace and retype), pauses at word boundaries, a short pause before the first key (`src/mimic_typing.py`). |
+| `query_sessions` | Queries come in short topical sessions with follow-ups ("x", then "x review") instead of unrelated topics; follow-ups come from Bing's suggestions or from templates (`src/query_sources.py`). |
+| `habits` | Each owner has its own favoured times of day for search runs, different on weekends, instead of uniformly random ones (`src/search_scheduler.py`). |
+
+`data-dir/features.json` lists the accounts each feature is on for (`"*"` means every account). Nothing is on by default, and a missing or damaged file means everything is off: the original behaviour, exactly. The file is read on every use, so a change takes effect on the next search without restarting anything.
+
+```
+python src/features.py                      what is on
+python src/features.py on typing second     switch typing on for the "second" account
+python src/features.py off typing second    and off again
+```
+
+On the NAS, from `/volume1/docker/rewards-farmer`: `docker run --rm -v "$PWD/data-dir:/app/data-dir" --entrypoint python rewards-farmer:runtime src/features.py on typing second`. `python src/status.py` shows each account's features next to its points.
+
+**Suggested order**, one change at a time and a few days apart, the lower-value account first:
+
+1. `typing` on for the second account. Watch `status.py`, points per day, and any verification prompt or brake alert for a few days. Then the same for the first account.
+2. `query_sessions`, the same way.
+3. `habits`, the same way.
+4. The VPN (see below), the same way.
+
+Turn a feature off again the moment something looks wrong, and tell the changes apart before turning the next one on. The pacing changes (light days, variable totals, the new-account ramp) and the header change were already live before this switch existed.
 
 ## Pacing: not a machine that does the maximum every day
 
