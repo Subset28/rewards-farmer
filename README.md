@@ -357,7 +357,7 @@ docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 
 One container runs both schedulers. `VPN_ACCOUNTS` in `.env` (default `default,second`) says which accounts get a tunnel; they are worked one at a time with the usual gap.
 
-**Failures.** A tunnel that dies is restarted on its own (at most every 30 seconds) and its account is held until it is back. If one will not come back after 10 tries the container exits so Docker rebuilds it. Each of these sends that account's Discord channel a message (down, restored, not up, will not come back). Until the tunnel is back nothing leaves except through it.
+**Failures.** A tunnel that dies is restarted on its own (at most every 30 seconds) and its account is held until it is back. If one will not come back after 10 tries the container exits so Docker rebuilds it. Each of these sends that account's Discord channel a message (down, restored, not up, will not come back); an account added later needs its own `NOTIFY_URL_<NAME>` in `.env`, which the container reads in full. Until the tunnel is back nothing leaves except through it.
 
 | Variable | Default | Meaning |
 |---|---|---|

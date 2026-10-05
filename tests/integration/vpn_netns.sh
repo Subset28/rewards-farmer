@@ -103,6 +103,11 @@ checknot "alpha cannot see beta's tunnel end" bash -c "nsenter --net=$(state alp
 check "the namespaces are different" [ "$(readlink "$(state alpha netns)")" != "$(readlink "$(state beta netns)")" ]
 check "...and different from the container's" [ "$(readlink "$(state alpha netns)")" != "$(readlink /proc/1/ns/net)" ]
 
+# IPv6 has no tunnel here, so it is closed by ip6tables (the kernel refuses the sysctl)
+six() { nsenter --net="$(state alpha netns)" ip6tables -S; }
+check "IPv6 is closed in the namespace, all three chains" bash -c "$(declare -f six state); VPN_STATE_FILE=$VPN_STATE_FILE; out=\$(six); for c in INPUT OUTPUT FORWARD; do echo \"\$out\" | grep -q \"^-P \$c DROP\" || exit 1; done"
+checknot "an IPv6 request does not get out of the namespace" ns alpha curl -6 -s -m 5 -o /dev/null https://api64.ipify.org
+
 # traffic goes out through the tunnel
 check "alpha reaches the internet through its tunnel" ns alpha curl -s -m 10 -o /dev/null https://api.ipify.org
 check "beta reaches the internet through its tunnel" ns beta curl -s -m 10 -o /dev/null https://api.ipify.org
