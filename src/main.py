@@ -11,6 +11,7 @@ import rewards_tasks
 import safety
 import run_lock
 import notify
+import isolation
 import points_log
 import search_behavior
 import time
@@ -112,7 +113,7 @@ def main() -> int:
 		# never loads - reached here and took the remaining accounts with it.
 		# KeyboardInterrupt is deliberately not caught: Ctrl-C means stop.
 		try:
-			if run_account(account):
+			if isolation.run(account.name, "src/main.py", lambda: run_account(account)):
 				started += 1
 		except safety.AccountAtRisk as exc:
 			# The brake is shared: a warning on one account stops the rest too.
@@ -142,4 +143,6 @@ def main() -> int:
 
 if __name__ == "__main__":
 	if os.path.isfile(DOTENV_PATH): dotenv.load_dotenv(DOTENV_PATH)
-	sys.exit(run_lock.run_locked(main))
+
+	# Inside an account's VPN namespace the parent already holds the lock.
+	sys.exit(main() if isolation.inside() else run_lock.run_locked(main))
