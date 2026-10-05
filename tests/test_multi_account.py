@@ -219,23 +219,14 @@ class TestPacingInTheRunLoop(RunLoopTestCase):
 
 		main.run_account = run_account
 
-	def test_an_account_on_a_rest_day_is_left_out_and_the_rest_still_run(self):
+	def test_an_account_on_a_light_day_still_runs_so_its_streaks_do_not_break(self):
 		accounts_for("personal,spare")
 		self._record(lambda name: True)
 
 		with mock.patch.object(main.pacing, "is_rest_day", side_effect=lambda name: name == "personal"):
 			self.assertEqual(main.main(), 0)
 
-		self.assertEqual(self.calls, ["spare"])
-
-	def test_when_every_account_rests_nothing_runs_and_that_is_not_a_failure(self):
-		accounts_for("personal,spare")
-		self._record(lambda name: True)
-
-		with mock.patch.object(main.pacing, "is_rest_day", return_value=True):
-			self.assertEqual(main.main(), 0)
-
-		self.assertEqual(self.calls, [])
+		self.assertEqual(sorted(self.calls), ["personal", "spare"])
 
 	def test_the_accounts_are_taken_in_a_different_order_from_run_to_run(self):
 		accounts_for("a,b,c,d")

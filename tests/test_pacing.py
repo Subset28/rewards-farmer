@@ -135,6 +135,56 @@ class TestRestDays(PacingTestCase):
 			self.assertFalse(any(self.days("old", 100)))
 
 
+class TestLightDays(PacingTestCase):
+	"""A rest day keeps every streak alive: the daily set and one small search, never nothing."""
+
+	def light_day(self, account):
+		for n in range(400):
+			day = TODAY + timedelta(days=n)
+
+			if pacing.is_rest_day(account, day):
+				return day
+
+		self.fail("no light day in 400 days")
+
+	def test_a_light_day_does_only_the_daily_set_a_small_search_and_the_claim(self):
+		self.seasoned("old")
+		day = self.light_day("old")
+
+		self.assertEqual(pacing.steps_allowed("old", day), pacing.LIGHT_STEPS)
+		self.assertIn("Bing daily set", pacing.LIGHT_STEPS)
+		self.assertIn("Required searches", pacing.LIGHT_STEPS)
+		self.assertNotIn("Quests", pacing.LIGHT_STEPS)
+
+	def test_a_light_day_still_searches_enough_to_keep_the_streak_and_the_14_day_count(self):
+		self.seasoned("old")
+		day = self.light_day("old")
+
+		for cap in (25, 100):
+			target = pacing.search_target("old", cap, day)
+
+			self.assertGreaterEqual(target, 5)
+			self.assertLessEqual(target, pacing.LIGHT_SEARCH_POINTS)
+
+	def test_a_light_day_never_asks_for_more_than_the_cap(self):
+		self.seasoned("old")
+
+		self.assertEqual(pacing.search_target("old", 4, self.light_day("old")), 4)
+
+	def test_a_working_day_is_unchanged(self):
+		self.seasoned("old")
+		day = next(TODAY + timedelta(days=n) for n in range(400) if not pacing.is_rest_day("old", TODAY + timedelta(days=n)))
+
+		self.assertIsNone(pacing.steps_allowed("old", day))
+		self.assertGreater(pacing.search_target("old", 100, day), pacing.LIGHT_SEARCH_POINTS)
+
+	def test_the_description_calls_it_a_light_day(self):
+		self.seasoned("old")
+
+		with mock.patch.object(pacing, "_today", return_value=self.light_day("old")):
+			self.assertIn("light day", pacing.describe("old"))
+
+
 class TestDailyShare(PacingTestCase):
 	def shares(self, account, count=200):
 		return [pacing.fraction(account, TODAY + timedelta(days=n)) for n in range(count)]
@@ -163,9 +213,12 @@ class TestDailyShare(PacingTestCase):
 
 		for cap in (25, 50, 100, 150):
 			for n in range(40):
-				target = pacing.search_target("old", cap, TODAY + timedelta(days=n))
+				day = TODAY + timedelta(days=n)
+				target = pacing.search_target("old", cap, day)
 				self.assertTrue(1 <= target <= cap)
-				self.assertGreaterEqual(target, round(cap * 0.6))
+
+				if not pacing.is_rest_day("old", day):
+					self.assertGreaterEqual(target, round(cap * 0.6))
 
 	def test_a_cap_of_zero_stays_zero(self):
 		self.assertEqual(pacing.search_target("old", 0), 0)

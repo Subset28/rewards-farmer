@@ -235,6 +235,19 @@ Swapping a build mid-day is therefore safe, but not while a run is live: recreat
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
 | `REWARDS_LEVEL_TARGETS` | `default=750,second=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
 
+## What the Rewards pages say, and the monthly bonuses
+
+`src/inspect_rewards.py` is a read-only look: it opens each account's Rewards home, earn and dashboard pages, clicks nothing, and saves their text to `data-dir/inspect/<account>-<page>.txt` (it takes the same lock as a scheduled run, so it never overlaps one). Run it with `REWARDS_ACCOUNTS=default,second with-xvfb python src/inspect_rewards.py`.
+
+What it showed, and what each daily run now records in `points.jsonl`:
+
+- **Monthly level-up bonus** (700 Gold, 300 Silver, 100 Member): paid on the first of the month, by the level held at the end of the month before. It is the jump on the first, not a login bonus. An account's first month pays nothing.
+- **Default search bonus** (350, 150, 50): searching on 14 days in a month, paid at the start of the next.
+- **Bing Star bonus** (up to 3,500, 1,500, 500): scored on whether a month of searching looks consistent and natural; not a task list.
+- **Streaks**: the daily set and a Bing search seven days in a row are level-up activities, and Gold needs two a month, so a missed day costs more than one day's points.
+
+The dashboard's "Earned last month" figure for each bonus is saved with the daily points line (`bing_star_last_month`, `level_up_last_month`, `default_search_last_month`), so each first of the month is on record.
+
 ## trawl for feeds that refuse a plain request
 
 The public feeds the search queries come from (trends, autosuggest) sometimes answer a plain request with a refusal or a Cloudflare challenge page. If `TRAWL_URL` points at a [trawl](https://github.com/germondai/trawl) service (a FlareSolverr-compatible API that loads the page in a hardened browser), the same page is then asked for through it:
@@ -301,11 +314,11 @@ A plain sign-out pauses only the account it happened on (`python src/safety.py c
 
 ## Pacing: not a machine that does the maximum every day
 
-An account that earns its full quota at the same rate, every day, from its first day, with nothing ever skipped, is the clearest pattern an automated account leaves. `src/pacing.py` makes each account behave more like a person. Everything is worked out from the account's name and the date, so a restart or a new build gives the same answer and nothing has to be saved.
+An account that earns its full quota at the same rate, every day, from its first day, is the clearest pattern an automated account leaves. `src/pacing.py` makes each account behave more like a person. Everything is worked out from the account's name and the date, so a restart or a new build gives the same answer and nothing has to be saved.
 
-- **Rest days.** Now and then an account does nothing at all (about one day in seven), never two days running. A search run is skipped when every account is resting, and a resting account does not hold a run open.
+- **Light days.** Now and then (about one day in seven, never two running) an account does only the bare minimum: the daily set, one small search and the daily claim. Never nothing: Rewards counts streaks (the daily set and a Bing search seven days in a row are level-up activities, and Gold needs two a month) and searching on 14 days a month earns the default search bonus, so a day with no activity would cost real points.
 - **Variable totals.** On a working day an account fills a share of its search quota (60% to 100%), not always all of it.
-- **A ramp.** For an account's first 7 days it asks for less each day (30% rising to a full day), takes no rest days, and does only the daily set and its searches.
+- **A ramp.** For an account's first 7 days it asks for less each day (30% rising to a full day), takes no light days, and does only the daily set and its searches.
 - **Order.** The accounts of one run are taken in a different order each time.
 - **No shared queries.** An account avoids the queries any other account searched in the last 7 days, as well as its own from the last 30.
 
@@ -313,7 +326,7 @@ An account that earns its full quota at the same rate, every day, from its first
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `REWARDS_REST_DAY_CHANCE` | `0.15` | Chance a day is a rest day. `0` turns rest days off. |
+| `REWARDS_REST_DAY_CHANCE` | `0.15` | Chance a day is a light day. `0` turns light days off. |
 | `REWARDS_MIN_DAILY_FRACTION` | `0.6` | Least share of the search quota filled on a working day. `1` means always all of it. |
 | `REWARDS_RAMP_DAYS` | `7` | Days of an account's ramp. `0` turns it off. |
 | `REWARDS_KEEP_ORDER` | `0` | `1` keeps the accounts in the order listed. |

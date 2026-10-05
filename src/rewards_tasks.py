@@ -201,6 +201,13 @@ class RewardsTaskUtils:
 
 		return reading
 
+	def read_monthly_bonuses(self) -> dict[str, str]:
+		"""What each monthly bonus paid last month (Bing Star, level-up, default search), from the dashboard."""
+		self.switch_to_dashboard()
+		time.sleep(random.uniform(2, 4))
+
+		return points_log.parse_bonuses(self.driver.find_element(By.TAG_NAME, "body").text)
+
 	def switch_to_earn_page(self):
 		self.move_to_and_click(self.elements.get_earn_tab())
 
