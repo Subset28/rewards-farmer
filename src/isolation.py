@@ -107,7 +107,13 @@ def environment_for(account: str, entry: dict, base: dict | None = None) -> dict
 	env["REWARDS_ACCOUNTS"] = account
 	env[CHILD_ENV] = "1"
 
-	# A browser that reports the timezone of the place its address is in.
+	# A browser that reports the timezone of the place its address is in. Python's own dates
+	# must not move with it, so the zone the books are kept in is handed on first (clock.py).
+	zone = env.get("REWARDS_CLOCK_TZ") or env.get("TZ")
+
+	if zone:
+		env["REWARDS_CLOCK_TZ"] = zone
+
 	if entry.get("timezone"):
 		env["TZ"] = entry["timezone"]
 
