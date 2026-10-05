@@ -119,6 +119,18 @@ def summary(rows: list[dict], target: int | None = None) -> str:
 	return "\n".join(parts)
 
 
+def digest(account: str, reading: dict[str, int]) -> str:
+	"""A one-line summary of a reading, for the daily message."""
+	parts = [f"{name} {reading[name]}" for name in ("today", "month", "lifetime") if name in reading]
+	target = target_for(account)
+
+	if target is not None and "month" in reading:
+		left = to_next_level(reading["month"], target)
+		parts.append(f"{left} to the next level" if left else "next level reached")
+
+	return f"{account}: " + ", ".join(parts)
+
+
 def report(account: str | None = None) -> str:
 	"""One summary per account, each with its own next-level target, or just the one asked for."""
 	rows = history()

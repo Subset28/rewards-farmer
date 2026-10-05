@@ -162,7 +162,7 @@ One account at a time, since it is one browser window:
 REWARDS_ACCOUNTS=personal docker compose run --rm --service-ports signin
 ```
 
-The port is published on `127.0.0.1` only, so it is not reachable from the network. While the service is up it is showing a live Microsoft sign-in page.
+The port is published on `127.0.0.1` only by default, so it is not reachable from the network. On a headless NAS whose SSH blocks tunnelling, set `SIGNIN_BIND` in `.env` to the NAS's LAN address and open `http://<that address>:6080` instead; that exposes the sign-in page to your home network while the container runs, so stop it when you are done. While the service is up it is showing a live Microsoft sign-in page.
 
 Signing in signs the browser in, not just the website, so Edge may sync bookmarks and autofill into the profile it just created. `data-dir` is a bot profile living in the project directory rather than your everyday browser profile, and it is gitignored, but it is worth knowing what ends up there.
 
@@ -209,7 +209,18 @@ python src/safety.py status
 python src/safety.py clear
 ```
 
-Alerts (the brake trips, or a round of searches earns nothing) go to a Discord webhook or an [ntfy](https://ntfy.sh) topic, and each account can have its own: set `NOTIFY_URL_DEFAULT` and `NOTIFY_URL_SECOND` (the account's name, upper-cased) in `.env`. `NOTIFY_URL` is the fallback for an account with none of its own. A webhook address is a secret, so keep it in `.env`, which is not committed. Unset, alerts only log.
+Alerts go to a Discord webhook or an [ntfy](https://ntfy.sh) topic, and each account can have its own: set `NOTIFY_URL_DEFAULT` and `NOTIFY_URL_SECOND` (the account's name, upper-cased) in `.env`. `NOTIFY_URL` is the fallback for an account with none of its own. A webhook address is a secret, so keep it in `.env`, which is not committed. Unset, alerts only log.
+
+What is sent: the brake tripping (including an account signed out), a round of searches that earns nothing, a scheduled search or daily run that fails (any exit code but the brake's own 3, which has already alerted), and once per account after each daily run a line with today, month and lifetime points and how far the next level is.
+
+## The journal and the logs
+
+A container's own log is gone when it is recreated, so a new build used to have no idea what the old one had done. Two things in `data-dir` now survive a rebuild:
+
+- `journal.jsonl` records every scheduled run (start, end and outcome, plus each search run's quota reading). A new build reads it to see which planned runs finished, which were cut off and which were missed, and redoes a cut-off or missed search run up to 3 hours late while the 08:00 to 23:00 window is open. A run is skipped when every account's quota is already full. Read it with `python src/journal.py` (today) or `python src/journal.py 3` (three days). The file keeps its newest 6000 lines.
+- `logs/<service>.log` holds the readable log lines of each service (`scheduler.log`, `search-scheduler-second.log` and so on), capped at 5 MB each.
+
+Swapping a build mid-day is therefore safe, but not while a run is live: recreating a container kills the run in it. Check that no `msedge --user-data-dir` process is running first.
 
 `data-dir/points.jsonl` gets one line per daily run (today, this month, lifetime). `python src/points_log.py` prints, for each account, the latest reading, the points to that account's next level this month (`REWARDS_LEVEL_TARGETS`) and the daily rate. Pass an account name to see just one.
 

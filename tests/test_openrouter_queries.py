@@ -545,7 +545,7 @@ class TestSessions(OpenRouterTestCase):
 		net.assert_not_called()
 
 	def test_an_old_flat_pool_is_still_readable(self):
-		o._write_json(o.POOL_FILE, {"default": {"date": o._today(), "queries": ["old flat one", "old flat two"]}})
+		o._write_json(o.POOL_FILE, {"default": {"date": o._local_day(), "queries": ["old flat one", "old flat two"]}})
 
 		got, net = self.ask(Reply(self.REPLY), count=2)
 

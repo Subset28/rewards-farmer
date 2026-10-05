@@ -90,6 +90,12 @@ def _ntfy_request(url: str, title: str, message: str, priority: str) -> urllib.r
 	)
 
 
+def send_each(accounts: list[str] | None, title: str, message: str, priority: str = "default") -> None:
+	"""Send to every one of these accounts' destinations, or once to the shared one when there are none."""
+	for account in accounts or [None]:
+		send(title, message, priority=priority, account=account)
+
+
 def send(title: str, message: str, priority: str = "default", account: str | None = None) -> bool:
 	"""Deliver one notification. Returns whether it was handed to the server."""
 	log_line = "%s: %s" % (title, message)

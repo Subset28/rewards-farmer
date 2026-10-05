@@ -10,6 +10,7 @@ import desktop_utils
 import rewards_tasks
 import safety
 import run_lock
+import notify
 import points_log
 import search_behavior
 import time
@@ -44,6 +45,7 @@ def run_account(account: accounts.Account) -> bool:
 			if reading:
 				points_log.record(account.name, reading)
 				logger.info("Points: %s", reading)
+				notify.send("Daily points", points_log.digest(account.name, reading), account=account.name)
 		except Exception as exc:
 			logger.warning("Could not record today's points: %s", log_utils.exception_summary(exc))
 	finally:
