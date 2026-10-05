@@ -53,6 +53,15 @@ nsx default getent hosts example.com >/dev/null && ok "names resolve inside the 
 echo "    resolvers: $(grep nameserver /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ')"
 nsx default curl -6 -s -m 5 -o /dev/null https://api64.ipify.org && bad "IPv6 request stayed inside" || ok "an IPv6 request does not get out"
 
+# Loopback over IPv6 must work: localhost is ::1 too, and the browser driver dials it. With all of
+# IPv6 dropped the connection timed out and the browser could not hide its automation markers.
+nsx default python3 - <<'PY' && ok "IPv6 loopback works inside the namespace" || bad "IPv6 loopback works inside the namespace"
+import socket, threading
+srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM); srv.bind(("::1", 9334)); srv.listen(1)
+threading.Thread(target=lambda: srv.accept(), daemon=True).start()
+c = socket.socket(socket.AF_INET6, socket.SOCK_STREAM); c.settimeout(3); c.connect(("::1", 9334))
+PY
+
 echo "=== kill switch with the REAL tunnel: kill default's OpenVPN"
 T0=$(date +%s)
 # Find default's OpenVPN by the namespace it runs in: its config now sits in a private,
