@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import math
 import os
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import accounts
+import features
 import journal
 import log_utils
 import notify
@@ -54,12 +56,102 @@ def account_names() -> list[str] | None:
 		return None
 
 
-def draw_times(now: datetime) -> list[datetime]:
+# Share of runs drawn from the owner's favoured windows; the rest are spread over
+# the whole waking window so the habit is a tendency, not a timetable.
+HABIT_SHARE = 0.75
+
+# Spread (minutes) of the normal jitter added to a habit draw, so two days with
+# the same windows still land on different minutes and the window edges blur.
+HABIT_JITTER_MINUTES = 6
+
+# Where each favoured window may be centred (hour of day, low and high) and the
+# width it may have in minutes, by time of day. Everything per account is a pick
+# inside these ranges.
+_HABIT_SLOTS = (
+	("morning", 8.5, 10.5),
+	("midday", 12.0, 15.0),
+	("evening", 18.0, 21.5),
+)
+_HABIT_WIDTH = (60, 120)
+
+# Weekends start later and are looser: windows slide this many minutes later and
+# widen by this factor.
+_WEEKEND_SHIFT_MINUTES = (60, 90)
+_WEEKEND_WIDEN = 1.5
+
+
+def habits_enabled(owner: str | None = None) -> bool:
+	"""Whether this owner's runs follow its own favoured times of day.
+
+	That changes what Microsoft sees, so it goes live one account at a time (features.py);
+	until the "habits" feature is on for the owner, run times are drawn uniformly as before."""
+	return features.enabled("habits", owner)
+
+
+def _unit(owner: str, salt: str) -> float:
+	"""A number in [0, 1) that depends only on the owner and the salt (same hashing as pacing.py)."""
+	digest = hashlib.sha256(f"{salt}|{owner.lower()}".encode()).digest()
+
+	return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def habit_windows(owner: str, weekend: bool) -> list[tuple[float, float]]:
+	"""The owner's favoured windows as (start, end) in minutes after midnight, sorted.
+
+	Depends only on the owner and whether it is a weekend, never on the date, so
+	the habit is the same every weekday and every weekend. 2 or 3 of the
+	morning/midday/evening windows are kept, chosen per owner.
+	"""
+	# Which slots this owner uses: always at least two. Of the five equal parts of
+	# the hash, three drop one slot each and two keep all three (index 3 matches none).
+	dropped = int(_unit(owner, "habit-drop") * 5)
+	slots = [slot for index, slot in enumerate(_HABIT_SLOTS) if index != dropped]
+	windows = []
+
+	for name, low, high in slots:
+		centre = (low + (high - low) * _unit(owner, f"habit-centre-{name}")) * 60
+		width = _HABIT_WIDTH[0] + (_HABIT_WIDTH[1] - _HABIT_WIDTH[0]) * _unit(owner, f"habit-width-{name}")
+
+		if weekend:
+			centre += _WEEKEND_SHIFT_MINUTES[0] + (_WEEKEND_SHIFT_MINUTES[1] - _WEEKEND_SHIFT_MINUTES[0]) * _unit(owner, f"habit-shift-{name}")
+			width *= _WEEKEND_WIDEN
+
+		windows.append((centre - width / 2, centre + width / 2))
+
+	return sorted(windows)
+
+
+def _habit_time(owner: str, begin: datetime, end: datetime, start: datetime) -> datetime:
+	"""One run time in [begin, end): usually inside a favoured window, otherwise anywhere."""
+	midnight = start.replace(hour=0, minute=0, second=0, microsecond=0)
+	lo, hi = (begin - midnight).total_seconds() / 60, (end - midnight).total_seconds() / 60
+
+	# Only the part of each window still ahead can take a run.
+	windows = [(max(a, lo), min(b, hi)) for a, b in habit_windows(owner, start.weekday() >= 5)]
+	windows = [(a, b) for a, b in windows if b > a]
+
+	if windows and random.random() < HABIT_SHARE:
+		a, b = random.choices(windows, weights=[b - a for a, b in windows])[0]
+		minute = random.uniform(a, b) + random.gauss(0, HABIT_JITTER_MINUTES)
+	else:
+		minute = random.uniform(lo, hi)
+
+	# Jitter must not push a run out of the range it was planned for.
+	minute = min(max(minute, lo), hi - 1 / 60)
+
+	return midnight + timedelta(minutes=minute)
+
+
+def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
 	"""Random run times in what is left of today's [START_HOUR, END_HOUR) window, sorted.
 
 	A full day's RUNS_PER_DAY when the day has not started, proportionally fewer
 	when this is made part way through (at least one while 30 minutes remain),
 	and none when the window is nearly over.
+
+	With an owner, most times fall in that owner's habitual windows (see
+	habit_windows) instead of uniformly, once the "habits" feature is on for it (features.py); otherwise,
+	they are uniform.
 	"""
 	start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
 	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
@@ -72,7 +164,10 @@ def draw_times(now: datetime) -> list[datetime]:
 	count = RUNS_PER_DAY if fraction >= 1 else max(1, math.ceil(RUNS_PER_DAY * fraction))
 	span = (end - begin).total_seconds()
 
-	return sorted(begin + timedelta(seconds=random.uniform(0, span)) for _ in range(count))
+	if owner is None or not habits_enabled(owner):
+		return sorted(begin + timedelta(seconds=random.uniform(0, span)) for _ in range(count))
+
+	return sorted(_habit_time(owner, begin, end, start) for _ in range(count))
 
 
 def _parse(values) -> list[datetime]:
@@ -98,7 +193,7 @@ def day_plan(now: datetime, owner: str) -> list[datetime]:
 	times = _parse(saved.get("times")) if saved.get("day") == day else []
 
 	if not times:
-		times = draw_times(now)
+		times = draw_times(now, owner)
 		schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in times]})
 
 	return times
