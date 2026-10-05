@@ -39,6 +39,34 @@ cipher AES-256-CBC
 auth SHA512
 """
 
+# Surfshark-shaped, with the certificate material inline, and what it must still be allowed to do.
+SURFSHARK_INLINE = """client
+dev tun
+proto udp
+remote alpha.example.net 1194
+nobind
+ping 15
+ping-restart 0
+reneg-sec 0
+remote-cert-tls server
+auth-user-pass
+verb 3
+fast-io
+cipher AES-256-CBC
+auth SHA512
+key-direction 1
+<ca>
+-----BEGIN CERTIFICATE-----
+up /bin/evil
+-----END CERTIFICATE-----
+</ca>
+<tls-auth>
+-----BEGIN OpenVPN Static key V1-----
+down /bin/evil
+-----END OpenVPN Static key V1-----
+</tls-auth>
+"""
+
 ADDRESSES = {"alpha.example.net": ["198.51.100.4", "198.51.100.5"], "beta.example.net": ["203.0.113.9"], "203.0.113.9": ["203.0.113.9"]}
 
 
@@ -94,6 +122,7 @@ class FakeSystem:
 		self.processes = []
 		self.command_exit_after = None
 		self.events = []  # commands and processes in the order they happened
+		self.ipv6_policy = "DROP"
 
 	def run(self, command, **kwargs):
 		self.commands.append(list(command))
@@ -105,6 +134,8 @@ class FakeSystem:
 
 			if inner[:3] == ["ip", "-o", "link"]:
 				code, text = (0, "4: tun0: <UP> state UNKNOWN") if self.tun_up else (1, "")
+			elif inner[:2] == ["ip6tables", "-S"]:
+				text = "".join(f"-P {chain} {self.ipv6_policy}\n" for chain in ("INPUT", "FORWARD", "OUTPUT"))
 			elif inner and inner[0] == sys.executable:
 				address = self.exits.get(command[1].split("=", 1)[1])
 				code, text = (0, address) if address else (1, "")
@@ -221,6 +252,34 @@ class TestReadingTheConfig(VpnTestCase):
 			v.write_resolv_conf(self.root / "r.conf")
 
 
+class TestHardeningFollowUps(VpnTestCase):
+	def test_a_directive_written_with_its_command_line_dashes_is_still_refused(self):
+		config = self.root / "alpha" / "openvpn" / "config.ovpn"
+
+		for line in ("--up /bin/sh", "-up /bin/sh", "--script-security 2", "--plugin /tmp/x.so", "--engine dynamic", "--down-pre"):
+			config.write_text(ALPHA + line + "\n")
+
+			with self.assertRaisesRegex(RuntimeError, "not allowed", msg=line):
+				v.plan(["alpha"])
+
+	def test_a_failed_plan_leaves_no_private_directory_behind(self):
+		# beta's config has no server line, so planning fails after alpha's directory was made.
+		(self.root / "beta" / "openvpn" / "config.ovpn").write_text("client\ndev tun\n")
+		before = {p.name for p in self.root.iterdir() if p.name.startswith("vpn-")}
+
+		with self.assertRaises(RuntimeError):
+			v.plan(["alpha", "beta"])
+
+		self.assertEqual({p.name for p in self.root.iterdir() if p.name.startswith("vpn-")}, before)
+
+	def test_a_resolver_failure_after_planning_removes_the_key_bearing_copies(self):
+		with mock.patch.dict(os.environ, {"NAME_SERVERS": "not-an-address"}):
+			code = v.run(["alpha", "beta"], [["x"]], popen=self.system.popen, sleep=lambda s: None, handle_signals=False)
+
+		self.assertEqual(code, 1)
+		self.assertEqual([p.name for p in self.root.iterdir() if p.name.startswith("vpn-")], [])
+
+
 class TestPlan(VpnTestCase):
 	def test_each_account_gets_its_own_number_and_subnet(self):
 		alpha, beta = self.tunnels()
@@ -258,6 +317,16 @@ class TestPlan(VpnTestCase):
 
 		self.assertEqual(os.environ.get("REWARDS_VPN_REQUIRED"), "1")
 
+	def test_the_supervisor_records_its_own_namespace_for_the_children_to_compare_with(self):
+		os.environ.pop("REWARDS_ROOT_NETNS", None)
+		self.addCleanup(os.environ.pop, "REWARDS_ROOT_NETNS", None)
+		self.system.command_exit_after = 0
+
+		with mock.patch.object(v.os, "readlink", return_value="net:[4026531840]"):
+			TestRun.run_it(self)
+
+		self.assertEqual(os.environ.get("REWARDS_ROOT_NETNS"), "net:[4026531840]")
+
 	def test_no_accounts_is_an_error(self):
 		with self.assertRaises(RuntimeError):
 			v.plan([])
@@ -265,9 +334,132 @@ class TestPlan(VpnTestCase):
 	def test_the_pinned_copy_is_private_and_not_left_in_the_data_folder(self):
 		alpha, _ = self.tunnels()
 
-		self.assertEqual(alpha.pinned.stat().st_mode & 0o777, 0o600) if os.name != "nt" else None
+		if os.name != "nt":
+			self.assertEqual(alpha.pinned.stat().st_mode & 0o777, 0o600)
+			self.assertEqual(alpha.workdir.stat().st_mode & 0o777, 0o700)
+
+		self.assertEqual(alpha.pinned.parent, alpha.workdir)
+		self.assertTrue(alpha.workdir.name.startswith("vpn-"))
 		self.assertIn("remote 198.51.100.4", alpha.pinned.read_text())
 		self.assertEqual(sorted(p.name for p in alpha.folder.iterdir()), ["config.ovpn"])
+
+
+class TestPinnedCopy(VpnTestCase):
+	def test_each_account_gets_its_own_private_directory_and_it_is_removed_at_teardown(self):
+		alpha, beta = self.tunnels()
+
+		self.assertNotEqual(alpha.workdir, beta.workdir)
+		self.assertTrue(alpha.pinned.is_file())
+
+		v.teardown([alpha, beta], [])
+
+		self.assertFalse(alpha.workdir.exists())
+		self.assertFalse(beta.workdir.exists())
+
+	def test_the_file_is_created_exclusively_and_privately(self):
+		calls = []
+		real = os.open
+
+		def spy(path, flags, mode=0o777, **kw):
+			calls.append((str(path), flags, mode))
+			return real(path, flags, mode, **kw)
+
+		with mock.patch.object(v.os, "open", side_effect=spy):
+			alpha, _ = self.tunnels()
+
+		path, flags, mode = next(c for c in calls if c[0] == str(alpha.pinned))
+
+		self.assertTrue(flags & os.O_EXCL)
+		self.assertTrue(flags & os.O_CREAT)
+		self.assertEqual(mode, 0o600)
+
+	def test_a_failed_write_leaves_no_directory_behind(self):
+		with mock.patch.object(v, "pin_remotes", side_effect=OSError("boom")), self.assertRaises(OSError):
+			self.tunnels("alpha")
+
+		self.assertEqual([p.name for p in self.root.iterdir() if p.name.startswith("vpn-")], [])
+
+
+class TestForbiddenDirectives(VpnTestCase):
+	def test_every_listed_directive_is_refused_with_its_name(self):
+		for directive in sorted(v.FORBIDDEN_DIRECTIVES):
+			for text in (f"{directive} /bin/x", f"  {directive.upper()}\t/bin/x"):
+				self.put_config("alpha", ALPHA + text + "\n")
+
+				with self.subTest(text), self.assertRaisesRegex(RuntimeError, repr(directive)):
+					v.plan(["alpha"])
+
+	def test_the_list_is_the_one_the_review_asked_for(self):
+		self.assertEqual(v.FORBIDDEN_DIRECTIVES, {
+			"up", "down", "route-up", "route-pre-down", "ipchange", "plugin", "management", "tls-verify",
+			"client-connect", "client-disconnect", "learn-address", "auth-user-pass-verify", "up-restart",
+			"log", "log-append", "status", "writepid", "chroot", "daemon", "cd", "script-security",
+			"engine", "providers", "inetd", "down-pre",
+		})
+
+	def test_comments_are_ignored(self):
+		self.put_config("alpha", ALPHA + "# up /bin/x\n; script-security 2\n")
+
+		self.assertEqual(len(v.plan(["alpha"])), 1)
+
+	def test_a_directive_that_only_starts_with_a_listed_word_is_fine(self):
+		self.put_config("alpha", ALPHA + "up-delay\nlogin\nstatus-version 2\n")
+
+		self.assertEqual(len(v.plan(["alpha"])), 1)
+
+	def test_a_directive_inside_an_inline_key_block_is_not_one(self):
+		self.put_config("alpha", ALPHA + "<key>\nup /bin/x\n</key>\n")
+
+		self.assertEqual(len(v.plan(["alpha"])), 1)
+
+	def test_a_directive_after_an_inline_block_is_still_caught(self):
+		self.put_config("alpha", ALPHA + "<ca>\nabc\n</ca>\nscript-security 2\n")
+
+		with self.assertRaisesRegex(RuntimeError, "script-security"):
+			v.plan(["alpha"])
+
+	def test_a_connection_blocks_inner_lines_are_scanned(self):
+		self.put_config("alpha", ALPHA + "<connection>\nremote alpha.example.net 1194\nup /bin/x\n</connection>\n")
+
+		with self.assertRaisesRegex(RuntimeError, "'up'"):
+			v.plan(["alpha"])
+
+	def test_a_surfshark_shaped_config_is_still_accepted(self):
+		self.put_config("alpha", SURFSHARK_INLINE, auth="user\npass\n")
+		(alpha,) = v.plan(["alpha"])
+
+		self.assertEqual(alpha.endpoints[0].port, "1194")
+		self.assertIn("<tls-auth>", alpha.pinned.read_text())
+
+
+class TestEndpointAddresses(VpnTestCase):
+	def refused(self, ip):
+		with mock.patch.dict(ADDRESSES, {"x.example.net": [ip]}), self.assertRaisesRegex(RuntimeError, "not a public address"):
+			v.parse_endpoints("remote x.example.net 1194\n")
+
+	def test_loopback_private_shared_and_special_addresses_are_refused(self):
+		for ip in (
+			"127.0.0.1", "169.254.169.254", "224.0.0.1", "0.0.0.0", "10.0.0.1", "10.200.1.2",
+			"172.16.0.1", "172.31.255.254", "192.168.1.1", "100.64.0.1", "100.127.255.254",
+		):
+			with self.subTest(ip=ip):
+				self.refused(ip)
+
+	def test_a_literal_address_is_checked_too(self):
+		with mock.patch.dict(ADDRESSES, {"10.0.0.5": ["10.0.0.5"]}), self.assertRaises(RuntimeError):
+			v.parse_endpoints("remote 10.0.0.5 1194\n")
+
+	def test_documentation_ranges_and_ordinary_addresses_are_accepted(self):
+		for ip in ("198.51.100.4", "203.0.113.9", "172.32.0.1", "100.128.0.1", "8.8.8.8"):
+			with self.subTest(ip=ip), mock.patch.dict(ADDRESSES, {"x.example.net": [ip]}):
+				self.assertEqual(v.parse_endpoints("remote x.example.net 1194\n")[0].ip, ip)
+
+
+class TestAccountNames(VpnTestCase):
+	def test_a_name_with_a_trailing_newline_is_refused(self):
+		for name in ("alpha\n", "second\n"):
+			with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, "not usable"):
+				v.plan([name])
 
 
 class TestNamespace(VpnTestCase):
@@ -297,6 +489,69 @@ class TestNamespace(VpnTestCase):
 
 		for chain in ("INPUT", "OUTPUT", "FORWARD"):
 			self.assertIn(["ip6tables", "-P", chain, "DROP"], inside)
+
+	def test_ipv6_loopback_stays_open_and_nothing_else_is_allowed(self):
+		"""Seen on the NAS: localhost is ::1 too, and with all of IPv6 dropped the browser driver's
+		websocket to the browser timed out, so its automation markers could not be hidden."""
+		alpha, _ = self.tunnels()
+		v.create_namespace(alpha, self.system.popen, lambda s: None)
+		inside = [c[2:] for c in self.system.commands if c[:1] == ["nsenter"] and c[2] == "ip6tables"]
+		allowed = [c for c in inside if "-A" in c]
+
+		self.assertEqual(allowed, [
+			["ip6tables", "-A", "INPUT", "-i", "lo", "-j", "ACCEPT"],
+			["ip6tables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
+		])
+
+	def test_the_loopback_rules_come_after_the_policies_are_set(self):
+		alpha, _ = self.tunnels()
+		v.create_namespace(alpha, self.system.popen, lambda s: None)
+		inside = [c[2:] for c in self.system.commands if c[:1] == ["nsenter"] and c[2] == "ip6tables"]
+
+		self.assertLess(inside.index(["ip6tables", "-P", "OUTPUT", "DROP"]), inside.index(["ip6tables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"]))
+
+	def test_a_namespace_whose_ipv6_is_still_open_is_refused(self):
+		alpha, _ = self.tunnels()
+
+		for policy in ("ACCEPT", "DROPX"):
+			self.system.ipv6_policy = policy
+
+			with self.subTest(policy=policy), self.assertRaisesRegex(RuntimeError, "IPv6 is not closed"):
+				v.create_namespace(alpha, self.system.popen, lambda s: None)
+
+	def test_one_open_chain_is_enough_to_refuse(self):
+		alpha, _ = self.tunnels()
+		real = self.system.run
+
+		def run(command, **kw):
+			result = real(command, **kw)
+
+			if command[2:4] == ["ip6tables", "-S"]:
+				result.stdout = result.stdout.replace("-P FORWARD DROP", "-P FORWARD ACCEPT")
+
+			return result
+
+		with mock.patch.object(v.subprocess, "run", side_effect=run), self.assertRaisesRegex(RuntimeError, "IPv6 is not closed"):
+			v.create_namespace(alpha, self.system.popen, lambda s: None)
+
+	def test_a_failing_sysctl_is_still_tolerated_when_the_chains_are_closed(self):
+		alpha, _ = self.tunnels()
+		real = self.system.run
+
+		def run(command, **kw):
+			if command[2:3] == ["sysctl"]:
+				return SimpleNamespace(returncode=255, stdout="", stderr="no ipv6")
+
+			return real(command, **kw)
+
+		with mock.patch.object(v.subprocess, "run", side_effect=run):
+			v.create_namespace(alpha, self.system.popen, lambda s: None)
+
+	def test_the_supervisor_stops_cleanly_when_ipv6_cannot_be_closed(self):
+		self.system.ipv6_policy = "ACCEPT"
+
+		self.assertEqual(TestRun.run_it(self), 1)
+		self.assertEqual(self.system.of("daily"), [])
 
 
 class TestKillSwitch(VpnTestCase):
@@ -454,6 +709,12 @@ class TestOpenvpn(VpnTestCase):
 		self.assertEqual(command[command.index("--dev") + 1], "tun0")
 		self.assertIn("--auth-nocache", command)
 		self.assertTrue(command[command.index("--log-append") + 1].endswith("openvpn-alpha.log"))
+
+	def test_user_scripts_are_disabled(self):
+		(alpha, _) = self.ready(self.tunnels())
+		command = self.command(alpha)
+
+		self.assertEqual(command[command.index("--script-security") + 1], "1")
 
 	def test_it_is_always_told_to_give_up_on_a_dead_tunnel(self):
 		(alpha, _) = self.ready(self.tunnels())

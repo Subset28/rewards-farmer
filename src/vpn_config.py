@@ -52,6 +52,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -92,6 +93,9 @@ DEFAULT_NAME_SERVERS = "1.1.1.1,1.0.0.1"
 
 DEFAULT_IP_CHECK_URL = "https://api.ipify.org"
 
+# Private and shared ranges, which include the veth subnets (10.200.0.0/16).
+NON_PUBLIC = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10")]
+
 REMOTE_HOST = re.compile(r"^(\s*remote\s+)(\S+)", re.I | re.M)
 REMOTE = re.compile(r"^\s*remote\s+(\S+)(?:\s+(\d+))?(?:\s+(udp|tcp)\S*)?", re.I | re.M)
 DEFAULT_PORT = re.compile(r"^\s*port\s+(\d+)", re.I | re.M)
@@ -104,6 +108,67 @@ STRIP_PING = re.compile(r"^[ \t]*(ping-restart|ping-exit)\b[^\n]*\n?", re.I | re
 # `auth-user-pass` with no file after it makes OpenVPN ask on the terminal, and there
 # is none, so a config like that needs an auth.txt.
 ASKS_FOR_LOGIN = re.compile(r"^[ \t]*auth-user-pass[ \t]*(?:#[^\n]*)?$", re.I | re.M)
+
+# Directives that run code, open a control channel or write outside the sandbox. A
+# provider config has no need of them and a tampered one could use any to break out
+# of the namespace, so a config that has one is refused.
+FORBIDDEN_DIRECTIVES = frozenset((
+	"up", "down", "route-up", "route-pre-down", "ipchange", "plugin", "management", "tls-verify",
+	"client-connect", "client-disconnect", "learn-address", "auth-user-pass-verify", "up-restart",
+	"log", "log-append", "status", "writepid", "chroot", "daemon", "cd", "script-security",
+	"engine", "providers", "inetd", "down-pre",
+))
+BLOCK_OPEN = re.compile(r"^<([A-Za-z0-9_-]+)>$")
+BLOCK_CLOSE = re.compile(r"^</([A-Za-z0-9_-]+)>$")
+
+
+def check_directives(ovpn_text: str) -> None:
+	"""Raise RuntimeError if the config uses a directive from FORBIDDEN_DIRECTIVES."""
+	block = None
+
+	for line in ovpn_text.splitlines():
+		line = line.strip()
+
+		if block:
+			closing = BLOCK_CLOSE.match(line)
+
+			if closing and closing.group(1).lower() == block:
+				block = None
+				continue
+
+			# Keys and certificates are not directives, but a <connection> holds real ones.
+			if block != "connection":
+				continue
+
+		if not line or line[0] in "#;":
+			continue
+
+		opening = BLOCK_OPEN.match(line)
+
+		if opening:
+			block = opening.group(1).lower()
+			continue
+
+		# A config line may write an option with its command-line dashes (`--up script`).
+		directive = line.split(None, 1)[0].lower().lstrip("-")
+
+		if directive in FORBIDDEN_DIRECTIVES:
+			raise RuntimeError(f"config.ovpn uses the directive {directive!r}, which is not allowed (it can run code or escape the namespace)")
+
+
+def check_endpoint_address(host: str, ip: str) -> None:
+	"""Raise RuntimeError for a server address that is not a public one.
+
+	An address inside the container's own or a private network would let a config
+	point the namespace's one hole in the firewall at something local.
+	"""
+	address = ipaddress.ip_address(ip)
+
+	if (
+		address.is_loopback or address.is_link_local or address.is_multicast or address.is_unspecified
+		or any(address in network for network in NON_PUBLIC)
+	):
+		raise RuntimeError(f"VPN server {host!r} resolves to {ip}, which is not a public address; refusing it")
 
 
 @dataclass(frozen=True)
@@ -122,6 +187,7 @@ class Tunnel:
 	endpoints: list[Endpoint]
 	pinned: Path
 	folder: Path
+	workdir: Path | None = None  # private directory that holds `pinned`
 	holder: object = None  # the process that keeps the namespace alive
 	vpn: object = None  # OpenVPN, running inside it
 	netns: str = ""  # /proc/<pid>/ns/net of the holder
@@ -203,6 +269,7 @@ def parse_endpoints(ovpn_text: str) -> list[Endpoint]:
 		except socket.gaierror as err:
 			raise RuntimeError(f"cannot resolve VPN server {host!r}: {err}") from err
 		for ip in sorted({info[4][0] for info in infos}):
+			check_endpoint_address(host, ip)
 			endpoints.append(Endpoint(ip, port, proto))
 
 	if not endpoints:
@@ -220,18 +287,32 @@ def write_resolv_conf(path: Path | None = None) -> None:
 
 
 def plan(accounts: list[str]) -> list[Tunnel]:
-	"""A Tunnel for each account, read from its config. Raises RuntimeError if any cannot be."""
+	"""A Tunnel for each account, read from its config. Raises RuntimeError if any cannot be.
+
+	Each tunnel gets a private directory holding its key-bearing config; if planning fails
+	part way, the ones already made are removed rather than left in /tmp."""
+	tunnels: list[Tunnel] = []
+
+	try:
+		return _plan(accounts, tunnels)
+	except BaseException:
+		for tunnel in tunnels:
+			if tunnel.workdir:
+				shutil.rmtree(tunnel.workdir, ignore_errors=True)
+
+		raise
+
+
+def _plan(accounts: list[str], tunnels: list[Tunnel]) -> list[Tunnel]:
 	if not accounts:
 		raise RuntimeError("no accounts to give a tunnel")
 
 	if len(accounts) > MAX_ACCOUNTS:
 		raise RuntimeError(f"at most {MAX_ACCOUNTS} accounts")
 
-	tunnels = []
-
 	for number, account in enumerate(accounts, start=1):
 		# The name goes into paths, so it is held to what an account name may be.
-		if not account_names.SAFE_NAME.match(account) or account in account_names.RESERVED_NAMES or account.endswith("."):
+		if not account_names.SAFE_NAME.fullmatch(account) or account in account_names.RESERVED_NAMES or account.endswith("."):
 			raise RuntimeError(f"{account!r} is not usable as an account name")
 
 		folder = vpn_dir(account)
@@ -248,15 +329,27 @@ def plan(accounts: list[str]) -> list[Tunnel]:
 				"put the provider's service username on the first line and its password on the second"
 			)
 
+		check_directives(text)
 		endpoints = parse_endpoints(text)
 
 		# A copy with the servers as addresses, kept out of data-dir because its
 		# inline certificates and keys are secrets and would be left lying around.
-		pinned = Path(tempfile.gettempdir()) / f"vpn-{account}.ovpn"
-		pinned.write_text(STRIP_PING.sub("", pin_remotes(text)))
-		pinned.chmod(0o600)
+		# The directory is 0700 and the file is created 0600 and exclusively, so the
+		# keys are never readable by anyone else, not even briefly, and no one can
+		# plant a link at a predictable path first.
+		workdir = Path(tempfile.mkdtemp(prefix="vpn-", dir=tempfile.gettempdir()))
+		pinned = workdir / "config.ovpn"
 
-		tunnels.append(Tunnel(account, number, endpoints, pinned, folder))
+		try:
+			descriptor = os.open(pinned, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+
+			with os.fdopen(descriptor, "w") as handle:
+				handle.write(STRIP_PING.sub("", pin_remotes(text)))
+		except BaseException:
+			shutil.rmtree(workdir, ignore_errors=True)
+			raise
+
+		tunnels.append(Tunnel(account, number, endpoints, pinned, folder, workdir))
 
 	return tunnels
 
@@ -305,6 +398,22 @@ def create_namespace(tunnel: Tunnel, popen=subprocess.Popen, sleep=time.sleep) -
 
 	for args in (("-F",), ("-P", "INPUT", "DROP"), ("-P", "OUTPUT", "DROP"), ("-P", "FORWARD", "DROP")):
 		_run(ns_cmd(tunnel.netns, "ip6tables", *args))
+
+	# Loopback alone stays open over IPv6. `localhost` resolves to ::1 as well as 127.0.0.1, and
+	# the browser driver dials it for the websocket it hides its automation markers through; with
+	# everything dropped that connection timed out ("socket is already closed"), the markers
+	# stayed on every new tab, and the browser was easier to spot as automated. Nothing here
+	# can leave the namespace: the loopback interface goes nowhere else.
+	for args in (("-A", "INPUT", "-i", "lo", "-j", "ACCEPT"), ("-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")):
+		_run(ns_cmd(tunnel.netns, "ip6tables", *args))
+
+	# Checked rather than assumed: a failed policy command above is tolerated, but
+	# an open IPv6 chain would leak around the IPv4-only kill switch.
+	rules = _run(ns_cmd(tunnel.netns, "ip6tables", "-S")).stdout
+	dropped = set(re.findall(r"^-P (INPUT|OUTPUT|FORWARD) DROP[ \t]*$", rules, re.M))
+
+	if dropped != {"INPUT", "OUTPUT", "FORWARD"}:
+		raise RuntimeError(f"IPv6 is not closed in the namespace of {tunnel.account}; refusing to continue")
 
 
 def namespace_kill_switch(tunnel: Tunnel) -> None:
@@ -358,7 +467,7 @@ def start_openvpn(tunnel: Tunnel, popen=subprocess.Popen):
 
 	command = ns_cmd(
 		tunnel.netns, "openvpn", "--config", str(tunnel.pinned), "--cd", str(tunnel.folder),
-		"--dev", TUN, "--auth-nocache", "--resolv-retry", "infinite", "--script-security", "2",
+		"--dev", TUN, "--auth-nocache", "--resolv-retry", "infinite", "--script-security", "1",
 		"--log-append", str(LOG_DIR / f"openvpn-{tunnel.account}.log"),
 	)
 
@@ -557,6 +666,9 @@ def teardown(tunnels: list[Tunnel], commands: list) -> None:
 		stop(tunnel.vpn)
 		stop(tunnel.holder)
 
+		if tunnel.workdir:
+			shutil.rmtree(tunnel.workdir, ignore_errors=True)
+
 	try:
 		STATE_FILE.unlink()
 	except OSError:
@@ -567,9 +679,15 @@ def run(accounts: list[str], commands: list[list[str]], popen=subprocess.Popen, 
 	"""Build every account's tunnel, run the commands, and stop when any of them or a tunnel gives up. Returns the exit code."""
 	try:
 		tunnels = plan(accounts)
-		write_resolv_conf()
 	except (RuntimeError, ValueError, OSError) as err:
 		print(f"vpn: {err}", file=sys.stderr)
+		return 1
+
+	try:
+		write_resolv_conf()
+	except (ValueError, OSError) as err:
+		print(f"vpn: {err}", file=sys.stderr)
+		teardown(tunnels, [])
 		return 1
 
 	running: list = []
@@ -601,8 +719,15 @@ def run(accounts: list[str], commands: list[list[str]], popen=subprocess.Popen, 
 		# From here on the schedulers must find the namespaces or run nothing.
 		os.environ[isolation.REQUIRED_ENV] = "1"
 
+		# The container's own namespace, for the children to compare theirs against: they
+		# have no rights to read it themselves (isolation.py).
+		try:
+			os.environ[isolation.ROOT_NETNS_ENV] = os.readlink(isolation.OWN_NETNS)
+		except OSError:
+			pass
+
 		running = [popen(command) for command in commands]
-	except (subprocess.CalledProcessError, OSError) as err:
+	except (subprocess.CalledProcessError, OSError, RuntimeError) as err:
 		detail = (getattr(err, "stderr", "") or "").strip() or str(err)
 		print(f"vpn: setup failed: {detail}", file=sys.stderr)
 		teardown(tunnels, running)

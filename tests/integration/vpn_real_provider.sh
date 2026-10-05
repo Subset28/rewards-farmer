@@ -53,9 +53,26 @@ nsx default getent hosts example.com >/dev/null && ok "names resolve inside the 
 echo "    resolvers: $(grep nameserver /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ')"
 nsx default curl -6 -s -m 5 -o /dev/null https://api64.ipify.org && bad "IPv6 request stayed inside" || ok "an IPv6 request does not get out"
 
+# Loopback over IPv6 must work: localhost is ::1 too, and the browser driver dials it. With all of
+# IPv6 dropped the connection timed out and the browser could not hide its automation markers.
+nsx default python3 - <<'PY' && ok "IPv6 loopback works inside the namespace" || bad "IPv6 loopback works inside the namespace"
+import socket, threading
+srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM); srv.bind(("::1", 9334)); srv.listen(1)
+threading.Thread(target=lambda: srv.accept(), daemon=True).start()
+c = socket.socket(socket.AF_INET6, socket.SOCK_STREAM); c.settimeout(3); c.connect(("::1", 9334))
+PY
+
 echo "=== kill switch with the REAL tunnel: kill default's OpenVPN"
 T0=$(date +%s)
-pkill -f "vpn-default.ovpn" ; sleep 1
+# Find default's OpenVPN by the namespace it runs in: its config now sits in a private,
+# randomly named directory, so a name match finds nothing.
+DEFAULT_NS=$(readlink "$(st default netns)")
+KILLED=0
+for pid in $(pgrep -x openvpn); do
+  if [ "$(readlink /proc/$pid/ns/net 2>/dev/null)" = "$DEFAULT_NS" ]; then kill $pid && KILLED=$((KILLED+1)); fi
+done
+[ $KILLED -ge 1 ] && ok "killed default's OpenVPN ($KILLED process)" || bad "found default's OpenVPN to kill"
+sleep 1
 nsx default curl -s -m 4 -o /dev/null https://api.ipify.org && bad "default leaked while its tunnel was down" || ok "default has no internet while its tunnel is down"
 nsx default ip route add default via 10.200.1.1 2>/dev/null
 nsx default curl -s -m 4 -o /dev/null https://api.ipify.org && bad "default leaked with the route pointed at the real side" || ok "pointing the route at the real side still gets nothing out"

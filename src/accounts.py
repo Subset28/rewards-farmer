@@ -22,7 +22,7 @@ ENV_VAR = "REWARDS_ACCOUNTS"
 # command line both handle without quoting. The character set alone is not
 # enough: "." and ".." are made of allowed characters and still walk out of the
 # directory, so they are rejected by name below and the resolved path is
-# checked as well.
+# checked as well. Always used with fullmatch: `$` also matches before a trailing newline.
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 
 # Reserved by every filesystem that has directories at all.
@@ -94,7 +94,7 @@ def configured() -> list[Account]:
 		# different directory than it reads as: "work." is "work", and "..." is
 		# the profile directory itself. Either way two entries end up sharing
 		# one profile, which is the one thing this module exists to prevent.
-		if not SAFE_NAME.match(name) or name in RESERVED_NAMES or name.endswith("."):
+		if not SAFE_NAME.fullmatch(name) or name in RESERVED_NAMES or name.endswith("."):
 			raise ValueError(
 				f"{ENV_VAR} entry {name!r} is not usable as a directory name; "
 				"use letters, digits, dot, dash or underscore, and do not end in a dot"
