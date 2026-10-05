@@ -293,6 +293,9 @@ SUGGESTION_DEPTH = 5
 # Generic, benign follow-ups, used when autosuggest gives nothing. Which ones
 # apply depends on what the seed looks like: "taylor swift near me" or "lakers
 # vs celtics price" read as nonsense, so those seeds get a narrower list.
+# A templated follow-up longer than this reads as nothing a person would type.
+MAX_FOLLOW_UP_WORDS = 8
+
 FOLLOW_UPS_GENERAL = ("{x} review", "{x} price", "{x} news", "what is {x}", "{x} near me")
 FOLLOW_UPS_SHORT_PHRASE = ("{x} news", "what is {x}", "{x} review", "latest {x}")
 FOLLOW_UPS_LONG_PHRASE = ("{x} news", "{x} update", "latest {x}")
@@ -476,7 +479,7 @@ def _related_queries_sessions(count: int, seed: str | None = None, exclude=None,
 
 		# Offline or no suggestions: a templated follow-up keeps the session
 		# shape instead of falling back to unrelated topics.
-		return next((t for t in templated_follow_ups(topic, rng) if fresh(t)), None)
+		return next((t for t in templated_follow_ups(topic, rng) if fresh(t) and len(t.split()) <= MAX_FOLLOW_UP_WORDS), None)
 
 	def new_seed() -> str | None:
 		while pool:

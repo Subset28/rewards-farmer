@@ -130,16 +130,26 @@ def _habit_time(owner: str, begin: datetime, end: datetime, start: datetime) -> 
 	windows = [(max(a, lo), min(b, hi)) for a, b in habit_windows(owner, start.weekday() >= 5)]
 	windows = [(a, b) for a, b in windows if b > a]
 
+	minute = None
+
 	if windows and random.random() < HABIT_SHARE:
 		a, b = random.choices(windows, weights=[b - a for a, b in windows])[0]
-		minute = random.uniform(a, b) + random.gauss(0, HABIT_JITTER_MINUTES)
-	else:
+
+		# Jitter that lands outside the range is drawn again, not clamped to its edge: clamping
+		# piled draws onto exactly the start of what is left of the day, and two runs at the
+		# same instant count as one.
+		for _ in range(20):
+			candidate = random.uniform(a, b) + random.gauss(0, HABIT_JITTER_MINUTES)
+
+			if lo <= candidate < hi:
+				minute = candidate
+
+				break
+
+	if minute is None:
 		minute = random.uniform(lo, hi)
 
-	# Jitter must not push a run out of the range it was planned for.
-	minute = min(max(minute, lo), hi - 1 / 60)
-
-	return midnight + timedelta(minutes=minute)
+	return midnight + timedelta(minutes=min(minute, hi - 1 / 60))
 
 
 def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
@@ -167,7 +177,17 @@ def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
 	if owner is None or not habits_enabled(owner):
 		return sorted(begin + timedelta(seconds=random.uniform(0, span)) for _ in range(count))
 
-	return sorted(_habit_time(owner, begin, end, start) for _ in range(count))
+	times: set[datetime] = set()
+
+	# Distinct times: the journal tells runs apart by their planned time, so two the same would be
+	# marked done together and the day would get fewer runs than planned.
+	for _ in range(count * 20):
+		if len(times) >= count:
+			break
+
+		times.add(_habit_time(owner, begin, end, start))
+
+	return sorted(times)
 
 
 def _parse(values) -> list[datetime]:
