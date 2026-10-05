@@ -53,6 +53,22 @@ class TestStatus(StatusTestCase):
 		self.assertIn("month 305", second)
 		self.assertIn("195 to the next level", second)
 
+	def test_every_account_with_data_is_shown_not_just_the_ones_this_container_is_set_up_for(self):
+		points_log.record("second", {"today": 90, "month": 305, "lifetime": 305})
+
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": "default"}):
+			text = status.report()
+
+		self.assertIn("second", text)
+		self.assertIn("month 305", text)
+
+	def test_a_configured_account_comes_first_and_none_is_listed_twice(self):
+		points_log.record("default", {"today": 1, "month": 2, "lifetime": 3})
+		points_log.record("second", {"today": 1, "month": 2, "lifetime": 3})
+
+		with mock.patch.dict(os.environ, {"REWARDS_ACCOUNTS": "second"}):
+			self.assertEqual(status.known_names(), ["second", "default"])
+
 	def test_a_paused_account_is_shown_loudly(self):
 		with mock.patch.object(safety, "blocked", return_value={"kind": "captcha", "reason": "a human check"}):
 			self.assertIn("PAUSED (captcha: a human check)", status.report())

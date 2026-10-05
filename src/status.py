@@ -54,9 +54,26 @@ def account_block(name: str) -> str:
 	])
 
 
+def known_names() -> list[str]:
+	"""The accounts this container is set up for, then any other with points on record.
+
+	Each scheduler container is configured for only some of the accounts, but the data
+	is shared, so a status run from any of them should show all of it.
+	"""
+	names = [a.name for a in accounts.configured()]
+
+	for row in points_log.history():
+		name = row.get("account")
+
+		if name and name not in names:
+			names.append(name)
+
+	return names
+
+
 def report() -> str:
 	try:
-		names = [a.name for a in accounts.configured()]
+		names = known_names()
 	except ValueError as exc:
 		return f"cannot read the accounts: {exc}"
 
