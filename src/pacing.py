@@ -7,7 +7,11 @@ starts slowly. This makes the bot do the same, per account, deterministically
 (derived from the account's name and the date), so a restart or a new build lands
 on the same answer and nothing needs to be saved to stay consistent.
 
-  * Rest days: now and then an account does nothing at all, never two days running.
+  * Light days: now and then an account does only the bare minimum, never two days
+    running. Never nothing: Rewards counts streaks (the daily set and a Bing search
+    seven days in a row are level-up activities, and Gold needs two a month) and
+    searching on 14 days a month earns the default search bonus, so a day with no
+    activity at all would cost real points.
   * Variable totals: on a working day an account fills a share of its search quota,
     not always all of it.
   * A ramp: for an account's first days it does less, rests never, and sticks to the
@@ -16,7 +20,7 @@ on the same answer and nothing needs to be saved to stay consistent.
 
 Settings (environment):
 
-    REWARDS_REST_DAY_CHANCE        chance a day is a rest day, default 0.15 (about one a week); 0 turns it off
+    REWARDS_REST_DAY_CHANCE        chance a day is a light day, default 0.15 (about one a week); 0 turns it off
     REWARDS_MIN_DAILY_FRACTION     least share of the search quota filled on a working day, default 0.6; 1 means always all of it
     REWARDS_RAMP_DAYS              days of an account's ramp, default 7; 0 turns it off
     REWARDS_KEEP_ORDER             1 keeps the accounts in the order listed
@@ -46,6 +50,11 @@ RAMP_START_FRACTION = 0.3
 
 # During the ramp an account does these tasks and no others.
 RAMP_STEPS = ("Bing daily set", "Required searches", "Bonus points")
+
+# A light day keeps every streak alive and nothing more: the daily set, one small
+# round of searching, and the daily claim.
+LIGHT_STEPS = RAMP_STEPS
+LIGHT_SEARCH_POINTS = 10
 
 
 def _float(name: str, default: float, low: float, high: float) -> float:
@@ -140,7 +149,7 @@ def _raw_rest(account: str, day: date) -> bool:
 
 
 def is_rest_day(account: str, today: date | None = None) -> bool:
-	"""Whether this account does nothing today. Never in its ramp, never two days in a row."""
+	"""Whether today is a light day for this account. Never in its ramp, never two days in a row."""
 	today = today or _today()
 
 	return _raw_rest(account, today) and not _raw_rest(account, today - timedelta(days=1))
@@ -160,16 +169,24 @@ def fraction(account: str, today: date | None = None) -> float:
 
 
 def search_target(account: str, cap: int, today: date | None = None) -> int:
-	"""The points of searching to reach today: some share of `cap`, at least one search's worth, at most the cap."""
+	"""The points of searching to reach today: some share of `cap`, at least one search's worth, at most the cap.
+
+	On a light day it is just enough to keep the search streak and the 14-day count going."""
 	if cap <= 0:
 		return cap
+
+	if is_rest_day(account, today):
+		return min(cap, LIGHT_SEARCH_POINTS)
 
 	return min(cap, max(1, round(cap * fraction(account, today))))
 
 
 def steps_allowed(account: str, today: date | None = None) -> tuple[str, ...] | None:
 	"""The only tasks to do today, or None for all of them."""
-	return RAMP_STEPS if in_ramp(account, today) else None
+	if in_ramp(account, today):
+		return RAMP_STEPS
+
+	return LIGHT_STEPS if is_rest_day(account, today) else None
 
 
 def ordered(items: list, rng=random) -> list:
@@ -186,7 +203,7 @@ def describe(account: str, today: date | None = None) -> str:
 	today = today or _today()
 
 	if is_rest_day(account, today):
-		what = "rest day"
+		what = "light day (daily set and one small search, keeping streaks alive)"
 	else:
 		what = f"works today, {fraction(account, today):.0%} of the search quota"
 
