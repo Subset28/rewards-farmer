@@ -4,7 +4,6 @@ from typing import Generator
 import logging
 import random
 import requests
-import os
 from constants import REPO_ROOT
 
 logger = logging.getLogger(__name__)

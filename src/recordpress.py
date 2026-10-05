@@ -1,6 +1,5 @@
 import os
 import tempfile
-import textwrap
 import time
 import keyboard as kb
 import pygetwindow as pygw
