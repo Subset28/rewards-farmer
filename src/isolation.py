@@ -14,6 +14,7 @@ falling back to the real connection is exactly what this exists to prevent.
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -34,14 +35,53 @@ REQUIRED_ENV = "REWARDS_VPN_REQUIRED"
 # namespaces, so it is started without the capabilities that could.
 DROPPED_CAPABILITIES = "-sys_admin,-net_admin,-net_raw"
 
+# Only a namespace of some process is ever joined, never a path a child made up.
+NETNS_PATH = re.compile(r"/proc/[0-9]+/ns/net")
+ROOT_NETNS = "/proc/1/ns/net"
+OWN_NETNS = "/proc/self/ns/net"
+
 
 def active() -> bool:
 	"""Whether accounts are to be run in VPN namespaces."""
 	return STATE_FILE.exists() or os.environ.get(REQUIRED_ENV) == "1"
 
 
+def own_namespace() -> bool:
+	"""Whether this process is in a network namespace other than the container's own."""
+	try:
+		return os.readlink(OWN_NETNS) != os.readlink(ROOT_NETNS)
+	except OSError:
+		return False
+
+
 def inside() -> bool:
-	return os.environ.get(CHILD_ENV) == "1"
+	# The variable is only a claim: an environment is easy to set, so the namespace is checked too.
+	if os.environ.get(CHILD_ENV) != "1":
+		return False
+
+	if not own_namespace():
+		logger.warning("[VPN] %s is set but this process is not in a namespace of its own; ignoring it.", CHILD_ENV)
+
+		return False
+
+	return True
+
+
+def valid_netns(path) -> bool:
+	"""Whether a namespace path from the state file may be joined.
+
+	The state file can be rewritten by a child, so a path that is not a plain
+	/proc/<pid>/ns/net, or that is the root namespace or this process's own, is
+	refused: joining either would put an account on the real connection.
+	"""
+	if not isinstance(path, str) or not NETNS_PATH.fullmatch(path):
+		return False
+
+	try:
+		target = os.readlink(path)
+		return target != os.readlink(ROOT_NETNS) and target != os.readlink(OWN_NETNS)
+	except OSError:
+		return False
 
 
 def read_state() -> dict:
@@ -57,7 +97,7 @@ def read_state() -> dict:
 def command_for(account: str, script: str, entry: dict) -> list[str]:
 	return [
 		"nsenter", f"--net={entry['netns']}",
-		"setpriv", f"--bounding-set={DROPPED_CAPABILITIES}", "--",
+		"setpriv", f"--bounding-set={DROPPED_CAPABILITIES}", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", "--",
 		sys.executable, script,
 	]
 
@@ -87,6 +127,11 @@ def run(account: str, script: str, in_process, runner=subprocess.run) -> bool:
 
 	if not isinstance(entry, dict) or not entry.get("netns"):
 		logger.error("[VPN] %s has no namespace, so it is not run. It is never run on the real connection.", account)
+
+		return False
+
+	if not valid_netns(entry["netns"]):
+		logger.error("[VPN] %s: namespace %r is not acceptable, so it is not run.", account, entry["netns"])
 
 		return False
 
