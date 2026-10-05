@@ -46,12 +46,16 @@ cfg=""
 while [ $# -gt 0 ]; do [ "$1" = "--config" ] && cfg=$2; shift; done
 N=$(ip -o link | grep -o 'vn[0-9]*' | head -1 | tr -d vn)
 ip link del tun0 2>/dev/null
+# The test can ask for a slow restart, to look at the tunnel while it is down.
+while [ -e /tmp/it/hold ]; do sleep 0.5; done
 ip link add tun0 type veth peer name tp$N || exit 1
 ip link set tp$N netns 1
 ip addr add 10.8.$N.2/24 dev tun0 && ip link set tun0 up
 # What real OpenVPN does: the server itself stays reachable the old way.
 for ip in $(grep -E '^remote ' "$cfg" | awk '{print $2}'); do ip route add $ip via 10.200.$N.1 2>/dev/null; done
-ip route replace default dev tun0
+# Through the container end as a gateway: a real tunnel is point to point, but this
+# stand-in is a veth pair, and an on-link default would ARP for every destination.
+ip route replace default via 10.8.$N.1 dev tun0
 nsenter --net=/proc/1/ns/net sh -c "
   ip addr replace 10.8.$N.1/24 dev tp$N; ip link set tp$N up
   iptables -C FORWARD -i tp$N -j ACCEPT 2>/dev/null || iptables -I FORWARD -i tp$N -j ACCEPT
@@ -105,18 +109,21 @@ check "beta reaches the internet through its tunnel" ns beta curl -s -m 10 -o /d
 check "a name resolves in the namespace" ns alpha getent hosts example.com
 
 # the kill switch: drop the tunnel, then try to leak by pointing the route at the real side
+touch $W/hold
 ns alpha ip link del tun0
 ns alpha ip route add default via 10.200.1.1
+is_down() { [ "$(state alpha up)" = "False" ]; }
+wait_for 20 is_down
+check "the state says alpha is down as soon as it is noticed, not after the restart" is_down
 checknot "tunnel down: the internet is not reachable on the real side" ns alpha curl -s -m 6 -o /dev/null https://api.ipify.org
 checknot "tunnel down: an arbitrary server is not reachable" ns alpha curl -s -m 6 -o /dev/null https://8.8.8.8
 checknot "tunnel down: a name lookup does not get out" ns alpha curl -s -m 6 -o /dev/null http://example.com
 check "tunnel down: the VPN server itself is still reachable (to rebuild it)" ns alpha curl -s -m 8 -k -o /dev/null https://1.1.1.1
 checknot "tunnel down: beta's VPN server is not reachable from alpha" ns alpha curl -s -m 6 -k -o /dev/null https://1.0.0.1
 check "beta is untouched while alpha is down" ns beta curl -s -m 10 -o /dev/null https://api.ipify.org
+rm -f $W/hold
 
 # the supervisor notices and restarts it
-wait_for 15 bash -c "! [ \"\$(python -c \"import json; print(json.load(open('$VPN_STATE_FILE'))['alpha']['up'])\")\" = True ]"
-check "the state says alpha is down" [ "$(state alpha up)" = False ]
 wait_for 90 is_up alpha
 check "alpha is restarted on its own and comes back up" [ "$(state alpha up)" = True ]
 check "alpha is back on its own exit address" [ "$(state alpha exit)" = 203.0.113.1 ]

@@ -505,6 +505,10 @@ def supervise_tunnels(tunnels: list[Tunnel], taken: dict[str, str], now: float, 
 			logger.error("[VPN] %s: the tunnel died. Its runs are held until it is back.", tunnel.account)
 			tell(tunnel, "VPN tunnel down", "the tunnel dropped. Runs for this account are held and nothing leaves on the real connection.", "high")
 
+			# Said now, not after the restart: a restart can take a minute, and until
+			# the state says the account is down the schedulers would still run it.
+			write_state(tunnels)
+
 		if now - tunnel.last_restart < RESTART_BACKOFF_SECONDS:
 			continue
 
