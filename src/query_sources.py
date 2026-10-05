@@ -28,6 +28,8 @@ import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 
+import trawl_client
+
 from constants import REPO_ROOT
 
 TRENDS_URL = "https://trends.google.com/trending/rss?geo={geo}"
@@ -60,9 +62,18 @@ def _fetch(url: str) -> str | None:
 
 	try:
 		with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-			return response.read().decode("utf-8", "replace")
-	except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+			body = response.read().decode("utf-8", "replace")
+	except urllib.error.HTTPError as exc:
+		# Refused outright: a challenge page is what a protected feed answers with.
+		# trawl, if there is one, loads it in a real browser.
+		return trawl_client.fetch(url) if exc.code in trawl_client.BLOCKED_CODES else None
+	except (urllib.error.URLError, OSError, ValueError):
 		return None
+
+	if trawl_client.looks_blocked(body):
+		return trawl_client.fetch(url)
+
+	return body
 
 
 def trending_queries(geo: str = "US") -> list[str]:

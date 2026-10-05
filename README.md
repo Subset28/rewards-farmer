@@ -228,11 +228,22 @@ Swapping a build mid-day is therefore safe, but not while a run is live: recreat
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `TRAWL_URL` | unset | Address of a trawl service, used as a fallback for public feeds that refuse a plain request. Never used for account pages. |
 | `NOTIFY_URL` | unset | Shared alert address (Discord webhook or ntfy topic) for any account without its own. |
 | `NOTIFY_URL_<ACCOUNT>` | unset | One account's own alert address, e.g. `NOTIFY_URL_SECOND`. |
 | `REWARDS_SEARCHES_PER_RUN` | `5-8` | Searches one scheduled search run makes before stopping, so the quota fills across the day. |
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
 | `REWARDS_LEVEL_TARGETS` | `default=750,second=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
+
+## trawl for feeds that refuse a plain request
+
+The public feeds the search queries come from (trends, autosuggest) sometimes answer a plain request with a refusal or a Cloudflare challenge page. If `TRAWL_URL` points at a [trawl](https://github.com/germondai/trawl) service (a FlareSolverr-compatible API that loads the page in a hardened browser), the same page is then asked for through it:
+
+```
+TRAWL_URL=http://192.168.35.12:8191
+```
+
+It is a fallback only, and unset it does nothing. It is never used for an account: Microsoft's sign-in, Rewards, Bing and related domains are refused by `src/trawl_client.py` whatever the caller asks, because a verification prompt on an account is a reason to stop and look (the brake pauses the run and alerts), not something to click through. In the VPN setup the browsers run inside the account namespaces, which cannot reach the LAN, so trawl is reachable only from the container's own network and the feeds fall back to a plain request there.
 
 ## Search queries from OpenRouter's free models
 
