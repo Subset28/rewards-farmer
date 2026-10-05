@@ -516,6 +516,24 @@ class TestSupervising(VpnTestCase):
 		self.assertTrue(beta.up)
 		self.assertEqual(len(self.system.openvpn()), 3)
 
+	def test_the_state_says_the_account_is_down_before_the_restart_not_after(self):
+		tunnels, taken = self.alive()
+		alpha, _ = tunnels
+		v.write_state(tunnels)
+		self.assertTrue(json.loads(v.STATE_FILE.read_text())["alpha"]["up"])
+		alpha.vpn.returncode = 1
+		seen = []
+
+		def restart(tunnel, taken, popen, sleep):
+			seen.append(json.loads(v.STATE_FILE.read_text())["alpha"]["up"])
+
+			return False
+
+		with mock.patch.object(v, "bring_up", side_effect=restart):
+			v.supervise_tunnels(tunnels, taken, 1000.0, self.system.popen, lambda s: None)
+
+		self.assertEqual(seen, [False])
+
 	def test_restarts_are_not_hammered(self):
 		tunnels, taken = self.alive()
 		alpha, _ = tunnels
