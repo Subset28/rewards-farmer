@@ -106,6 +106,41 @@ class TestWithoutVpn(IsolationTestCase):
 
 		self.assertTrue(isolation.own_namespace())
 
+	def test_a_child_that_cannot_read_proc_1_still_knows_it_is_inside_by_the_recorded_root(self):
+		"""Seen on the NAS: the child has no capabilities and /proc/1/ns/net is refused to it.
+
+		Without this the child decided it was not inside, took the run lock its parent already
+		held, and every run in a namespace would have failed."""
+		del self.links["/proc/1/ns/net"]
+		self.links["/proc/self/ns/net"] = "net:[42]"
+
+		self.assertFalse(isolation.own_namespace(), "with nothing recorded and /proc/1 unreadable it cannot tell")
+
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[1]", isolation.CHILD_ENV: "1"}):
+			self.assertTrue(isolation.own_namespace())
+			self.assertTrue(isolation.inside())
+
+	def test_a_process_in_the_recorded_root_namespace_is_not_inside_whatever_it_claims(self):
+		self.links["/proc/self/ns/net"] = "net:[1]"
+
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[1]", isolation.CHILD_ENV: "1"}), \
+			self.assertLogs(isolation.logger, "WARNING"):
+			self.assertFalse(isolation.inside())
+
+	def test_the_recorded_root_wins_over_whatever_proc_1_says(self):
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[99]"}):
+			self.assertEqual(isolation.root_namespace(), "net:[99]")
+
+		self.assertEqual(isolation.root_namespace(), "net:[1]")
+
+	def test_a_namespace_path_is_judged_against_the_recorded_root_too(self):
+		del self.links["/proc/1/ns/net"]
+		self.links["/proc/9/ns/net"] = "net:[1]"
+
+		with mock.patch.dict(os.environ, {isolation.ROOT_NETNS_ENV: "net:[1]"}):
+			self.assertTrue(isolation.valid_netns("/proc/42/ns/net"))
+			self.assertFalse(isolation.valid_netns("/proc/9/ns/net"), "a process in the root namespace must never be joined")
+
 	def test_a_forged_variable_in_the_root_namespace_still_goes_through_the_namespaces(self):
 		self.write({"alpha": {"netns": "/proc/42/ns/net", "up": True}})
 		os.environ[isolation.CHILD_ENV] = "1"

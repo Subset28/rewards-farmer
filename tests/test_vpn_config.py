@@ -317,6 +317,16 @@ class TestPlan(VpnTestCase):
 
 		self.assertEqual(os.environ.get("REWARDS_VPN_REQUIRED"), "1")
 
+	def test_the_supervisor_records_its_own_namespace_for_the_children_to_compare_with(self):
+		os.environ.pop("REWARDS_ROOT_NETNS", None)
+		self.addCleanup(os.environ.pop, "REWARDS_ROOT_NETNS", None)
+		self.system.command_exit_after = 0
+
+		with mock.patch.object(v.os, "readlink", return_value="net:[4026531840]"):
+			TestRun.run_it(self)
+
+		self.assertEqual(os.environ.get("REWARDS_ROOT_NETNS"), "net:[4026531840]")
+
 	def test_no_accounts_is_an_error(self):
 		with self.assertRaises(RuntimeError):
 			v.plan([])

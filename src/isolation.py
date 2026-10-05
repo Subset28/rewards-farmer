@@ -40,16 +40,40 @@ NETNS_PATH = re.compile(r"/proc/[0-9]+/ns/net")
 ROOT_NETNS = "/proc/1/ns/net"
 OWN_NETNS = "/proc/self/ns/net"
 
+# The container's own network namespace, as the supervisor read it once at startup (the
+# supervisor runs in it, with the rights to). A child cannot read /proc/1/ns/net itself:
+# it has no capabilities, and the read is refused. Reading its own namespace is always
+# allowed, so a child compares that against this.
+ROOT_NETNS_ENV = "REWARDS_ROOT_NETNS"
+
 
 def active() -> bool:
 	"""Whether accounts are to be run in VPN namespaces."""
 	return STATE_FILE.exists() or os.environ.get(REQUIRED_ENV) == "1"
 
 
+def root_namespace() -> str | None:
+	"""The container's own network namespace as a link target such as net:[4026531840], or None if it cannot be told."""
+	recorded = os.environ.get(ROOT_NETNS_ENV, "").strip()
+
+	if recorded:
+		return recorded
+
+	try:
+		return os.readlink(ROOT_NETNS)
+	except OSError:
+		return None
+
+
 def own_namespace() -> bool:
 	"""Whether this process is in a network namespace other than the container's own."""
+	root = root_namespace()
+
+	if not root:
+		return False
+
 	try:
-		return os.readlink(OWN_NETNS) != os.readlink(ROOT_NETNS)
+		return os.readlink(OWN_NETNS) != root
 	except OSError:
 		return False
 
@@ -77,9 +101,14 @@ def valid_netns(path) -> bool:
 	if not isinstance(path, str) or not NETNS_PATH.fullmatch(path):
 		return False
 
+	root = root_namespace()
+
+	if not root:
+		return False
+
 	try:
 		target = os.readlink(path)
-		return target != os.readlink(ROOT_NETNS) and target != os.readlink(OWN_NETNS)
+		return target != root and target != os.readlink(OWN_NETNS)
 	except OSError:
 		return False
 

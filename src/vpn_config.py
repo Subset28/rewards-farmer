@@ -711,6 +711,13 @@ def run(accounts: list[str], commands: list[list[str]], popen=subprocess.Popen, 
 		# From here on the schedulers must find the namespaces or run nothing.
 		os.environ[isolation.REQUIRED_ENV] = "1"
 
+		# The container's own namespace, for the children to compare theirs against: they
+		# have no rights to read it themselves (isolation.py).
+		try:
+			os.environ[isolation.ROOT_NETNS_ENV] = os.readlink(isolation.OWN_NETNS)
+		except OSError:
+			pass
+
 		running = [popen(command) for command in commands]
 	except (subprocess.CalledProcessError, OSError, RuntimeError) as err:
 		detail = (getattr(err, "stderr", "") or "").strip() or str(err)
