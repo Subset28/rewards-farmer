@@ -40,6 +40,10 @@ services:
       - SYS_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    # Everything in .env, so an account added later finds its own NOTIFY_URL_<NAME>
+    # without this file being edited. The explicit settings below still win.
+    env_file:
+      - .env
     sysctls:
       # The namespaces reach the VPN servers through this container, so it forwards.
       net.ipv4.ip_forward: "1"

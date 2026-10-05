@@ -58,9 +58,11 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
+import accounts as account_names
+import isolation
 import notify
 
 logger = logging.getLogger("vpn")
@@ -121,7 +123,6 @@ class Tunnel:
 	reason: str = ""
 	failed_restarts: int = 0
 	last_restart: float = 0.0
-	known: dict = field(default_factory=dict)
 
 	@property
 	def host_if(self) -> str:
@@ -222,6 +223,10 @@ def plan(accounts: list[str]) -> list[Tunnel]:
 	tunnels = []
 
 	for number, account in enumerate(accounts, start=1):
+		# The name goes into paths, so it is held to what an account name may be.
+		if not account_names.SAFE_NAME.match(account) or account in account_names.RESERVED_NAMES or account.endswith("."):
+			raise RuntimeError(f"{account!r} is not usable as an account name")
+
 		folder = vpn_dir(account)
 		config = folder / "config.ovpn"
 
@@ -580,6 +585,9 @@ def run(accounts: list[str], commands: list[list[str]], popen=subprocess.Popen, 
 			return 1
 
 		write_state(tunnels)
+
+		# From here on the schedulers must find the namespaces or run nothing.
+		os.environ[isolation.REQUIRED_ENV] = "1"
 
 		running = [popen(command) for command in commands]
 	except (subprocess.CalledProcessError, OSError) as err:

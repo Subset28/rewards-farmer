@@ -25,6 +25,11 @@ STATE_FILE = Path(os.environ.get("VPN_STATE_FILE", "/run/vpn/namespaces.json"))
 # Set in the child, which is already inside its namespace and must not start another.
 CHILD_ENV = "REWARDS_ISOLATED"
 
+# Set by the supervisor for the schedulers it starts. Once it is set, a missing or
+# unreadable state file means "no account may run", not "no VPN": without it a
+# deleted file would quietly send every account out on the real connection.
+REQUIRED_ENV = "REWARDS_VPN_REQUIRED"
+
 # The child is an ordinary run that has no business changing the firewall or the
 # namespaces, so it is started without the capabilities that could.
 DROPPED_CAPABILITIES = "-sys_admin,-net_admin,-net_raw"
@@ -32,7 +37,7 @@ DROPPED_CAPABILITIES = "-sys_admin,-net_admin,-net_raw"
 
 def active() -> bool:
 	"""Whether accounts are to be run in VPN namespaces."""
-	return STATE_FILE.exists()
+	return STATE_FILE.exists() or os.environ.get(REQUIRED_ENV) == "1"
 
 
 def inside() -> bool:
