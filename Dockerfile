@@ -60,14 +60,15 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/pip \
 	pip install "selenium>=4.46.0,<5.0.0" "numpy" "python-dotenv" "requests"
 
-# OpenVPN with kill switch for per-account VPN isolation. Uses iptables to block
-# all traffic if the tunnel drops, preventing IP leaks. Each account gets its own
-# VPN connection and network namespace.
+# OpenVPN with a kill switch, so each account can go out through its own tunnel
+# (src/vpn_config.py). DSM host kernels have no nftables support inside
+# containers, so the kill switch uses the legacy iptables, as ArmaanOChrome does.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 	--mount=type=cache,target=/var/lib/apt,sharing=locked \
 	apt-get update \
-	&& apt-get install -y --no-install-recommends \
-		openvpn iptables iproute2
+	&& apt-get install -y --no-install-recommends openvpn iptables iproute2 util-linux \
+	&& update-alternatives --set iptables /usr/sbin/iptables-legacy \
+	&& update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
 
 # A virtual display for Edge to run headed on (with-xvfb, in docker-compose.yml)
 # rather than --headless=new, which Microsoft does not credit the Explore on
@@ -85,9 +86,6 @@ COPY nouns.txt ./
 # rewritten the script's line endings and left `#!/bin/sh\r` unrunnable.
 COPY with-xvfb.sh /usr/local/bin/with-xvfb
 RUN sed -i 's/\r$//' /usr/local/bin/with-xvfb && chmod +x /usr/local/bin/with-xvfb
-
-COPY with-vpn.sh /usr/local/bin/with-vpn
-RUN sed -i 's/\r$//' /usr/local/bin/with-vpn && chmod +x /usr/local/bin/with-vpn
 
 # Unattended (no prompt at exit, no cursor overlay) and trends because there is
 # no model. The browser itself is headless unless REWARDS_VIRTUAL_DISPLAY is

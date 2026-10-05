@@ -289,29 +289,51 @@ A plain sign-out pauses only the account it happened on (`python src/safety.py c
 
 ## A VPN per account (Docker)
 
-`docker-compose.vpn.yml` puts each account's containers behind their own OpenVPN tunnel with a kill switch. Each account is its own container and so its own network stack. Before OpenVPN starts, `src/vpn_config.py` closes the firewall to everything except loopback, `tun0` and the VPN servers named in `config.ovpn`, and IPv6 is dropped. If the tunnel does not come up, the bot does not start, so an account never falls back to the host's address. If it drops later, traffic stops rather than leaking.
+`docker-compose.vpn.yml` puts every account behind its own OpenVPN tunnel, in one container, each with its own kill switch and its own VPN location. It is modelled on the binhex `qbittorrentvpn` images (a default-drop iptables firewall, a tunnel that must come up before anything runs, a supervisor that notices a dead tunnel) and on ArmaanOChrome's entrypoint, with one change: a tunnel per account.
 
-Per account, put the provider's files in `data-dir/<account>/openvpn/`, where `<account>` is `default` for the unnamed profile or `second`:
+**Why namespaces.** This NAS's kernel (4.4) has no iptables `owner` match and ignores per-user routing rules, so accounts cannot be told apart by user. Each account gets a network namespace instead:
+
+```
+account namespace                       container
+  tun0   <- OpenVPN, the only way out     vh<N>  may reach this account's VPN servers
+  vn<N>  ------ veth pair ------------           only (FORWARD), then NAT out of eth0
+  firewall: drop all, allow lo, tun0,
+  and this account's VPN servers
+```
+
+Nothing in a namespace can see another account's tunnel or interfaces. The browser for an account runs inside its namespace (`src/isolation.py`), without the capabilities that could change the firewall. An account whose tunnel is down, or that has no namespace, is skipped and never run on the real connection.
+
+**Per account**, put the provider's files in `data-dir/<account>/openvpn/`, where `<account>` is `default` for the unnamed profile:
 
 ```
 config.ovpn   the provider's config (certs inline, or beside it in the same folder)
 auth.txt      optional: username on the first line, password on the second
+timezone      optional: the exit's timezone, such as America/Chicago (the browser reports it)
 ```
 
-Then start with the overlay:
+Give every account a different server. The container checks each exit address and refuses a tunnel whose exit is a second account's, or is listed in `HOME_IP_BLACKLIST`.
+
+**Start it** (the four per-account services would work the accounts on the real connection, so stop them first):
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d scheduler search-scheduler
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml --profile second up -d scheduler-second search-scheduler-second
+docker compose stop scheduler search-scheduler scheduler-second search-scheduler-second
+docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 ```
 
-Check the exit address before a live run:
+One container runs both schedulers. `VPN_ACCOUNTS` in `.env` (default `default,second`) says which accounts get a tunnel; they are worked one at a time with the usual gap.
 
-```sh
-docker compose -f docker-compose.yml -f docker-compose.vpn.yml run --rm rewards-farmer with-vpn default curl -s ifconfig.me
-```
+**Failures.** A tunnel that dies is restarted on its own (at most every 30 seconds) and its account is held until it is back. If one will not come back after 10 tries the container exits so Docker rebuilds it. Each of these sends that account's Discord channel a message (down, restored, not up, will not come back). Until the tunnel is back nothing leaves except through it.
 
-Names in `remote` lines are replaced by their addresses before the firewall closes, because OpenVPN cannot look anything up afterwards, and lookups made by the bot go through the tunnel to `1.1.1.1` and `9.9.9.9` (set `VPN_DNS` to use the provider's resolver instead). Give each account a different server or login, or they share one exit address. `auth.txt` is a secret; `data-dir` is gitignored, keep it that way. The tunnel log is `/var/log/openvpn.log` inside the container.
+| Variable | Default | Meaning |
+|---|---|---|
+| `VPN_ACCOUNTS` | `default,second` | Accounts that get a tunnel. |
+| `NAME_SERVERS` | `1.1.1.1,1.0.0.1` | Resolvers used through the tunnels. Avoid Google and OpenDNS: they pass on the client subnet. |
+| `HOME_IP_BLACKLIST` | unset | Comma-separated addresses that must never be an exit (put your real public address here). |
+| `VPN_OPTIONS` | unset | Extra OpenVPN command-line options. |
+
+The tunnel logs are `data-dir/logs/openvpn-<account>.log`. `auth.txt` is a secret; `data-dir` is gitignored, keep it that way. The container needs `NET_ADMIN` and `SYS_ADMIN` (for the namespaces) and `/dev/net/tun`. WireGuard is not supported: this kernel has no module for it.
+
+**What this does and does not do.** It gives each account its own address and keeps the real one off the wire. It does not make automation allowed, and a commercial VPN address can itself be treated with suspicion by Microsoft. Use one location per account, keep it stable, and put the account's real timezone in `timezone`. Start with one account and watch for sign-in challenges before adding more.
 
 ## Logging
 

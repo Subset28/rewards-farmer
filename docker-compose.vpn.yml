@@ -1,49 +1,81 @@
-# Puts each account behind its own OpenVPN tunnel with a kill switch.
+# Every account behind its own OpenVPN tunnel and its own kill switch, in one container.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d scheduler search-scheduler
-#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml --profile second up -d scheduler-second search-scheduler-second
+#   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 #
-# Every service is its own container and so its own network stack, which is what
-# keeps the accounts apart: each one dials its own tunnel and cannot reach the
-# internet any other way (src/vpn_config.py closes the firewall to everything but
-# tun0 and the VPN servers before OpenVPN starts, and refuses to start the bot if
-# the tunnel does not come up). Give each account a different server or provider
-# login, or they share one exit address and the separation buys nothing.
+# This replaces the four scheduler services, which would otherwise work the accounts
+# over the real connection. Stop them first (and `up` leaves them off):
 #
-# Per account, before starting, put the provider's files in data-dir:
+#   docker compose stop scheduler search-scheduler scheduler-second search-scheduler-second
+#
+# How it works is in src/vpn_config.py. In short: each account gets a network
+# namespace of its own with its own tun0 and its own default-drop firewall, the
+# only way out of it is that account's VPN servers, and the browser for the account
+# runs inside it. An account whose tunnel is down is skipped, never run on the real
+# connection. Needs NET_ADMIN and SYS_ADMIN (namespaces) and /dev/net/tun.
+#
+# Per account, before starting, put the provider's files in data-dir. Each account
+# needs a DIFFERENT server, or two accounts share one exit address (the container
+# refuses to run the second):
 #
 #   data-dir/<account>/openvpn/config.ovpn    the provider's config, certs inline
 #   data-dir/<account>/openvpn/auth.txt       optional: username, then password
+#   data-dir/<account>/openvpn/timezone       optional: the exit's timezone, such as America/Chicago
 #
-# <account> is "default" for the unnamed profile, "second" for the second one.
-# Files the config points at (ca.crt and so on) sit in the same folder.
+# <account> is "default" for the unnamed profile. Which accounts run is VPN_ACCOUNTS
+# in .env (default: default,second). Other settings, all in .env:
+#
+#   NAME_SERVERS=1.1.1.1,1.0.0.1    resolvers used through the tunnels (not Google or OpenDNS)
+#   HOME_IP_BLACKLIST=<your IP>     refuse any tunnel that exits from this address
+#   VPN_OPTIONS=                    extra OpenVPN options
+#
 # auth.txt is a secret: data-dir is gitignored, keep it that way.
 
-x-vpn: &vpn
-  cap_add:
-    - NET_ADMIN
-  devices:
-    - /dev/net/tun:/dev/net/tun
-  sysctls:
-    net.ipv6.conf.all.disable_ipv6: "1"
-
 services:
-  rewards-farmer:
-    <<: *vpn
-    command: ["with-vpn", "default", "with-xvfb", "python", "src/main.py"]
+  vpn:
+    extends:
+      file: docker-compose.yml
+      service: scheduler
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      # The namespaces reach the VPN servers through this container, so it forwards.
+      net.ipv4.ip_forward: "1"
+      net.ipv6.conf.all.disable_ipv6: "1"
+    environment:
+      REWARDS_ACCOUNTS: ${VPN_ACCOUNTS:-default,second}
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/vpn.log
+      NAME_SERVERS: ${NAME_SERVERS:-1.1.1.1,1.0.0.1}
+      HOME_IP_BLACKLIST: ${HOME_IP_BLACKLIST:-}
+      VPN_OPTIONS: ${VPN_OPTIONS:-}
+    # Xvfb once for the whole container, then the supervisor, which runs both
+    # schedulers (each logging to its own file) and stops, so Docker restarts the
+    # container, if either ends or a tunnel will not come back.
+    command:
+      - with-xvfb
+      - python
+      - src/vpn_config.py
+      - run
+      - --
+      - env
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/scheduler.log
+      - python
+      - src/daily_loop.py
+      - --
+      - env
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler.log
+      - python
+      - src/search_scheduler.py
 
+  # The four per-account services work the accounts on the real connection, so
+  # with this file they only start if asked for by this profile.
   scheduler:
-    <<: *vpn
-    command: ["with-vpn", "default", "with-xvfb", "python", "src/daily_loop.py"]
-
+    profiles: ["no-vpn"]
   search-scheduler:
-    <<: *vpn
-    command: ["with-vpn", "default", "with-xvfb", "python", "src/search_scheduler.py"]
-
+    profiles: ["no-vpn"]
   scheduler-second:
-    <<: *vpn
-    command: ["with-vpn", "second", "with-xvfb", "python", "src/daily_loop.py"]
-
+    profiles: ["no-vpn"]
   search-scheduler-second:
-    <<: *vpn
-    command: ["with-vpn", "second", "with-xvfb", "python", "src/search_scheduler.py"]
+    profiles: ["no-vpn"]
