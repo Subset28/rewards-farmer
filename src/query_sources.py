@@ -271,10 +271,56 @@ def query_from_task_description(description: str, pick: int = 0, avoid=None) -> 
 # feed is as real as its head; only taking the head repeated the same few.
 POOL_LIMIT = 30
 
-# Chance that a search follows up on the one before it with one of Bing's own
-# suggestions for it, the way a person narrows a query, instead of jumping to
-# an unrelated topic every time.
-REFINE_CHANCE = 0.25
+# A person searches in short topical sessions, "x", then "x review", then
+# "x price", so a batch is grouped into sessions of 1-4 related queries. The
+# weights give a mean of two queries per session, which makes about half of all
+# queries a refinement of the session's seed; real feeds fail to refine now
+# and then, which pulls the share a little under that.
+SESSION_SIZES = (1, 2, 3, 4)
+SESSION_WEIGHTS = (4, 3, 2, 1)
+
+# How many of Bing's suggestions for a seed a follow-up is chosen from. The
+# first few are the ones people actually take.
+SUGGESTION_DEPTH = 5
+
+# Generic, benign follow-ups, used when autosuggest gives nothing. Which ones
+# apply depends on what the seed looks like: "taylor swift near me" or "lakers
+# vs celtics price" read as nonsense, so those seeds get a narrower list.
+FOLLOW_UPS_GENERAL = ("{x} review", "{x} price", "{x} news", "what is {x}", "{x} near me")
+FOLLOW_UPS_SHORT_PHRASE = ("{x} news", "what is {x}", "{x} review", "latest {x}")
+FOLLOW_UPS_LONG_PHRASE = ("{x} news", "{x} update", "latest {x}")
+FOLLOW_UPS_EVENT = ("{x} score", "{x} news", "{x} highlights", "{x} schedule")
+
+# Words that mark a seed as a match, a vote or some other event.
+EVENT_WORDS = {"vs", "game", "match", "final", "finals", "playoffs", "election", "results", "live", "score", "tournament", "race", "series"}
+
+
+def follow_up_templates(seed: str) -> tuple[str, ...]:
+	"""The follow-up patterns that read naturally for this seed."""
+	words = _norm(seed).split()
+
+	if EVENT_WORDS & set(words):
+		return FOLLOW_UPS_EVENT
+
+	if len(words) == 1:
+		return FOLLOW_UPS_GENERAL
+
+	if len(words) <= 3:
+		return FOLLOW_UPS_SHORT_PHRASE
+
+	return FOLLOW_UPS_LONG_PHRASE
+
+
+def templated_follow_ups(seed: str, rng=random) -> list[str]:
+	"""Every templated follow-up for `seed`, in an order the rng picks.
+
+	Shuffled rather than sampled so a caller that finds one already searched
+	can take the next without asking again.
+	"""
+	options = [t.format(x=_norm(seed)) for t in follow_up_templates(seed)]
+	rng.shuffle(options)
+
+	return options
 
 
 def _norm(query: str) -> str:
@@ -287,8 +333,8 @@ def related_queries(count: int, seed: str | None = None, exclude=None, rng=rando
 	Drawn at random from the whole trending feed, topped up with Wikipedia's
 	most-read topics, rather than from the top of the feed in order: taking the
 	top in order made the second batch of a run repeat the first, and every run
-	that day repeat the one before. Now and then a query is a follow-up to the
-	one before it instead of a new topic.
+	that day repeat the one before. The batch is grouped into sessions of 1-4
+	queries: a seed from the feed, then follow-ups to that seed.
 
 	Fewer than `count` come back when nothing reachable is fresh; the caller
 	decides what to do then, rather than typing junk.
@@ -322,34 +368,54 @@ def related_queries(count: int, seed: str | None = None, exclude=None, rng=rando
 
 	rng.shuffle(pool)
 
-	while len(collected) < count:
-		candidate = None
+	def follow_up(topic: str) -> str | None:
+		"""A refinement of `topic`: Bing's own suggestion if it has one, else a template."""
+		options = [s for s in suggestions(topic) if fresh(s)][:SUGGESTION_DEPTH]
 
-		if collected and rng.random() < REFINE_CHANCE:
-			options = [s for s in suggestions(collected[-1]) if fresh(s)]
+		if options:
+			return rng.choice(options)
 
-			if options:
-				candidate = rng.choice(options[:5])
+		# Offline or no suggestions: a templated follow-up keeps the session
+		# shape instead of falling back to unrelated topics.
+		return next((t for t in templated_follow_ups(topic, rng) if fresh(t)), None)
 
-		while candidate is None and pool:
+	def new_seed() -> str | None:
+		while pool:
 			picked = pool.pop()
 
 			if fresh(picked):
-				candidate = picked
+				return picked
 
-		if candidate is None:
-			# The pool is spent: ask Bing what follows something already searched.
-			for term in reversed(collected):
-				options = [s for s in suggestions(term) if fresh(s)]
+		# The pool is spent: ask Bing what follows something already searched.
+		for term in reversed(collected):
+			options = [s for s in suggestions(term) if fresh(s)]
 
-				if options:
-					candidate = rng.choice(options[:5])
+			if options:
+				return rng.choice(options[:SUGGESTION_DEPTH])
 
-					break
+		return None
 
-		if candidate is None:
+	while len(collected) < count:
+		topic = new_seed()
+
+		if topic is None:
 			break
 
-		add(candidate)
+		add(topic)
+
+		# The rest of the session narrows the same seed, so a batch is a few
+		# topical sessions instead of unrelated topics.
+		length = rng.choices(SESSION_SIZES, SESSION_WEIGHTS)[0]
+
+		for _ in range(length - 1):
+			if len(collected) >= count:
+				break
+
+			candidate = follow_up(topic)
+
+			if candidate is None:
+				break
+
+			add(candidate)
 
 	return collected
