@@ -3,7 +3,6 @@
 	python -m unittest discover -s tests
 """
 
-import json
 import os
 import random
 import sys

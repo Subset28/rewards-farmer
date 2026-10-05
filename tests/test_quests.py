@@ -3,7 +3,6 @@
 	python -m unittest discover -s tests
 """
 
-import logging
 import os
 import sys
 import types
