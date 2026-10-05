@@ -399,6 +399,14 @@ def create_namespace(tunnel: Tunnel, popen=subprocess.Popen, sleep=time.sleep) -
 	for args in (("-F",), ("-P", "INPUT", "DROP"), ("-P", "OUTPUT", "DROP"), ("-P", "FORWARD", "DROP")):
 		_run(ns_cmd(tunnel.netns, "ip6tables", *args))
 
+	# Loopback alone stays open over IPv6. `localhost` resolves to ::1 as well as 127.0.0.1, and
+	# the browser driver dials it for the websocket it hides its automation markers through; with
+	# everything dropped that connection timed out ("socket is already closed"), the markers
+	# stayed on every new tab, and the browser was easier to spot as automated. Nothing here
+	# can leave the namespace: the loopback interface goes nowhere else.
+	for args in (("-A", "INPUT", "-i", "lo", "-j", "ACCEPT"), ("-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")):
+		_run(ns_cmd(tunnel.netns, "ip6tables", *args))
+
 	# Checked rather than assumed: a failed policy command above is tolerated, but
 	# an open IPv6 chain would leak around the IPv4-only kill switch.
 	rules = _run(ns_cmd(tunnel.netns, "ip6tables", "-S")).stdout

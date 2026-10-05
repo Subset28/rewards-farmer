@@ -490,6 +490,26 @@ class TestNamespace(VpnTestCase):
 		for chain in ("INPUT", "OUTPUT", "FORWARD"):
 			self.assertIn(["ip6tables", "-P", chain, "DROP"], inside)
 
+	def test_ipv6_loopback_stays_open_and_nothing_else_is_allowed(self):
+		"""Seen on the NAS: localhost is ::1 too, and with all of IPv6 dropped the browser driver's
+		websocket to the browser timed out, so its automation markers could not be hidden."""
+		alpha, _ = self.tunnels()
+		v.create_namespace(alpha, self.system.popen, lambda s: None)
+		inside = [c[2:] for c in self.system.commands if c[:1] == ["nsenter"] and c[2] == "ip6tables"]
+		allowed = [c for c in inside if "-A" in c]
+
+		self.assertEqual(allowed, [
+			["ip6tables", "-A", "INPUT", "-i", "lo", "-j", "ACCEPT"],
+			["ip6tables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
+		])
+
+	def test_the_loopback_rules_come_after_the_policies_are_set(self):
+		alpha, _ = self.tunnels()
+		v.create_namespace(alpha, self.system.popen, lambda s: None)
+		inside = [c[2:] for c in self.system.commands if c[:1] == ["nsenter"] and c[2] == "ip6tables"]
+
+		self.assertLess(inside.index(["ip6tables", "-P", "OUTPUT", "DROP"]), inside.index(["ip6tables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"]))
+
 	def test_a_namespace_whose_ipv6_is_still_open_is_refused(self):
 		alpha, _ = self.tunnels()
 
