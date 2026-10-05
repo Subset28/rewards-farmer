@@ -11,8 +11,8 @@ import json
 import os
 import re
 import sys
-import time
 
+import clock
 from constants import USER_DATA_DIR
 
 LOG_FILE = os.path.join(USER_DATA_DIR, "points.jsonl")
@@ -94,7 +94,7 @@ def parse_bonuses(text: str) -> dict[str, str]:
 
 def record(account: str, reading: dict) -> dict:
 	"""Append a reading, and return the line written."""
-	line = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "account": account, **reading}
+	line = {"time": clock.stamp(), "account": account, **reading}
 
 	os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
@@ -105,10 +105,24 @@ def record(account: str, reading: dict) -> dict:
 
 
 def history(account: str | None = None) -> list[dict]:
+	"""Every readable reading, oldest first. A damaged or half-written line is skipped.
+
+	The file is appended to without a lock, so a reader can meet a torn last line. One bad
+	line must not hide every other reading: pacing reads the oldest to tell whether an
+	account is new, and an unreadable file would make an old account look new."""
+	rows = []
+
 	try:
-		with open(LOG_FILE, encoding="utf-8") as handle:
-			rows = [json.loads(line) for line in handle if line.strip()]
-	except FileNotFoundError:
+		with open(LOG_FILE, encoding="utf-8", errors="replace") as handle:
+			for line in handle:
+				try:
+					row = json.loads(line)
+				except ValueError:
+					continue
+
+				if isinstance(row, dict) and isinstance(row.get("time"), str):
+					rows.append(row)
+	except OSError:
 		return []
 
 	return [row for row in rows if account is None or row.get("account") == account]
