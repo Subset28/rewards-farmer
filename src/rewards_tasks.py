@@ -112,7 +112,7 @@ class RewardsTaskUtils:
 		self.main_window = driver.current_window_handle
 
 		self.mouse = mouse_trajectory.MouseUtils(driver, self.behavior)
-		self.keyboard = mimic_typing.KeyboardUtils(driver, self.behavior)
+		self.keyboard = mimic_typing.KeyboardUtils(driver, self.behavior, account=account_name)
 		self.elements = element_selectors.ElementSelectionUtils(driver)
 		self.verify_signed_in_state()
 
@@ -728,7 +728,7 @@ class RewardsTaskUtils:
 			# No operator on the query: an identical suffix on every search is
 			# something no person does.
 			logger.info("Search %d/%d: %r", i + 1, count, query)
-			self.keyboard.send_keys(f"{search_behavior.with_typo(query)}{Keys.ENTER}")
+			self.keyboard.send_keys(f"{search_behavior.with_typo(query)}{Keys.ENTER}", intended=query)
 
 			# Remembered as the query that was meant, so it is not searched
 			# again by this account for a month.
