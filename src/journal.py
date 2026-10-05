@@ -22,6 +22,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+import clock
 from constants import USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,8 @@ MAX_LINES = 6000
 
 
 def _now() -> datetime:
-	return datetime.now()
+	# The bot's own clock, not TZ: a child run for an account exiting abroad has a different TZ.
+	return clock.now()
 
 
 def record(owner: str, kind: str, event: str, **details) -> None:
@@ -87,10 +89,13 @@ def events(owner: str | None = None, kind: str | None = None, days: int = 1, now
 	"""Events from today (or the last `days` days, by the local clock), optionally for one owner and kind."""
 	now = _now() if now is None else now
 	first = (now - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+	last = now.strftime("%Y-%m-%d")
 
+	# An upper bound too: an event stamped in the future (a clock in another zone, a hand
+	# edit) must not count as today's and quietly skip a real run.
 	return [
 		row for row in read_all()
-		if row["t"][:10] >= first
+		if first <= row["t"][:10] <= last
 		and (owner is None or row.get("owner") == owner)
 		and (kind is None or row.get("kind") == kind)
 	]

@@ -111,6 +111,16 @@ def main() -> None:
 			logger.error("[FAIL] scheduled run did not start: %s", log_utils.exception_summary(exc))
 			code = None
 
+		if code == run_lock.TIMED_OUT:
+			# Another run still held the profile when this one gave up waiting. The day's daily
+			# set was not done, and marking it done would break its streak, so it is tried
+			# again shortly (plan_next_run still finds it within CATCH_UP).
+			journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="deferred", exit_code=code, reason="profile busy", seconds=round(time.monotonic() - started))
+			logger.warning("The daily run found the profile busy; trying again in a few minutes.")
+			time.sleep(random.uniform(10 * 60, 20 * 60))
+
+			continue
+
 		journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="ok" if code == 0 else "failed", exit_code=code, seconds=round(time.monotonic() - started))
 
 		# Exit 3 is the brake, which has already said so when it tripped.

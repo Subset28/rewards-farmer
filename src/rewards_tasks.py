@@ -855,7 +855,8 @@ class RewardsTaskUtils:
 		allowed = pacing.steps_allowed(self.account_name)
 
 		if allowed is not None:
-			logger.info("%s is new: only %s today.", self.account_name, ", ".join(allowed))
+			why = "is new" if pacing.in_ramp(self.account_name) else "has a light day"
+			logger.info("%s %s: only %s today.", self.account_name, why, ", ".join(allowed))
 			steps = tuple(step for step in steps if step[0] in allowed)
 
 		if skip_searches:
