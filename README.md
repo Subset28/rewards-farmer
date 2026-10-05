@@ -333,7 +333,7 @@ auth.txt      optional: username on the first line, password on the second
 timezone      optional: the exit's timezone, such as America/Chicago (the browser reports it)
 ```
 
-Give every account a different server. The container checks each exit address and refuses a tunnel whose exit is a second account's, or is listed in `HOME_IP_BLACKLIST`.
+Give every account a different server. The container checks each exit address and refuses a tunnel whose exit cannot be read (so it carries nothing), or is a second account's, or is listed in `HOME_IP_BLACKLIST` if you set one.
 
 **Check it** before relying on it. On a host that allows `NET_ADMIN` and `SYS_ADMIN`, `tests/integration/vpn_netns.sh` builds real namespaces with a stand-in for OpenVPN and checks the separation, the kill switch (tunnel dropped, route pointed at the real side, nothing gets out), the restart and the capability drop. The command to run it is at the top of the script.
 
@@ -352,7 +352,7 @@ One container runs both schedulers. `VPN_ACCOUNTS` in `.env` (default `default,s
 |---|---|---|
 | `VPN_ACCOUNTS` | `default,second` | Accounts that get a tunnel. |
 | `NAME_SERVERS` | `1.1.1.1,1.0.0.1` | Resolvers used through the tunnels. Avoid Google and OpenDNS: they pass on the client subnet. |
-| `HOME_IP_BLACKLIST` | unset | Comma-separated addresses that must never be an exit (put your real public address here). |
+| `HOME_IP_BLACKLIST` | unset | Optional, and not needed: the firewall already makes it impossible for anything to leave outside the tunnel. Comma-separated addresses that must never be an exit, as a second opinion on the result. |
 | `VPN_OPTIONS` | unset | Extra OpenVPN command-line options. |
 
 Only the supervisor and the two schedulers run outside the namespaces, on the container's own connection. They send the Discord alerts and nothing else; every account's browser, searches and queries go through its tunnel. The tunnel logs are `data-dir/logs/openvpn-<account>.log`. `auth.txt` is a secret; `data-dir` is gitignored, keep it that way. The container needs `NET_ADMIN` and `SYS_ADMIN` (for the namespaces) and `/dev/net/tun`. WireGuard is not supported: this kernel has no module for it.
