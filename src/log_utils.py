@@ -57,6 +57,34 @@ def exception_summary(exc: BaseException) -> str:
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 DATE_FORMAT = "%H:%M:%S"
 
+# A log file outlives the day it was written on, so its lines carry the date.
+FILE_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# A log file is cut back to its newest part when it passes this size, so one that
+# nobody reads cannot grow forever.
+MAX_LOG_BYTES = 5 * 1024 * 1024
+KEEP_LOG_BYTES = 1024 * 1024
+
+
+def trim_log_file(path: str, limit: int = MAX_LOG_BYTES, keep: int = KEEP_LOG_BYTES) -> bool:
+	"""Cut a log file back to its last `keep` bytes (from a whole line) if it is over `limit`."""
+	try:
+		size = os.path.getsize(path)
+
+		if size <= limit:
+			return False
+
+		with open(path, "rb") as handle:
+			handle.seek(size - keep)
+			tail = handle.read()
+
+		with open(path, "wb") as handle:
+			handle.write(tail[tail.find(b"\n") + 1:])
+
+		return True
+	except OSError:
+		return False
+
 _configured = False
 
 
@@ -121,9 +149,15 @@ def setup_logging(level: str | int | None = None, log_file: str | None = None) -
 		# utf-8 explicitly. Card descriptions are scraped from the page and are
 		# not ASCII outside the en-US market, and the Windows default encoding
 		# would raise on them.
-		file_handler = logging.FileHandler(log_file, encoding="utf-8")
-		file_handler.setFormatter(formatter)
-		root.addHandler(file_handler)
+		try:
+			os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+			trim_log_file(log_file)
+			file_handler = logging.FileHandler(log_file, encoding="utf-8")
+			file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=FILE_DATE_FORMAT))
+			root.addHandler(file_handler)
+		except OSError as exc:
+			# A log file that cannot be opened must not stop a run.
+			logging.getLogger(__name__).warning("Could not open the log file %s: %s", log_file, exc)
 
 	for name in NOISY_LIBRARIES:
 		logging.getLogger(name).setLevel(logging.WARNING)

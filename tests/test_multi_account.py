@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -150,6 +151,11 @@ class RunLoopTestCase(EnvironmentTestCase):
 		main.HEADLESS = True
 		self.addCleanup(setattr, main, "HEADLESS", headless)
 
+		# main() waits 20-60 minutes between accounts. TestUpgrades covers that.
+		gap = mock.patch.object(main.search_behavior, "account_gap_seconds", return_value=0.0)
+		gap.start()
+		self.addCleanup(gap.stop)
+
 		# main() reports per account at info, and the failure paths at error, by
 		# design. The assertions are what reports the outcome here, so keep the
 		# suite's own output to what unittest prints.
@@ -243,13 +249,13 @@ class TestFailureIsolation(RunLoopTestCase):
 				quit_cleanly.append(self.name)
 
 		class Tasks:
-			def __init__(self, driver):
+			def __init__(self, driver, account_name="default"):
 				self.driver = driver
 
 				if driver.name == "two" and fail_at == "connect":
 					raise exc
 
-			def complete_all_tasks(self):
+			def complete_all_tasks(self, skip_searches=False):
 				if self.driver.name == "two" and fail_at == "tasks":
 					raise exc
 

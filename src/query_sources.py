@@ -102,13 +102,27 @@ def wikipedia_topics(days_ago: int = 1) -> list[str]:
 	articles = payload.get("mostread", {}).get("articles", [])
 	titles = [a.get("titles", {}).get("normalized", "") for a in articles]
 
-	# Wikipedia's own chrome outranks real topics most days.
-	skipped = ("Main Page", "Special:", "Wikipedia:", "Portal:")
+	# Wikipedia's own chrome outranks real topics most days, and so do its list
+	# and index pages, which nobody types into a search box.
+	skipped = (
+		"Main Page", "Special:", "Wikipedia:", "Portal:", "Category:", "File:", "Template:", "Help:",
+		"Deaths in", "List of", "Lists of", "Index of", "Outline of", "Timeline of",
+	)
 
-	return [
-		_clean(t) for t in titles
-		if t and not t.startswith(skipped) and _clean(t)
-	]
+	topics = []
+
+	for title in titles:
+		if not title or title.startswith(skipped):
+			continue
+
+		# "Michael McDonald (musician)" is how the encyclopedia tells two people
+		# apart; a person searching types the name.
+		topic = _clean(re.sub(r"\s*\([^)]*\)\s*$", "", title))
+
+		if topic:
+			topics.append(topic)
+
+	return topics
 
 
 def suggestions(seed: str) -> list[str]:
@@ -159,13 +173,71 @@ def _clean(text: str) -> str:
 	return " ".join(text.split()).strip().lower()
 
 
-def query_from_task_description(description: str) -> str | None:
+
+# Cards that ask for "a word", "a time zone", "a stock" or "your favorite song"
+# and not a topic. Searching the sentence itself never searched for an actual
+# word, place, ticker or song, and those cards stayed uncredited while the ones
+# worded as a concrete search credited. Each rule turns the placeholder into one
+# ordinary real search.
+PLACEHOLDER_RULES = (
+	(
+		re.compile(r"meaning of a word|word you don.?t understand|define a word", re.I),
+		"define {}",
+		("serendipity", "ephemeral", "ubiquitous", "eloquent", "resilient", "nostalgia", "ambiguous", "benevolent", "pragmatic", "meticulous"),
+	),
+	(
+		re.compile(r"time zone", re.I),
+		"current time in {}",
+		("Tokyo", "London", "Sydney", "Dubai", "Paris", "Los Angeles", "Singapore", "Mumbai", "Berlin", "Toronto"),
+	),
+	(
+		re.compile(r"price of a (specific )?stock|a specific stock", re.I),
+		"{} stock price",
+		("MSFT", "AAPL", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "NFLX"),
+	),
+	(
+		re.compile(r"items on your shopping list|your shopping list", re.I),
+		"buy {}",
+		("laundry detergent", "paper towels", "olive oil", "coffee beans", "dish soap", "toothpaste", "peanut butter", "basmati rice"),
+	),
+	(
+		re.compile(r"favou?rite song", re.I),
+		"{} lyrics",
+		("Bohemian Rhapsody", "Imagine John Lennon", "Hotel California", "Yesterday Beatles", "Billie Jean", "Hey Jude", "Rolling in the Deep", "Shape of You", "Stairway to Heaven", "Let It Be"),
+	),
+)
+
+
+def concrete_query(description: str, pick: int = 0, rng=random, avoid=None) -> str | None:
+	"""A real search for a card that names a placeholder, else None.
+
+	`pick` > 0 gives a different one from the same list, for the retry of a card
+	that did not credit. Anything in `avoid` (what this account already searched)
+	is passed over while the list has something else.
+	"""
+	skip = {" ".join(q.lower().split()) for q in (avoid or ())}
+
+	for pattern, template, choices in PLACEHOLDER_RULES:
+		if pattern.search(description or ""):
+			options = [c for c in choices if " ".join(template.format(c).lower().split()) not in skip] or list(choices)
+
+			return template.format(options[(rng.randrange(len(options)) + pick) % len(options)])
+
+	return None
+
+
+def query_from_task_description(description: str, pick: int = 0, avoid=None) -> str | None:
 	"""A search query for a task phrased as an instruction.
 
 	"Search on Bing to compare checking and savings account options" becomes
 	the content words, then whatever Bing suggests for them, so the query is
 	one Bing already recognises rather than the sentence itself.
 	"""
+	concrete = concrete_query(description, pick, avoid=avoid)
+
+	if concrete:
+		return concrete
+
 	words = [w for w in _clean(description).split() if w not in INSTRUCTION_WORDS]
 
 	if not words:
@@ -176,44 +248,97 @@ def query_from_task_description(description: str) -> str | None:
 
 	# Prefer a suggestion, since it is a query Bing has seen. The trimmed
 	# sentence is a reasonable fallback and still beats typing the imperative.
-	return options[0] if options else seed
+	# `pick` asks for a different one than last time, for a card that did not
+	# credit; when Bing has fewer suggestions it falls to the last one it has.
+	if options:
+		return options[min(pick, len(options) - 1)]
+
+	return seed
 
 
-def related_queries(count: int, seed: str | None = None) -> list[str]:
-	"""`count` distinct queries, branching out the way the LLM prompt asks for.
+# How many of the feed's entries are worth drawing from. The tail of a trends
+# feed is as real as its head; only taking the head repeated the same few.
+POOL_LIMIT = 30
 
-	Trending queries first, since they need no expansion at all, then Bing's
-	suggestions for each to reach the requested number.
+# Chance that a search follows up on the one before it with one of Bing's own
+# suggestions for it, the way a person narrows a query, instead of jumping to
+# an unrelated topic every time.
+REFINE_CHANCE = 0.25
+
+
+def _norm(query: str) -> str:
+	return " ".join((query or "").lower().split())
+
+
+def related_queries(count: int, seed: str | None = None, exclude=None, rng=random) -> list[str]:
+	"""`count` distinct queries, none of them in `exclude`.
+
+	Drawn at random from the whole trending feed, topped up with Wikipedia's
+	most-read topics, rather than from the top of the feed in order: taking the
+	top in order made the second batch of a run repeat the first, and every run
+	that day repeat the one before. Now and then a query is a follow-up to the
+	one before it instead of a new topic.
+
+	Fewer than `count` come back when nothing reachable is fresh; the caller
+	decides what to do then, rather than typing junk.
 	"""
+	avoid = {_norm(q) for q in (exclude or ())}
 	collected: list[str] = []
-	seen: set[str] = set()
 
-	def take(candidates):
+	def fresh(candidate: str) -> bool:
+		return bool(candidate) and len(candidate) > 2 and _norm(candidate) not in avoid
+
+	def add(candidate: str) -> None:
+		collected.append(candidate)
+		avoid.add(_norm(candidate))
+
+	def unique(candidates) -> list[str]:
+		seen, out = set(), []
+
 		for candidate in candidates:
-			if candidate and candidate not in seen and len(candidate) > 2:
-				seen.add(candidate)
-				collected.append(candidate)
+			key = _norm(candidate)
 
-				if len(collected) >= count:
-					return True
-		return False
+			if fresh(candidate) and key not in seen:
+				seen.add(key)
+				out.append(candidate)
 
-	if seed:
-		take(suggestions(seed))
+		return out
 
-	if len(collected) < count and take(trending_queries()):
-		return collected[:count]
+	pool = unique((suggestions(seed) if seed else []) + trending_queries()[:POOL_LIMIT])
 
-	if len(collected) < count:
-		take(wikipedia_topics())
+	if len(pool) < count * 3:
+		pool = unique(pool + wikipedia_topics()[:POOL_LIMIT])
 
-	# Expand what we have until the count is met. Iterating over a snapshot
-	# because take() appends to the same list.
-	for term in list(collected):
-		if len(collected) >= count:
+	rng.shuffle(pool)
+
+	while len(collected) < count:
+		candidate = None
+
+		if collected and rng.random() < REFINE_CHANCE:
+			options = [s for s in suggestions(collected[-1]) if fresh(s)]
+
+			if options:
+				candidate = rng.choice(options[:5])
+
+		while candidate is None and pool:
+			picked = pool.pop()
+
+			if fresh(picked):
+				candidate = picked
+
+		if candidate is None:
+			# The pool is spent: ask Bing what follows something already searched.
+			for term in reversed(collected):
+				options = [s for s in suggestions(term) if fresh(s)]
+
+				if options:
+					candidate = rng.choice(options[:5])
+
+					break
+
+		if candidate is None:
 			break
 
-		take(suggestions(term))
+		add(candidate)
 
-	# Nothing reachable: let the caller decide, rather than typing junk.
-	return collected[:count]
+	return collected

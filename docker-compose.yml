@@ -24,6 +24,8 @@ services:
     # Chromium wants more than the default 64MB of shared memory and crashes
     # partway through a page without it.
     shm_size: 1gb
+    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
+    init: true
     # Keeps the bot from crowding out everything else running on the NAS.
     # cpus is deliberately not set here: this NAS's kernel has no CFS quota
     # controller ("NanoCPUs can not be set..."), so a cpus limit makes the
@@ -34,6 +36,8 @@ services:
         limits:
           memory: 1536M
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/manual.log
       # trends needs no account or model, which is why it is the default here.
       # To use a model instead, set QUERY_SOURCE=llm and give OLLAMA_HOST an
       # address the container can reach: localhost inside a container is the
@@ -42,6 +46,12 @@ services:
       #
       #   QUERY_SOURCE=llm OLLAMA_HOST=host.docker.internal:11434 docker compose run --rm rewards-farmer
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
+      # batch of searches (src/openrouter_queries.py). Put the key in .env next
+      # to this file, never here: OPENROUTER_API_KEY=...
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free}
+      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       # Edge runs headed on the virtual display with-xvfb provides (see command
       # below) rather than headless: headless Edge is not credited for the
@@ -51,6 +61,11 @@ services:
       # profile in data-dir, which is the existing behaviour.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # address is a secret: put these in .env next to this file, never here.
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
+      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
     command: ["with-xvfb", "python", "src/main.py"]
     volumes:
       # Keeps the sign-in across container rebuilds.
@@ -75,6 +90,8 @@ services:
       target: runtime
     image: rewards-farmer:runtime
     shm_size: 1gb
+    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
+    init: true
     restart: unless-stopped
     command: ["with-xvfb", "python", "src/daily_loop.py"]
     # See the rewards-farmer service above for why cpus is left unset.
@@ -83,11 +100,24 @@ services:
         limits:
           memory: 1536M
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler.log
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
+      # batch of searches (src/openrouter_queries.py). Put the key in .env next
+      # to this file, never here: OPENROUTER_API_KEY=...
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free}
+      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # address is a secret: put these in .env next to this file, never here.
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
+      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
       # Hour to anchor the run to, and how many seconds after that hour the
       # actual start may be delayed by, both in TZ below rather than UTC.
       REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
@@ -114,6 +144,8 @@ services:
       target: runtime
     image: rewards-farmer:runtime
     shm_size: 1gb
+    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
+    init: true
     restart: unless-stopped
     command: ["with-xvfb", "python", "src/search_scheduler.py"]
     # See the rewards-farmer service above for why cpus is left unset.
@@ -122,11 +154,24 @@ services:
         limits:
           memory: 1536M
     environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler.log
       QUERY_SOURCE: ${QUERY_SOURCE:-trends}
+      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
+      # batch of searches (src/openrouter_queries.py). Put the key in .env next
+      # to this file, never here: OPENROUTER_API_KEY=...
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free}
+      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
+      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # address is a secret: put these in .env next to this file, never here.
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
+      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
       # How many times a day to run, and the waking-hours window (in TZ below)
       # they are randomly placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
@@ -136,6 +181,35 @@ services:
     volumes:
       - ./data-dir:/app/data-dir
       - ./visual_search.jpg:/app/visual_search.jpg:ro
+
+  # A second account, its own profile and its own schedule. Behind a compose
+  # profile on purpose: `docker compose up -d` leaves these off, so nothing
+  # starts against an account that has not been signed in yet. After signing
+  # in (see the README), start them with
+  #
+  #   docker compose --profile second up -d scheduler-second search-scheduler-second
+  #
+  # Runs strictly one at a time with the first account (the run lock in
+  # data-dir makes an overlap wait), at a different hour, and on fewer search
+  # runs a day, because an account that has barely been used should not start
+  # at the first account's pace.
+  scheduler-second:
+    extends: scheduler
+    profiles: ["second"]
+    environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler-second.log
+      REWARDS_ACCOUNTS: second
+      REWARDS_ANCHOR_HOUR: ${SECOND_ANCHOR_HOUR:-15}
+
+  search-scheduler-second:
+    extends: search-scheduler
+    profiles: ["second"]
+    environment:
+      # Readable log lines that survive a rebuild (the container's own log does not).
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler-second.log
+      REWARDS_ACCOUNTS: second
+      REWARDS_SEARCH_RUNS_PER_DAY: ${SECOND_SEARCH_RUNS_PER_DAY:-3}
 
   # One off, before the first run. Opens the Rewards sign-in in a browser
   # inside the container and puts that browser on your screen as a web page,
@@ -163,9 +237,10 @@ services:
       # One name. Signing in is one browser window, so one account at a time.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
     ports:
-      # Bound to the NAS's LAN IP for this one-time sign-in (SSH tunneling is
-      # blocked by this NAS's sshd, AllowTcpForwarding no). Trusted home LAN
-      # only, same as this NAS's other containers (qbit, sonarr, radarr).
-      - "192.168.35.12:6080:6080"
+      # Loopback unless SIGNIN_BIND says otherwise. On a machine you sit at,
+      # leave it alone. On a NAS whose sshd blocks tunnelling, set SIGNIN_BIND
+      # in .env to the NAS's LAN address for the one-time sign-in; that puts a
+      # live Microsoft sign-in on the home LAN while the container runs.
+      - "${SIGNIN_BIND:-127.0.0.1}:6080:6080"
     volumes:
       - ./data-dir:/app/data-dir

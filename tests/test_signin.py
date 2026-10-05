@@ -348,8 +348,10 @@ class TestPublishedPort(unittest.TestCase):
 		self.assertTrue(entries, "nothing publishes the noVNC port at all")
 
 		for entry in entries:
+			# A bind address taken from the environment is fine as long as its
+			# default is loopback, so nothing is exposed unless someone sets it.
 			self.assertTrue(
-				entry.startswith("127.0.0.1:"),
+				entry.startswith(("127.0.0.1:", "${SIGNIN_BIND:-127.0.0.1}:")),
 				f"{entry!r} publishes the sign-in screen beyond loopback",
 			)
 
