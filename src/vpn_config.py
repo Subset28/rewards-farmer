@@ -116,6 +116,7 @@ FORBIDDEN_DIRECTIVES = frozenset((
 	"up", "down", "route-up", "route-pre-down", "ipchange", "plugin", "management", "tls-verify",
 	"client-connect", "client-disconnect", "learn-address", "auth-user-pass-verify", "up-restart",
 	"log", "log-append", "status", "writepid", "chroot", "daemon", "cd", "script-security",
+	"engine", "providers", "inetd", "down-pre",
 ))
 BLOCK_OPEN = re.compile(r"^<([A-Za-z0-9_-]+)>$")
 BLOCK_CLOSE = re.compile(r"^</([A-Za-z0-9_-]+)>$")
@@ -148,7 +149,8 @@ def check_directives(ovpn_text: str) -> None:
 			block = opening.group(1).lower()
 			continue
 
-		directive = line.split(None, 1)[0].lower()
+		# A config line may write an option with its command-line dashes (`--up script`).
+		directive = line.split(None, 1)[0].lower().lstrip("-")
 
 		if directive in FORBIDDEN_DIRECTIVES:
 			raise RuntimeError(f"config.ovpn uses the directive {directive!r}, which is not allowed (it can run code or escape the namespace)")
@@ -285,14 +287,28 @@ def write_resolv_conf(path: Path | None = None) -> None:
 
 
 def plan(accounts: list[str]) -> list[Tunnel]:
-	"""A Tunnel for each account, read from its config. Raises RuntimeError if any cannot be."""
+	"""A Tunnel for each account, read from its config. Raises RuntimeError if any cannot be.
+
+	Each tunnel gets a private directory holding its key-bearing config; if planning fails
+	part way, the ones already made are removed rather than left in /tmp."""
+	tunnels: list[Tunnel] = []
+
+	try:
+		return _plan(accounts, tunnels)
+	except BaseException:
+		for tunnel in tunnels:
+			if tunnel.workdir:
+				shutil.rmtree(tunnel.workdir, ignore_errors=True)
+
+		raise
+
+
+def _plan(accounts: list[str], tunnels: list[Tunnel]) -> list[Tunnel]:
 	if not accounts:
 		raise RuntimeError("no accounts to give a tunnel")
 
 	if len(accounts) > MAX_ACCOUNTS:
 		raise RuntimeError(f"at most {MAX_ACCOUNTS} accounts")
-
-	tunnels = []
 
 	for number, account in enumerate(accounts, start=1):
 		# The name goes into paths, so it is held to what an account name may be.
@@ -655,9 +671,15 @@ def run(accounts: list[str], commands: list[list[str]], popen=subprocess.Popen, 
 	"""Build every account's tunnel, run the commands, and stop when any of them or a tunnel gives up. Returns the exit code."""
 	try:
 		tunnels = plan(accounts)
-		write_resolv_conf()
 	except (RuntimeError, ValueError, OSError) as err:
 		print(f"vpn: {err}", file=sys.stderr)
+		return 1
+
+	try:
+		write_resolv_conf()
+	except (ValueError, OSError) as err:
+		print(f"vpn: {err}", file=sys.stderr)
+		teardown(tunnels, [])
 		return 1
 
 	running: list = []

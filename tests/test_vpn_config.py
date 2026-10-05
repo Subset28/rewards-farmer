@@ -252,6 +252,34 @@ class TestReadingTheConfig(VpnTestCase):
 			v.write_resolv_conf(self.root / "r.conf")
 
 
+class TestHardeningFollowUps(VpnTestCase):
+	def test_a_directive_written_with_its_command_line_dashes_is_still_refused(self):
+		config = self.root / "alpha" / "openvpn" / "config.ovpn"
+
+		for line in ("--up /bin/sh", "-up /bin/sh", "--script-security 2", "--plugin /tmp/x.so", "--engine dynamic", "--down-pre"):
+			config.write_text(ALPHA + line + "\n")
+
+			with self.assertRaisesRegex(RuntimeError, "not allowed", msg=line):
+				v.plan(["alpha"])
+
+	def test_a_failed_plan_leaves_no_private_directory_behind(self):
+		# beta's config has no server line, so planning fails after alpha's directory was made.
+		(self.root / "beta" / "openvpn" / "config.ovpn").write_text("client\ndev tun\n")
+		before = {p.name for p in self.root.iterdir() if p.name.startswith("vpn-")}
+
+		with self.assertRaises(RuntimeError):
+			v.plan(["alpha", "beta"])
+
+		self.assertEqual({p.name for p in self.root.iterdir() if p.name.startswith("vpn-")}, before)
+
+	def test_a_resolver_failure_after_planning_removes_the_key_bearing_copies(self):
+		with mock.patch.dict(os.environ, {"NAME_SERVERS": "not-an-address"}):
+			code = v.run(["alpha", "beta"], [["x"]], popen=self.system.popen, sleep=lambda s: None, handle_signals=False)
+
+		self.assertEqual(code, 1)
+		self.assertEqual([p.name for p in self.root.iterdir() if p.name.startswith("vpn-")], [])
+
+
 class TestPlan(VpnTestCase):
 	def test_each_account_gets_its_own_number_and_subnet(self):
 		alpha, beta = self.tunnels()
@@ -356,6 +384,7 @@ class TestForbiddenDirectives(VpnTestCase):
 			"up", "down", "route-up", "route-pre-down", "ipchange", "plugin", "management", "tls-verify",
 			"client-connect", "client-disconnect", "learn-address", "auth-user-pass-verify", "up-restart",
 			"log", "log-append", "status", "writepid", "chroot", "daemon", "cd", "script-security",
+			"engine", "providers", "inetd", "down-pre",
 		})
 
 	def test_comments_are_ignored(self):
