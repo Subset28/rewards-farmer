@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 
 import accounts
+import footprint
 import journal
 import log_utils
 import notify
@@ -79,6 +80,7 @@ def mark_done(planned: datetime, owner: str) -> None:
 
 def main() -> None:
 	log_utils.setup_logging()
+	footprint.lower_priority()
 	owner = run_lock.owner()
 
 	while True:
@@ -104,7 +106,8 @@ def main() -> None:
 		started = time.monotonic()
 
 		try:
-			code = subprocess.run([sys.executable, "src/main.py"], check=False).returncode
+			with footprint.virtual_display():
+				code = subprocess.run([sys.executable, "src/main.py"], check=False).returncode
 		except Exception as exc:
 			# A run that fails to even launch must not end the loop -- the
 			# whole point of this process is to keep coming back tomorrow.

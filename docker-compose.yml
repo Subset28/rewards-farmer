@@ -96,7 +96,8 @@ services:
     # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
     init: true
     restart: unless-stopped
-    command: ["with-xvfb", "python", "src/daily_loop.py"]
+    # No always-on display: src/footprint.py starts one only for the length of a run.
+    command: ["python", "src/daily_loop.py"]
     # See the rewards-farmer service above for why cpus is left unset.
     deploy:
       resources:
@@ -114,6 +115,7 @@ services:
       OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
+      REWARDS_LAZY_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
       # Alert destinations, one per account (src/notify.py). A Discord webhook
@@ -153,7 +155,8 @@ services:
     # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
     init: true
     restart: unless-stopped
-    command: ["with-xvfb", "python", "src/search_scheduler.py"]
+    # No always-on display: src/footprint.py starts one only for the length of a run.
+    command: ["python", "src/search_scheduler.py"]
     # See the rewards-farmer service above for why cpus is left unset.
     deploy:
       resources:
@@ -171,6 +174,7 @@ services:
       OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
       REWARDS_HEADLESS: "1"
       REWARDS_VIRTUAL_DISPLAY: "1"
+      REWARDS_LAZY_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
       # Alert destinations, one per account (src/notify.py). A Discord webhook
