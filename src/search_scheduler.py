@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 import accounts
 import features
+import footprint
 import journal
 import log_utils
 import notify
@@ -275,7 +276,8 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 	started = time.monotonic()
 
 	try:
-		code = run([sys.executable, "src/search_only.py"], check=False).returncode
+		with footprint.virtual_display():
+			code = run([sys.executable, "src/search_only.py"], check=False).returncode
 	except Exception as exc:
 		# A run that fails to even launch must not end the loop -- the
 		# whole point of this process is to keep coming back later today
@@ -304,6 +306,7 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 
 def main() -> None:
 	log_utils.setup_logging()
+	footprint.lower_priority()
 	owner = run_lock.owner()
 
 	while True:
