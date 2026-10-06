@@ -1,5 +1,6 @@
 """Rest days, partial quotas, a ramp for new accounts, account order and query overlap."""
 
+import json
 import os
 import sys
 import tempfile
@@ -98,6 +99,39 @@ class TestTheRamp(PacingTestCase):
 		with mock.patch.dict(os.environ, {"REWARDS_RAMP_DAYS": "0"}):
 			self.assertFalse(pacing.in_ramp("fresh"))
 			self.assertIsNone(pacing.steps_allowed("fresh"))
+
+
+class TestPerAccountRamp(PacingTestCase):
+	def set_state(self, text):
+		Path(pacing.STATE_FILE).write_text(text)
+
+	def test_an_account_can_have_a_longer_ramp_than_the_rest(self):
+		started = (TODAY - timedelta(days=10)).isoformat()
+		self.set_state('{"long": {"first_day": "%s", "ramp_days": 21}, "plain": {"first_day": "%s"}}' % (started, started))
+
+		self.assertTrue(pacing.in_ramp("long"))
+		self.assertFalse(pacing.in_ramp("plain"))
+		self.assertEqual(pacing.ramp_days("long"), 21)
+		self.assertEqual(pacing.ramp_days("plain"), 7)
+		self.assertIn("ramp day 11 of 21", pacing.describe("long"))
+
+	def test_a_longer_ramp_set_before_the_first_day_is_kept_when_the_day_is_saved(self):
+		self.set_state('{"mom": {"ramp_days": 21}}')
+
+		self.assertEqual(pacing.age_days("mom"), 0)
+		self.assertEqual(pacing.ramp_days("mom"), 21)
+		self.assertEqual(json.loads(Path(pacing.STATE_FILE).read_text())["mom"]["first_day"], TODAY.isoformat())
+
+	def test_a_bad_value_falls_back_to_the_global_ramp(self):
+		self.set_state('{"x": {"first_day": "2026-01-01", "ramp_days": "soon"}}')
+
+		self.assertEqual(pacing.ramp_days("x"), 7)
+
+	def test_the_longer_ramp_climbs_more_slowly(self):
+		self.set_state('{"long": {"first_day": "%s", "ramp_days": 21}}' % (TODAY - timedelta(days=3)).isoformat())
+
+		with mock.patch.dict(os.environ, {"REWARDS_MIN_DAILY_FRACTION": "1"}):
+			self.assertLess(pacing.fraction("long"), 0.5)
 
 
 class TestRestDays(PacingTestCase):
