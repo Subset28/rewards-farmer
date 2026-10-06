@@ -57,6 +57,9 @@ EXPLANATIONS = [
 ]
 
 
+DISK_CACHE_BYTES = 64 * 1024 * 1024
+
+
 def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options = webdriver.EdgeOptions()
 
@@ -65,6 +68,11 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options.add_argument("--disable-blink-features=AutomationControlled")
 	options.add_argument(f"--user-data-dir={account.user_data_dir}")
 	options.add_argument(f"--profile-directory={account.profile_name}")
+
+	# Edge's own cache otherwise grows to hundreds of MB per profile (and sits in the container's
+	# memory as page cache). A cap is invisible to the pages: it only changes how much Edge keeps.
+	options.add_argument(f"--disk-cache-size={DISK_CACHE_BYTES}")
+	options.add_argument(f"--media-cache-size={DISK_CACHE_BYTES}")
 
 	# Needed to register a script that runs in every tab, including the ones a
 	# card opens; see hide_driver_markers.
