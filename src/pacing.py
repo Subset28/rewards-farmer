@@ -73,11 +73,6 @@ def min_fraction() -> float:
 	return _float("REWARDS_MIN_DAILY_FRACTION", 0.6, 0.05, 1.0)
 
 
-def full_day_chance() -> float:
-	"""How often a working day aims for the whole quota. A real heavy user sometimes does."""
-	return _float("REWARDS_FULL_DAY_CHANCE", 0.25, 0.0, 1.0)
-
-
 def ramp_days() -> int:
 	try:
 		return max(0, int(os.environ.get("REWARDS_RAMP_DAYS", "7")))
@@ -195,9 +190,6 @@ def fraction(account: str, today: date | None = None) -> float:
 	today = today or _today()
 	low = min_fraction()
 	share = low + (1.0 - low) * _unit(account, today, "share")
-
-	if _unit(account, today, "full") < full_day_chance():
-		share = 1.0
 	days = ramp_days()
 
 	if days and age_days(account, today) < days:
