@@ -200,7 +200,30 @@ class TestDailyShare(PacingTestCase):
 	def test_it_is_not_always_the_maximum(self):
 		self.seasoned("old")
 
-		self.assertLess(sum(1 for s in self.shares("old") if s > 0.999), 5)
+		full = sum(1 for s in self.shares("old") if s > 0.999)
+
+		self.assertLess(full, 100)
+
+	def test_some_working_days_do_aim_for_the_whole_quota(self):
+		self.seasoned("old")
+
+		full = sum(1 for s in self.shares("old") if s > 0.999)
+
+		self.assertGreater(full, 20)
+		self.assertLess(full, 90)
+
+	def test_the_full_day_chance_can_be_turned_off(self):
+		self.seasoned("old")
+
+		with mock.patch.dict(os.environ, {"REWARDS_FULL_DAY_CHANCE": "0"}):
+			self.assertLess(sum(1 for s in self.shares("old") if s > 0.999), 5)
+
+	def test_a_full_day_follows_a_raised_cap_the_same_day(self):
+		self.seasoned("old")
+
+		with mock.patch.dict(os.environ, {"REWARDS_FULL_DAY_CHANCE": "1"}):
+			self.assertEqual(pacing.search_target("old", 100, TODAY + timedelta(days=3)), 100)
+			self.assertEqual(pacing.search_target("old", 200, TODAY + timedelta(days=3)), 200)
 
 	def test_a_minimum_of_one_means_always_all_of_it(self):
 		self.seasoned("old")
