@@ -123,6 +123,13 @@ class TestAccountConfiguration(EnvironmentTestCase):
 
 
 class TestEdgeOptions(EnvironmentTestCase):
+	def test_the_browser_cache_is_capped(self):
+		account = accounts_for("personal")[0]
+		arguments = browser.build_options(account).arguments
+
+		self.assertIn(f"--disk-cache-size={browser.DISK_CACHE_BYTES}", arguments)
+		self.assertLessEqual(browser.DISK_CACHE_BYTES, 128 * 1024 * 1024)
+
 	def test_each_account_is_handed_its_own_profile(self):
 		seen = []
 
