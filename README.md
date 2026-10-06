@@ -373,6 +373,10 @@ An account that earns its full quota at the same rate, every day, from its first
 
 None of this makes automation allowed or undetectable; it only avoids the most regular pattern.
 
+## Footprint: nearly free when idle, light while running
+
+Idle, the schedulers sleep (about 0% CPU, 20-35 MB each). The virtual display (Xvfb, 35-70 MB) is not kept running: with `REWARDS_LAZY_DISPLAY=1`, which the compose scheduler services set, `src/footprint.py` starts one for the length of a run and stops it after. An existing `DISPLAY` (the one-shot service, the VPN container) is left alone. The schedulers also run at nice 10, which every browser they start inherits, so a run yields to the NAS's other containers. Edge's disk and media cache are capped at 64 MB per profile (it had grown to over 500 MB); pages cannot see that.
+
 ## A VPN per account (Docker)
 
 `docker-compose.vpn.yml` puts every account behind its own OpenVPN tunnel, in one container, each with its own kill switch and its own VPN location. It is modelled on the binhex `qbittorrentvpn` images (a default-drop iptables firewall, a tunnel that must come up before anything runs, a supervisor that notices a dead tunnel) and on ArmaanOChrome's entrypoint, with one change: a tunnel per account.

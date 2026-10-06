@@ -72,6 +72,10 @@ Go back: `docker compose -f docker-compose.yml -f docker-compose.vpn.yml stop vp
 
 While it runs, a tunnel that drops is restarted by itself and that account is held until it is back; nothing leaves on the real connection. You get a Discord alert for each of down, restored, not up, and will not come back.
 
+## Memory and idle cost
+
+Idle: each scheduler container is about 20-35 MB and ~0% CPU, with no display running. During a run Edge is the whole cost, at low priority. See what a container really uses with `docker stats --no-stream` (the cgroup figure includes reclaimable page cache, so "near the limit" is not itself a problem).
+
 ## What lives where
 
 | Thing | Where |
