@@ -25,6 +25,9 @@ Settings (environment):
     REWARDS_RAMP_DAYS              days of an account's ramp, default 7; 0 turns it off
     REWARDS_KEEP_ORDER             1 keeps the accounts in the order listed
 
+A longer ramp for one account: put "ramp_days": 21 in its entry of `data-dir/pacing.json`
+(next to "first_day"). Without it the account uses REWARDS_RAMP_DAYS.
+
 An account's first day is the date of its first points reading, or the day it was
 first seen; `data-dir/pacing.json` holds it and can be edited ("2026-09-01") to say an
 account is not new. Nothing here ever raises: pacing that cannot be worked out means
@@ -73,7 +76,14 @@ def min_fraction() -> float:
 	return _float("REWARDS_MIN_DAILY_FRACTION", 0.6, 0.05, 1.0)
 
 
-def ramp_days() -> int:
+def ramp_days(account: str | None = None) -> int:
+	"""Days of the ramp: this account's own setting in pacing.json if it has one, else the global one."""
+	if account:
+		try:
+			return max(0, int(_read_state()[account]["ramp_days"]))
+		except (KeyError, TypeError, ValueError):
+			pass
+
 	try:
 		return max(0, int(os.environ.get("REWARDS_RAMP_DAYS", "7")))
 	except ValueError:
@@ -125,7 +135,7 @@ def first_day(account: str, today: date | None = None) -> date:
 	if not rows:
 		logger.warning(
 			"%s has no first day in %s and no points history, so it is treated as new (a %d-day ramp). "
-			"If it is not new, set its first_day there.", account, STATE_FILE, ramp_days(),
+			"If it is not new, set its first_day there.", account, STATE_FILE, ramp_days(account),
 		)
 
 	_save_first_day(account, first)
@@ -140,11 +150,13 @@ def _save_first_day(account: str, first: date) -> None:
 	processes (the schedulers, status.py) cannot overwrite each other's entries.
 	"""
 	state = _read_state()
+	entry = state.get(account)
 
-	if account in state:
+	if isinstance(entry, dict) and "first_day" in entry:
 		return
 
-	state[account] = {"first_day": first.isoformat()}
+	# Keep what is already there (a "ramp_days" set by hand), add the first day.
+	state[account] = {**(entry if isinstance(entry, dict) else {}), "first_day": first.isoformat()}
 	temporary = f"{STATE_FILE}.{os.getpid()}.tmp"
 
 	try:
@@ -171,11 +183,11 @@ def age_days(account: str, today: date | None = None) -> int:
 
 
 def in_ramp(account: str, today: date | None = None) -> bool:
-	return age_days(account, today) < ramp_days()
+	return age_days(account, today) < ramp_days(account)
 
 
 def _raw_rest(account: str, day: date) -> bool:
-	return age_days(account, day) >= ramp_days() and _unit(account, day, "rest") < rest_chance()
+	return age_days(account, day) >= ramp_days(account) and _unit(account, day, "rest") < rest_chance()
 
 
 def is_rest_day(account: str, today: date | None = None) -> bool:
@@ -190,7 +202,7 @@ def fraction(account: str, today: date | None = None) -> float:
 	today = today or _today()
 	low = min_fraction()
 	share = low + (1.0 - low) * _unit(account, today, "share")
-	days = ramp_days()
+	days = ramp_days(account)
 
 	if days and age_days(account, today) < days:
 		share *= RAMP_START_FRACTION + (1.0 - RAMP_START_FRACTION) * age_days(account, today) / days
@@ -237,7 +249,7 @@ def describe(account: str, today: date | None = None) -> str:
 	else:
 		what = f"works today, {fraction(account, today):.0%} of the search quota"
 
-	ramp = f", ramp day {age_days(account, today) + 1} of {ramp_days()}" if in_ramp(account, today) else ""
+	ramp = f", ramp day {age_days(account, today) + 1} of {ramp_days(account)}" if in_ramp(account, today) else ""
 
 	return f"{account}: {what}{ramp}"
 
