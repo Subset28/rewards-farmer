@@ -30,12 +30,13 @@ import os
 import random
 import sys
 import time
+from datetime import datetime
 
 import behavior
 import calibration
 
-TYPING_PHRASES = 16
-MOUSE_TRIALS = 18
+TYPING_PHRASES = 22
+MOUSE_TRIALS = 30
 DOT_RADIUS = 18
 DOT_CLICK_SLACK = 10
 
@@ -47,7 +48,7 @@ BAD = "#d32f2f"
 
 
 class App:
-	def __init__(self, account: str, root=None, clock=time.perf_counter, rng=random, phrases: int = TYPING_PHRASES, trials: int = MOUSE_TRIALS, save: bool = True):
+	def __init__(self, account: str, root=None, clock=time.perf_counter, rng=random, phrases: int = TYPING_PHRASES, trials: int = MOUSE_TRIALS, save: bool = True, fresh: bool = False):
 		self.account = account
 		self.root = root
 		self.clock = clock
@@ -55,6 +56,7 @@ class App:
 		self.phrase_count = phrases
 		self.trial_count = trials
 		self.save = save
+		self.fresh = fresh
 		self.page = "intro"
 		self.typing: calibration.TypingRecorder | None = None
 		self.trials: list[calibration.Trial] = []
@@ -138,9 +140,10 @@ class App:
 		self._label("Calibration", 30, pad=(120, 20))
 		self._label(f"This records how you type and move the mouse, for the account \"{self.account}\".", 18)
 		self._label(
-			"Part 1: type 16 short phrases, the way you would into a search box.\n"
-			"Part 2: click a dot and then a blue rectangle, 18 times.\n\n"
-			"It takes about five minutes. Type and click naturally; there is no right speed. Esc quits.",
+			"Part 1: type some short phrases the way you would into a search box, and make up a few searches of your own.\n"
+			"Part 2: click a dot and then a blue rectangle, 30 times.\n\n"
+			"It takes about eight minutes. Type and click naturally; there is no right speed. Esc quits.\n"
+			"Doing it again on another day makes the profile better: people differ from one day to the next.",
 			16, MUTED, (30, 40),
 		)
 		self._label("Press Enter to begin", 20, GOOD)
@@ -161,7 +164,7 @@ class App:
 
 		tk = self.tk
 		self.widgets["header"] = self._label("", 22, pad=(80, 6))
-		self._label("Type it the way you normally would into a search box. Fix mistakes however you like, or leave them.\nPress Enter when you are done.", 14, MUTED, (0, 50))
+		self.widgets["hint"] = self._label("", 14, MUTED, (0, 50))
 		self.widgets["target"] = self._label("", 32, font="Consolas", pad=(20, 20), wrap=self.size[0] - 200)
 		box = tk.Text(self.frame, height=1, width=60, font=("Consolas", 32), bg="#ffffff", relief="solid", borderwidth=1, cursor="arrow", takefocus=0)
 		box.tag_configure("ok", foreground=GOOD)
@@ -178,7 +181,12 @@ class App:
 
 		header = f"Phrase {session.real_done + 1} of {session.real_total}" if session.counted else "Practice (not counted)"
 		self.widgets["header"].configure(text=header)
-		self.widgets["target"].configure(text=session.target)
+		self.widgets["target"].configure(text=session.prompt)
+		self.widgets["hint"].configure(text=(
+			"Make up a search about this and type it the way you would into Bing. Press Enter when you are done."
+			if session.compose else
+			"Type it the way you normally would into a search box. Fix mistakes however you like, or leave them.\nPress Enter when you are done."
+		))
 		box = self.widgets["box"]
 		right = session.matches
 		box.configure(state="normal")
@@ -259,15 +267,20 @@ class App:
 		self.outcome = None
 
 		try:
-			typing = calibration.analyze_typing(self.typing.records if self.typing else [])
-			mouse = calibration.analyze_mouse(self.trials)
+			# Earlier sittings count too: the more days there are, the better the day-to-day spread is known.
+			earlier_typing, earlier_mouse = self._earlier_sittings()
+			typing_sittings = earlier_typing + [self.typing.records if self.typing else []]
+			mouse_sittings = earlier_mouse + [self.trials]
+			typing = calibration.analyze_typing(typing_sittings)
+			mouse = calibration.analyze_mouse(mouse_sittings)
 			arguments = calibration.build(typing, mouse)
-			lines = calibration.describe(typing, mouse)
+			lines = calibration.describe(typing, mouse, calibration.rhythm_check(typing_sittings, typing["detail"], random.Random(1)))
+			lines.append(f"Sittings so far: {len(typing_sittings)}" + ("" if len(typing_sittings) > 1 else " (record again on another day for a better profile)"))
 			path = None
 
 			if self.save:
-				path = behavior.save(self.account, notes={"recorded_with": "calibrate.py"}, **arguments)
-				self._save_raw(typing, mouse)
+				path = behavior.save(self.account, notes={"recorded_with": "calibrate.py", "sittings": len(typing_sittings)}, **arguments)
+				self._save_raw()
 
 			self.outcome = {"typing": typing, "mouse": mouse, "path": path, "lines": lines, "error": None}
 		except (behavior.ProfileError, ValueError, OSError) as exc:
@@ -292,11 +305,44 @@ class App:
 
 		self._label("Press Enter to close", 20, GOOD)
 
-	def _save_raw(self, typing: dict, mouse: dict) -> None:
-		path = os.path.splitext(behavior.profile_path(self.account))[0] + ".raw.json"
+	def _raw_path(self) -> str:
+		return os.path.splitext(behavior.profile_path(self.account))[0] + ".raw.json"
 
-		with open(path, "w", encoding="utf-8") as handle:
-			json.dump(calibration.raw(self.typing.records, self.trials), handle)
+	def _earlier_sittings(self) -> tuple[list, list]:
+		"""(typing sittings, mouse sittings) recorded on earlier runs, unless starting over."""
+		if self.fresh:
+			return [], []
+
+		try:
+			with open(self._raw_path(), encoding="utf-8") as handle:
+				sittings = calibration.sittings_from_file(json.load(handle))
+		except (OSError, ValueError):
+			return [], []
+
+		typing = [calibration.records_from_raw(s.get("typing", [])) for s in sittings]
+		mouse = [calibration.trials_from_raw(s.get("mouse", [])) for s in sittings]
+
+		return [t for t in typing if t], [m for m in mouse if m]
+
+	def _save_raw(self) -> None:
+		"""Add this sitting to the raw file: every key and every pointer movement, for analysing again later."""
+		path = self._raw_path()
+		sittings = []
+
+		if not self.fresh:
+			try:
+				with open(path, encoding="utf-8") as handle:
+					sittings = calibration.sittings_from_file(json.load(handle))
+			except (OSError, ValueError):
+				sittings = []
+
+		sittings.append(calibration.raw(self.typing.records, self.trials, when=datetime.now().isoformat(timespec="minutes")))
+		temporary = f"{path}.tmp"
+
+		with open(temporary, "w", encoding="utf-8") as handle:
+			json.dump({"sessions": sittings}, handle)
+
+		os.replace(temporary, path)
 
 	# ------------------------------------------------------------------ events
 
@@ -332,7 +378,7 @@ class App:
 
 	def on_key_release(self, keysym: str) -> None:
 		if self.page == "typing" and self.typing is not None:
-			self.typing.release(keysym)
+			self.typing.release(keysym, self.clock())
 
 	def on_motion(self, x: float, y: float) -> None:
 		if self.page == "mouse" and self.phase == "target" and self.trial is not None:
@@ -376,10 +422,40 @@ class App:
 			self.next_dot()
 
 
+def reanalyze(account: str) -> int:
+	"""Rebuild the profile from the recordings already made, with the analysis as it is now.
+
+	Every key and pointer movement is kept in the raw file, so an improvement to the analysis does not
+	need anyone back at the keyboard."""
+	app = App(account)
+	typing, mouse = app._earlier_sittings()
+
+	if not typing or not mouse:
+		print(f"No recording found for {account} at {app._raw_path()}.")
+
+		return 1
+
+	try:
+		typed = calibration.analyze_typing(typing)
+		moved = calibration.analyze_mouse(mouse)
+		path = behavior.save(account, notes={"recorded_with": "calibrate.py --reanalyze", "sittings": len(typing)}, **calibration.build(typed, moved))
+	except (behavior.ProfileError, ValueError, OSError) as exc:
+		print(f"Could not rebuild the profile: {exc}")
+
+		return 1
+
+	print("\n".join(calibration.describe(typed, moved, calibration.rhythm_check(typing, typed["detail"], random.Random(1)))))
+	print(f"Wrote {path} from {len(typing)} sitting(s)")
+
+	return 0
+
+
 def main(argv: list[str]) -> int:
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("account", help="account name, as in REWARDS_ACCOUNTS")
 	parser.add_argument("--show", action="store_true", help="print the profile in use for this account and exit")
+	parser.add_argument("--reanalyze", action="store_true", help="rebuild the profile from the recordings already made, without a new sitting")
+	parser.add_argument("--fresh", action="store_true", help="ignore earlier sittings and start the account's recording over")
 	args = parser.parse_args(argv[1:])
 
 	if args.show:
@@ -387,10 +463,13 @@ def main(argv: list[str]) -> int:
 
 		return make_behavior_profile.show(args.account)
 
+	if args.reanalyze:
+		return reanalyze(args.account)
+
 	import tkinter as tk
 
 	root = tk.Tk()
-	app = App(args.account, root)
+	app = App(args.account, root, fresh=args.fresh)
 	root.mainloop()
 
 	if app.abandoned:

@@ -108,13 +108,13 @@ class TestPhraseAnalysis(unittest.TestCase):
 		steps = [(1.0, "char", "h"), (0.1, "char", "x"), (2.0, "back", ""), (0.15, "back", ""), (3.0, "char", "e"), (0.1, "char", "l")]
 		result = calibration.analyze_phrase(record_phrase("he", steps))
 
-		self.assertEqual([round(g, 2) for g, _ in result["gaps"]], [0.1, 0.1])
+		self.assertEqual([round(g, 2) for g, _, _ in result["gaps"]], [0.1, 0.1])
 		self.assertEqual([round(g, 2) for g in result["back_gaps"]], [0.15])
 
 	def test_the_gap_after_a_space_is_marked(self):
 		result = calibration.analyze_phrase(record_phrase("a b", clean_steps("a b")))
 
-		self.assertEqual([spaced for _, spaced in result["gaps"]], [False, True])
+		self.assertEqual([previous == " " for _, previous, _ in result["gaps"]], [False, True])
 
 
 def synthetic_records(count=12, rng=None, slip_every=4):
@@ -190,9 +190,65 @@ class TestTypingAnalysis(unittest.TestCase):
 		self.assertNotIn("correction_rate", detail)
 
 
+class TestKeyHolds(unittest.TestCase):
+	def record(self, holds):
+		record = calibration.PhraseRecord("abc", 0.0)
+		record.holds = holds
+
+		return record
+
+	def test_hold_time_and_rollover_are_measured(self):
+		# Each key held 90 ms, the next one going down 60 ms after the last, i.e. before it comes up.
+		holds = [(chr(97 + n % 20), n * 0.06, n * 0.06 + 0.09) for n in range(80)]
+		measured = calibration.key_holds([self.record(holds)])
+
+		self.assertAlmostEqual(measured["hold_ms"], 90, delta=1)
+		self.assertAlmostEqual(measured["rollover_rate"], 1.0, delta=0.01)
+
+	def test_keys_let_go_before_the_next_are_not_rollover(self):
+		holds = [(chr(97 + n % 20), n * 0.2, n * 0.2 + 0.08) for n in range(80)]
+
+		self.assertEqual(calibration.key_holds([self.record(holds)])["rollover_rate"], 0.0)
+
+	def test_a_key_held_for_ages_is_not_a_hold(self):
+		holds = [("a", n * 0.2, n * 0.2 + 2.0) for n in range(80)]
+
+		self.assertNotIn("hold_ms", calibration.key_holds([self.record(holds)]))
+
+	def test_too_little_to_say_says_nothing(self):
+		self.assertEqual(calibration.key_holds([self.record([("a", 0.0, 0.09)])]), {})
+
+	def test_the_recorder_notes_how_long_each_key_was_down(self):
+		recorder = calibration.TypingRecorder(phrases=("hello there",), practice=None, shuffle=False, compose=())
+		recorder.show(0.0)
+		recorder.press("h", "h", 1.00)
+		recorder.release("h", 1.08)
+
+		self.assertEqual(recorder._current.holds, [("h", 1.00, 1.08)])
+
+
+class TestReanalyze(unittest.TestCase):
+	def test_a_profile_can_be_rebuilt_from_what_was_recorded(self):
+		directory = tempfile.TemporaryDirectory()
+		self.addCleanup(directory.cleanup)
+
+		with mock.patch.object(behavior, "PROFILE_DIR", directory.name):
+			clock = Clock()
+			app = calibrate.App("kin", None, clock=clock, rng=random.Random(2), phrases=10, trials=14)
+			helper = TestTheApp()
+			helper.clock, helper.app, helper.directory = clock, app, directory
+			helper.run_typing()
+			helper.run_mouse()
+			os.unlink(os.path.join(directory.name, "kin.json"))
+
+			self.assertEqual(calibrate.reanalyze("kin"), 0)
+			self.assertEqual(behavior.load("kin").source, "recorded")
+			self.assertEqual(calibrate.reanalyze("nobody"), 1)
+
+
 class TestRecorder(unittest.TestCase):
 	def setUp(self):
-		self.recorder = calibration.TypingRecorder(phrases=("hello there",), practice=None, shuffle=False)
+		self.recorder = calibration.TypingRecorder(phrases=("hello there",), practice=None, shuffle=False, compose=())
 		self.recorder.show(10.0)
 
 	def type_text(self, text, start=11.0, gap=0.1):
@@ -227,7 +283,7 @@ class TestRecorder(unittest.TestCase):
 		self.assertEqual(self.recorder.press("Shift_L", "", 11.0), "ignored")
 
 	def test_the_practice_phrase_is_not_counted(self):
-		recorder = calibration.TypingRecorder(phrases=("hello there",), practice="warm up now", shuffle=False)
+		recorder = calibration.TypingRecorder(phrases=("hello there",), practice="warm up now", shuffle=False, compose=())
 		recorder.show(0.0)
 
 		for i, ch in enumerate("warm up now"):
@@ -505,15 +561,18 @@ class TestTheApp(unittest.TestCase):
 
 	def press(self, keysym, char=""):
 		self.app.on_key_press(keysym, char)
+		self.clock.tick(0.085)
 		self.app.on_key_release(keysym)
 
 	def type_current(self, slip=False):
-		target = self.app.typing.target
+		composing = self.app.typing.compose
+		target = "best pizza near me tonight" if composing else self.app.typing.target
+		slip = slip and not composing
 		rng = random.Random(len(target))
 		self.clock.tick(1.1)
 
 		for i, ch in enumerate(target):
-			self.clock.tick(rng.choice([0.07, 0.1, 0.15, 0.2]))
+			self.clock.tick(rng.choice([0.0, 0.02, 0.06, 0.1, 0.13]))
 
 			if slip and i == 4:
 				self.press("x", "x")
@@ -572,8 +631,10 @@ class TestTheApp(unittest.TestCase):
 
 		raw = json.loads(Path(self.directory.name, "mom.raw.json").read_text())
 
-		self.assertEqual(len(raw["typing"]), 10)
-		self.assertEqual(len(raw["mouse"]), 14)
+		self.assertEqual(len(raw["sessions"]), 1)
+		self.assertEqual(len(raw["sessions"][0]["typing"]), 15)      # ten copied and five made up
+		self.assertEqual(len(raw["sessions"][0]["mouse"]), 14)
+		self.assertTrue(any(row["holds"] for row in raw["sessions"][0]["typing"]))
 
 	def test_the_description_mentions_both_halves(self):
 		self.run_typing()
@@ -588,7 +649,7 @@ class TestTheApp(unittest.TestCase):
 		app.on_key_press("Return", "\r")
 
 		while app.page == "typing":
-			target = app.typing.target
+			target = "best pizza near me tonight" if app.typing.compose else app.typing.target
 			self.clock.tick(1.0)
 
 			for ch in target:

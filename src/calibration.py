@@ -31,6 +31,7 @@ import random
 import statistics
 
 import behavior
+import human_model
 import search_behavior
 
 # A phrase typed the way a search is: lower case, no punctuation.
@@ -55,6 +56,16 @@ PHRASES = (
 
 PRACTICE = "type this to warm up"
 
+# Searches typed from the person's own head rather than copied: how long they think before the first
+# key and how they pause while making one up is not something copying shows.
+COMPOSE_PROMPTS = (
+	"Type a search you might make about food or cooking",
+	"Type a search you might make about a trip or a place",
+	"Type a search you might make about sports or a game",
+	"Type a search you might make about something you want to buy",
+	"Type a search you might make about the news or the weather",
+)
+
 # Keys that are not typing: modifiers, navigation and the like.
 NOT_TYPING = {
 	"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Caps_Lock", "Num_Lock", "Scroll_Lock",
@@ -69,6 +80,8 @@ HESITATION_MAX = 3.0        # longer than this is a distraction, not a hesitatio
 MIN_INTERVALS = 60
 MIN_PHRASES = 8
 MIN_TRIALS = 10
+MIN_PHRASES_FOR_RHYTHM = 6        # gaps in a phrase before it says anything about tempo
+PRIOR_DAY_SD = 0.06              # the day-to-day spread assumed until two sittings on different days exist
 MIN_FITTS_SPREAD = 0.5      # the difficulty of the trials must vary at least this much (bits)
 
 
@@ -76,10 +89,12 @@ MIN_FITTS_SPREAD = 0.5      # the difficulty of the trials must vary at least th
 
 
 class PhraseRecord:
-	def __init__(self, target: str, shown_at: float):
+	def __init__(self, target: str, shown_at: float, compose: bool = False):
 		self.target = target
+		self.compose = compose
 		self.shown_at = shown_at
 		self.events: list[tuple[float, str, str]] = []   # (time, "char"|"back"|"enter", char)
+		self.holds: list[tuple[str, float, float]] = []  # (key, went down, came up): how long each key is held
 		self.final = ""
 		self.submitted_at: float | None = None
 
@@ -87,7 +102,10 @@ class PhraseRecord:
 class TypingRecorder:
 	"""The phrases, what has been typed, and a time for every key."""
 
-	def __init__(self, phrases=PHRASES, practice: str | None = PRACTICE, count: int | None = None, shuffle: bool = True, rng=random):
+	def __init__(
+		self, phrases=PHRASES, practice: str | None = PRACTICE, count: int | None = None, shuffle: bool = True, rng=random,
+		compose: tuple = COMPOSE_PROMPTS, compose_count: int | None = None,
+	):
 		order = list(phrases)
 
 		if shuffle:
@@ -96,20 +114,39 @@ class TypingRecorder:
 		if count is not None:
 			order = order[:count]
 
-		self.items = ([(practice, False)] if practice else []) + [(p, True) for p in order]
+		items = [(p, True, False) for p in order]
+		prompts = list(compose)[:compose_count] if compose_count is not None else list(compose)
+
+		# The made-up ones are spread through the test, not bunched at the end.
+		for n, prompt in enumerate(prompts):
+			spot = min(len(items), (n + 1) * len(order) // (len(prompts) + 1) + n)
+			items.insert(spot, (prompt, True, True))
+
+		self.items = ([(practice, False, False)] if practice else []) + items
 		self.position = 0
 		self.typed = ""
 		self.records: list[PhraseRecord] = []
 		self._current: PhraseRecord | None = None
 		self._down: set[str] = set()
+		self._pressed: dict[str, tuple[str, float]] = {}
 
 	@property
 	def finished(self) -> bool:
 		return self.position >= len(self.items)
 
 	@property
-	def target(self) -> str:
+	def prompt(self) -> str:
+		"""What is shown: the phrase to copy, or the request to make one up."""
 		return self.items[self.position][0] if not self.finished else ""
+
+	@property
+	def compose(self) -> bool:
+		return self.items[self.position][2] if not self.finished else False
+
+	@property
+	def target(self) -> str:
+		"""What must be typed: nothing in particular for a made-up search."""
+		return "" if self.compose else self.prompt
 
 	@property
 	def counted(self) -> bool:
@@ -117,14 +154,17 @@ class TypingRecorder:
 
 	@property
 	def real_total(self) -> int:
-		return sum(1 for _, counted in self.items if counted)
+		return sum(1 for item in self.items if item[1])
 
 	@property
 	def real_done(self) -> int:
-		return sum(1 for _, counted in self.items[:self.position] if counted)
+		return sum(1 for item in self.items[:self.position] if item[1])
 
 	@property
 	def matches(self) -> int:
+		if self.compose:
+			return len(self.typed)
+
 		count = 0
 
 		for typed, wanted in zip(self.typed, self.target):
@@ -137,12 +177,18 @@ class TypingRecorder:
 
 	def show(self, now: float) -> None:
 		"""The current phrase has just appeared."""
-		self._current = PhraseRecord(self.target, now)
+		self._current = PhraseRecord(self.target, now, self.compose)
 		self.typed = ""
 		self._down.clear()
 
-	def release(self, keysym: str) -> None:
+	def release(self, keysym: str, now: float | None = None) -> None:
+		"""A key coming up. Given the time, how long it was held is recorded (a person holds a key for
+		tens of milliseconds, and a fast typist presses the next one before letting go of this one)."""
 		self._down.discard(keysym)
+		pressed = self._pressed.pop(keysym, None)
+
+		if pressed is not None and now is not None and self._current is not None and now >= pressed[1]:
+			self._current.holds.append((pressed[0], pressed[1], now))
 
 	def press(self, keysym: str, char: str, now: float) -> str:
 		"""One key going down. Returns "typed", "back", "done", "finished" or "ignored"."""
@@ -161,7 +207,7 @@ class TypingRecorder:
 
 		if keysym in ENTER_KEYS:
 			# Enter submits, but not an empty or barely started phrase.
-			if len(self.typed) < max(3, len(self.target) // 2):
+			if len(self.typed) < (3 if self.compose else max(3, len(self.target) // 2)):
 				return "ignored"
 
 			record.events.append((now, "enter", ""))
@@ -185,6 +231,7 @@ class TypingRecorder:
 		if len(char) == 1 and char.isprintable():
 			self.typed += char
 			record.events.append((now, "char", char))
+			self._pressed[keysym] = (char, now)
 
 			return "typed"
 
@@ -198,7 +245,7 @@ def _neighbor(wrong: str, expected: str) -> bool:
 def analyze_phrase(record: PhraseRecord) -> dict:
 	"""Gaps and slips from one phrase's keys."""
 	typed = ""
-	gaps: list[tuple[float, bool]] = []     # (gap, previous key was a space)
+	gaps: list[tuple[float, str, str]] = []     # (gap, the key before, the key)
 	back_gaps: list[float] = []
 	previous_time: float | None = None
 	previous_char = ""
@@ -220,7 +267,7 @@ def analyze_phrase(record: PhraseRecord) -> dict:
 			if kind == "back" and previous_was_back:
 				back_gaps.append(gap)
 			elif kind == "char" and previous_char != "" and gap >= 0:
-				gaps.append((gap, previous_char == " "))
+				gaps.append((gap, previous_char, char))
 
 		if kind == "char":
 			position = len(typed)
@@ -279,15 +326,165 @@ def _median(values, default=None):
 	return statistics.median(values) if values else default
 
 
-def analyze_typing(records: list[PhraseRecord]) -> dict:
-	"""Rhythm and habits from every counted phrase. Raises ProfileError if there is not enough."""
-	phrases = [analyze_phrase(r) for r in records]
-	pairs = [p for phrase in phrases for p in phrase["gaps"]]
-	rhythm = [g for g, _ in pairs if 0 <= g < TYPING_GAP_MAX]
+def key_holds(records: list[PhraseRecord]) -> dict:
+	"""How long keys are held down, and how often the next key goes down before the last one is let go."""
+	held, overlaps, pairs = [], 0, 0
 
-	if len(records) < MIN_PHRASES or len(rhythm) < MIN_INTERVALS:
+	for record in records:
+		ordered = sorted(record.holds, key=lambda h: h[1])
+		held += [(up - down) * 1000 for _, down, up in ordered if 0 < up - down < 0.5]
+
+		for first, second in zip(ordered, ordered[1:]):
+			if second[1] - first[1] < TYPING_GAP_MAX:
+				pairs += 1
+				overlaps += second[1] < first[2]
+
+	result = {}
+	spread = _log_spread(held)
+
+	if spread and len(held) >= 40:
+		result["hold_mu"], result["hold_sigma"] = spread
+		result["hold_ms"] = round(statistics.median(held), 1)
+
+	if pairs >= 40:
+		result["rollover_rate"] = overlaps / pairs
+
+	return result
+
+
+def _mean(values):
+	values = list(values)
+
+	return sum(values) / len(values) if values else 0.0
+
+
+def _lag1(series: list[float]) -> float:
+	"""How much each value resembles the one before it (0 to 1 here; negative is not modelled)."""
+	if len(series) < 3:
+		return 0.0
+
+	centre = _mean(series)
+	top = sum((a - centre) * (b - centre) for a, b in zip(series, series[1:]))
+	bottom = sum((a - centre) ** 2 for a in series)
+
+	return top / bottom if bottom > 0 else 0.0
+
+
+def fit_rhythm(phrases: list[list[tuple[float, str, str]]]):
+	"""A person's key-to-key timing as the numbers human_model.TypingRhythm draws from.
+
+	Returns (the numbers, a function that takes a log gap's move out of it), or None if there is too little.
+
+	The gap is modelled in log seconds as a typical level, plus how much slower or faster the kind of
+	move was (hand change, same hand, same finger, other), plus a tempo that differs from search to
+	search, plus a wobble within a search that carries over from key to key. The sizes of the last
+	two are what make the bot inconsistent by the same amount, and in the same way, as they are.
+	"""
+	usable = []
+
+	for gaps in phrases:
+		logs = [(math.log(g), human_model.transition(p, c), human_model.common_pair(p, c)) for g, p, c in gaps if 0 < g < TYPING_GAP_MAX]
+
+		if len(logs) >= MIN_PHRASES_FOR_RHYTHM:
+			usable.append(logs)
+
+	if len(usable) < 4:
+		return None
+
+	# 1. How much slower or faster each kind of move is, against the search it came from.
+	by_kind: dict[str, list[float]] = {name: [] for name in human_model.TRANSITIONS}
+
+	for logs in usable:
+		centre = _mean(l for l, _, _ in logs)
+
+		for value, kind, _ in logs:
+			by_kind[kind].append(value - centre)
+
+	shrunk = {kind: _mean(v) * len(v) / (len(v) + 8) for kind, v in by_kind.items()}
+	total = sum(len(v) for v in by_kind.values())
+	level = sum(shrunk[k] * len(by_kind[k]) for k in by_kind) / total
+	offsets = {kind: shrunk[kind] - level for kind in shrunk}
+
+	# 1b. Letter pairs that are common in English (th, er, in...) are typed in a run by most people.
+	# How much quicker they are for this person, learned rather than assumed.
+	common_hits, other_hits = [], []
+
+	for logs in usable:
+		centre = _mean(l for l, _, _ in logs)
+
+		for value, kind, common in logs:
+			if kind != "other":
+				(common_hits if common else other_hits).append(value - centre - offsets[kind])
+
+	common_offset = 0.0
+
+	if len(common_hits) >= 8 and len(other_hits) >= 8:
+		common_offset = (_mean(common_hits) - _mean(other_hits)) * len(common_hits) / (len(common_hits) + 8)
+		common_offset = max(-0.6, min(0.3, common_offset))
+
+	def adjust(value: float, kind: str, common: bool) -> float:
+		return value - offsets[kind] - (common_offset if common and kind != "other" else 0.0)
+
+	# 2. What is left once the kind of move is taken out: the tempo of each search and the wobble inside it.
+	adjusted = [[adjust(value, kind, common) for value, kind, common in logs] for logs in usable]
+	tempos = [_mean(a) for a in adjusted]
+	residuals = [[x - m for x in a] for a, m in zip(adjusted, tempos)]
+	degrees = sum(len(r) for r in residuals) - len(residuals)
+	sigma = math.sqrt(sum(x * x for r in residuals for x in r) / max(1, degrees))
+	per_search = [math.sqrt(sum(x * x for x in r) / max(1, len(r) - 1)) for r in residuals]
+	sampling = _mean(sigma ** 2 / len(r) for r in residuals)
+	tempo_var = max(0.0, statistics.pvariance(tempos) - sampling)
+	top = sum(a * b for r in residuals for a, b in zip(r, r[1:]))
+	bottom = sum(x * x for r in residuals for x in r)
+
+	return {
+		"log_gap_mu": _mean(tempos),
+		"within_sigma": sigma,
+		"sigma_sd": min(0.25, max(0.02, statistics.pstdev(per_search))),
+		"tempo_sd": max(0.02, math.sqrt(tempo_var)),
+		# Few searches say little about how long a tempo lasts, so it is pulled towards a modest middle.
+		"tempo_phi": min(0.7, max(0.0, 0.5 * _lag1(tempos) + 0.5 * 0.3)) if len(tempos) >= 6 else 0.3,
+		"gap_phi": min(0.6, max(0.0, top / bottom)) if bottom > 0 else 0.0,
+		**{f"offset_{kind}": offsets[kind] for kind in human_model.TRANSITIONS},
+		"offset_common_pair": common_offset,
+	}, adjust
+
+
+def _session_levels(sessions: list[list[dict]], adjust) -> list[float]:
+	"""Each sitting's average log gap, to see how far one day differs from another."""
+	levels = []
+
+	for phrases in sessions:
+		values = [
+			adjust(math.log(g), human_model.transition(p, c), human_model.common_pair(p, c))
+			for gaps in phrases for g, p, c in gaps if 0 < g < TYPING_GAP_MAX
+		]
+
+		if len(values) >= 30:
+			levels.append(_mean(values))
+
+	return levels
+
+
+def analyze_typing(sessions: list) -> dict:
+	"""Rhythm, slips, pauses and how much each of those varies. Raises ProfileError if there is not enough.
+
+	`sessions` is one list of PhraseRecords per sitting (a single list of records is one sitting).
+	Sittings on different days are what show how much a person's tempo differs from day to day; with one
+	it is assumed to be modest and the profile says so."""
+	if sessions and isinstance(sessions[0], PhraseRecord):
+		sessions = [sessions]
+
+	everything = [r for session in sessions for r in session]
+	copied = [r for r in everything if not r.compose]
+	made_up = [r for r in everything if r.compose]
+	phrases = [analyze_phrase(r) for r in copied]
+	pairs = [p for phrase in phrases for p in phrase["gaps"]]
+	rhythm = [g for g, _, _ in pairs if 0 <= g < TYPING_GAP_MAX]
+
+	if len(copied) < MIN_PHRASES or len(rhythm) < MIN_INTERVALS:
 		raise behavior.ProfileError(
-			f"only {len(records)} phrases and {len(rhythm)} usable gaps recorded; "
+			f"only {len(copied)} phrases and {len(rhythm)} usable gaps recorded; "
 			f"need {MIN_PHRASES} phrases and {MIN_INTERVALS} gaps"
 		)
 
@@ -295,11 +492,11 @@ def analyze_typing(records: list[PhraseRecord]) -> dict:
 	medium = sum(0.1 <= g < 0.2 for g in rhythm) / len(rhythm)
 	median_gap = statistics.median(rhythm)
 
-	# How often a quick key follows a quick key, within a phrase.
+	# How often a quick key follows a quick key, within a phrase (kept for the original model).
 	persistence_hits = persistence_total = 0
 
 	for phrase in phrases:
-		inside = [g for g, _ in phrase["gaps"] if 0 <= g < TYPING_GAP_MAX]
+		inside = [g for g, _, _ in phrase["gaps"] if 0 <= g < TYPING_GAP_MAX]
 
 		for earlier, later in zip(inside, inside[1:]):
 			if earlier < median_gap:
@@ -308,13 +505,31 @@ def analyze_typing(records: list[PhraseRecord]) -> dict:
 
 	slips = [p for p in phrases if p["slip"]]
 	slip_count = len(slips)
-	hesitations = [g for g, _ in pairs if TYPING_GAP_MAX <= g < HESITATION_MAX]
-	after_space = [g for g, spaced in pairs if spaced and 0 <= g < TYPING_GAP_MAX]
-	inside_word = [g for g, spaced in pairs if not spaced and 0 <= g < TYPING_GAP_MAX]
+	made = [analyze_phrase(r) for r in made_up]
+	# Pauses are taken from the made-up searches when there are enough: that is where thinking shows.
+	source = made if len(made) >= 3 else phrases
+	source_pairs = [p for phrase in source for p in phrase["gaps"]]
+	source_rhythm = [g for g, _, _ in source_pairs if 0 <= g < TYPING_GAP_MAX]
+	hesitations = [g for g, _, _ in source_pairs if TYPING_GAP_MAX <= g < HESITATION_MAX]
 	noticed = [p["noticed_after"] for p in slips if p["noticed_after"] is not None]
 	# How many keys went by before the slip was noticed: 1, 2, 3, or 4 and more. Noticing at once counts as 1.
 	weights = [sum(1 for n in noticed if max(1, min(n, 4)) == k) for k in (1, 2, 3, 4)] if noticed else None
+	starts = [p["start_latency"] for p in (made if len(made) >= 3 else phrases) if p["start_latency"] and p["start_latency"] > 0]
 
+	fitted = fit_rhythm([p["gaps"] for p in phrases])
+	rhythm_detail = {}
+	day_sd, day_measured = PRIOR_DAY_SD, 0.0
+
+	if fitted:
+		rhythm_detail, adjust = fitted
+		per_sitting = [[analyze_phrase(r)["gaps"] for r in session if not r.compose] for session in sessions]
+		levels = _session_levels(per_sitting, adjust)
+
+		if len(levels) >= 2:
+			day_sd, day_measured = min(0.3, max(0.02, statistics.stdev(levels))), 1.0
+
+	after_space = [g for g, p, _ in pairs if p == " " and 0 <= g < TYPING_GAP_MAX]
+	inside_word = [g for g, p, _ in pairs if p != " " and 0 <= g < TYPING_GAP_MAX]
 	minutes = sum(rhythm) / 60
 	detail = {
 		"slip_rate": slip_count / len(phrases),
@@ -324,16 +539,24 @@ def analyze_typing(records: list[PhraseRecord]) -> dict:
 		"noticed_weights": weights,
 		"notice_pause_ms": _ms(_median([p["notice_pause"] for p in slips])),
 		"backspace_gap_ms": _ms(_median([g for p in phrases for g in p["back_gaps"]])),
-		"hesitation_rate": len(hesitations) / len(rhythm),
+		"hesitation_rate": (len(hesitations) / len(source_rhythm)) if source_rhythm else None,
 		"hesitation_ms": _ms(_median(hesitations)),
 		"space_extra_ms": _ms(max(0.0, (_median(after_space, 0.0) - _median(inside_word, 0.0)))) if after_space and inside_word else None,
-		"start_latency_ms": _ms(_median([p["start_latency"] for p in phrases])),
+		"start_latency_ms": _ms(_median(starts)),
+		"start_mu": _mean(math.log(v) for v in starts) if len(starts) >= 3 else None,
+		"start_sigma": min(1.5, max(0.05, statistics.pstdev([math.log(v) for v in starts]))) if len(starts) >= 3 else None,
 		"enter_gap_ms": _ms(_median([p["enter_gap"] for p in phrases])),
 		"fast_persistence": (persistence_hits / persistence_total) if persistence_total else None,
 		"median_gap_ms": _ms(median_gap),
 		"words_per_minute": (len(rhythm) / 5) / minutes if minutes > 0 else None,
+		"day_sd": day_sd,
+		"day_sd_measured": day_measured,
+		**key_holds(everything),
 		"phrases": len(phrases),
+		"made_up": len(made),
+		"sittings": len(sessions),
 		"gaps": len(rhythm),
+		**rhythm_detail,
 	}
 
 	return {"fast_share": round(fast, 4), "medium_share": round(medium, 4), "detail": {k: v for k, v in detail.items() if v is not None}}
@@ -485,22 +708,68 @@ def fit_fitts(trials: list[dict]) -> tuple[float, float, float]:
 	return a, b, (1.0 if tss == 0 else 1.0 - rss / tss)
 
 
-def analyze_mouse(trials: list[Trial]) -> dict:
-	"""Fitts' law and the rest from the completed trials. Raises ProfileError if there is not enough."""
-	done = [t for t in (analyze_trial(trial) for trial in trials) if t]
+def _log_spread(values, offset: float = 0.0):
+	"""(mean, spread) of the log of positive durations in ms, or None if there are too few."""
+	logs = [math.log(v + offset) for v in values if v is not None and v + offset > 0]
+
+	if len(logs) < 5:
+		return None
+
+	return _mean(logs), min(1.2, max(0.03, statistics.pstdev(logs)))
+
+
+def analyze_mouse(sessions: list) -> dict:
+	"""Fitts' law, and how much a person's moves scatter around it. Raises ProfileError if there is not enough.
+
+	`sessions` is one list of Trials per sitting (a single list of Trials is one sitting). The scatter is
+	what keeps the bot from taking exactly the same time to make the same move every time."""
+	if sessions and isinstance(sessions[0], Trial):
+		sessions = [sessions]
+
+	analysed = [[t for t in (analyze_trial(trial) for trial in session) if t] for session in sessions]
+	done = [t for session in analysed for t in session]
 	a, b, r_squared = fit_fitts(done)
+
+	# What is left around the line, in the order it happened: how big, and how much it carries over from one move to the next.
+	residuals = [[math.log(t["movement_time"] / (a + b * t["id"])) for t in session if a + b * t["id"] > 0] for session in analysed]
+	flat = [r for session in residuals for r in session]
+	top = sum(x * y for session in residuals for x, y in zip(session, session[1:]))
+	bottom = sum(x * x for session in residuals for x in session)
+	move_phi = min(0.8, max(0.0, 0.5 * (top / bottom if bottom > 0 else 0.0) + 0.5 * 0.15))
+	levels = [_mean(session) for session in residuals if len(session) >= 8]
+	day_sd, day_measured = PRIOR_DAY_SD, 0.0
+
+	if len(levels) >= 2:
+		day_sd, day_measured = min(0.3, max(0.02, statistics.stdev(levels))), 1.0
+
+	dwell = _log_spread([t["dwell"] * 1000 for t in done if t["dwell"] is not None])
+	hover = _log_spread([t["hover"] * 1000 for t in done], 20)
+	reaction = _log_spread([t["reaction"] * 1000 for t in done])
+	straight = [t["straightness"] for t in done if t["straightness"] is not None]
 	detail = {
+		"move_rel_sd": min(0.8, max(0.02, statistics.pstdev(flat))) if len(flat) >= 5 else None,
+		"move_phi": move_phi,
+		"day_sd": day_sd,
+		"day_sd_measured": day_measured,
 		"reaction_ms": _ms(_median([t["reaction"] for t in done])),
+		"reaction_mu": reaction[0] if reaction else None,
+		"reaction_sigma": reaction[1] if reaction else None,
 		"hover_ms": _ms(_median([t["hover"] for t in done])),
+		"hover_mu": hover[0] if hover else None,
+		"hover_sigma": hover[1] if hover else None,
 		"dwell_ms": _ms(_median([t["dwell"] for t in done])),
+		"dwell_mu": dwell[0] if dwell else None,
+		"dwell_sigma": dwell[1] if dwell else None,
 		"dwell_low_ms": _ms(_percentile([t["dwell"] for t in done if t["dwell"] is not None], 0.1)),
 		"dwell_high_ms": _ms(_percentile([t["dwell"] for t in done if t["dwell"] is not None], 0.9)),
 		"miss_rate": sum(1 for t in done if t["misses"]) / len(done),
 		"overshoot_rate": sum(1 for t in done if t["overshoot"]) / len(done),
-		"straightness": _median([t["straightness"] for t in done]),
+		"straightness": _median(straight),
+		"straightness_sd": statistics.pstdev(straight) if len(straight) >= 5 else None,
 		"speed_px_s": _median([t["speed"] for t in done]),
 		"r_squared": round(r_squared, 3),
 		"trials": len(done),
+		"sittings": len(sessions),
 	}
 
 	return {"fitts_a": round(a, 4), "fitts_b": round(b, 4), "detail": {k: v for k, v in detail.items() if v is not None}}
@@ -515,16 +784,66 @@ def _percentile(values, share):
 	return values[min(len(values) - 1, int(share * len(values)))]
 
 
+def rhythm_check(sessions: list, detail: dict, rng=None) -> dict | None:
+	"""Does a typist made from these numbers type like the person did? None if scipy is not installed.
+
+	Simulates the same phrases several times with the fitted model and compares the spread of its gaps
+	and of its tempo from phrase to phrase with the recording (a two-sample Kolmogorov-Smirnov test for the
+	gaps: the statistic is the largest gap between the two distributions, so smaller is closer)."""
+	try:
+		from scipy import stats
+	except ImportError:
+		return None
+
+	if sessions and isinstance(sessions[0], PhraseRecord):
+		sessions = [sessions]
+
+	copied = [r for session in sessions for r in session if not r.compose and r.target]
+	observed, observed_tempo = [], []
+
+	for record in copied:
+		logs = [math.log(g) for g, _, _ in analyze_phrase(record)["gaps"] if 0 < g < TYPING_GAP_MAX]
+		observed += logs
+
+		if len(logs) >= MIN_PHRASES_FOR_RHYTHM:
+			observed_tempo.append(_mean(logs))
+
+	if len(observed) < 50 or "log_gap_mu" not in detail:
+		return None
+
+	rhythm = human_model.TypingRhythm(detail, rng or random.Random(0), 0.0)
+	simulated, simulated_tempo = [], []
+
+	for _ in range(5):
+		for record in copied:
+			rhythm.start_search()
+			logs = [math.log(rhythm.next_gap(a, b)) for a, b in zip(record.target, record.target[1:])]
+			simulated += logs
+
+			if len(logs) >= MIN_PHRASES_FOR_RHYTHM:
+				simulated_tempo.append(_mean(logs))
+
+	test = stats.ks_2samp(observed, simulated)
+
+	return {
+		"ks": float(test.statistic),
+		"tempo_sd_recorded": statistics.pstdev(observed_tempo) if len(observed_tempo) > 2 else None,
+		"tempo_sd_simulated": statistics.pstdev(simulated_tempo) if len(simulated_tempo) > 2 else None,
+	}
+
+
 # ----------------------------------------------------------------------------- the raw data
 
 
-def raw(records: list[PhraseRecord], trials: list[Trial]) -> dict:
-	"""Everything that was recorded, plain enough to write as JSON and analyse again later."""
+def raw(records: list[PhraseRecord], trials: list[Trial], when: str = "") -> dict:
+	"""One sitting's recording, plain enough to write as JSON and analyse again later."""
 	return {
+		"when": when,
 		"typing": [
 			{
-				"target": r.target, "final": r.final, "shown_at": r.shown_at,
+				"target": r.target, "final": r.final, "shown_at": r.shown_at, "compose": r.compose,
 				"events": [{"t": t, "kind": kind, "char": char} for t, kind, char in r.events],
+				"holds": [[key, down, up] for key, down, up in r.holds],
 			}
 			for r in records
 		],
@@ -537,6 +856,41 @@ def raw(records: list[PhraseRecord], trials: list[Trial]) -> dict:
 			for t in trials
 		],
 	}
+
+
+def records_from_raw(rows: list[dict]) -> list[PhraseRecord]:
+	records = []
+
+	for row in rows:
+		record = PhraseRecord(row.get("target", ""), row.get("shown_at", 0.0), bool(row.get("compose")))
+		record.events = [(e["t"], e["kind"], e.get("char", "")) for e in row.get("events", [])]
+		record.holds = [(h[0], h[1], h[2]) for h in row.get("holds", []) if len(h) == 3]
+		record.final = row.get("final", "")
+		records.append(record)
+
+	return records
+
+
+def trials_from_raw(rows: list[dict]) -> list[Trial]:
+	trials = []
+
+	for row in rows:
+		trial = Trial(tuple(row["start"]), tuple(row["rect"]), row["shown_at"])
+		trial.samples = [tuple(sample) for sample in row.get("samples", [])]
+		trial.presses = [tuple(press) for press in row.get("presses", [])]
+		trial.release_at = row.get("release_at")
+		trial.done = trial.release_at is not None
+		trials.append(trial)
+
+	return trials
+
+
+def sittings_from_file(data: dict) -> list[dict]:
+	"""The sittings in a raw file, whether it is the old single-sitting shape or the list of sittings."""
+	if isinstance(data.get("sessions"), list):
+		return [s for s in data["sessions"] if isinstance(s, dict)]
+
+	return [data] if data.get("typing") or data.get("mouse") else []
 
 
 # ----------------------------------------------------------------------------- the profile
@@ -554,7 +908,7 @@ def build(typing: dict, mouse: dict) -> dict:
 	}
 
 
-def describe(typing: dict, mouse: dict) -> list[str]:
+def describe(typing: dict, mouse: dict, check: dict | None = None) -> list[str]:
 	t, m = typing["detail"], mouse["detail"]
 	lines = [
 		f"Typing: about {t.get('words_per_minute', 0):.0f} words per minute, median gap {t.get('median_gap_ms', 0):.0f} ms",
@@ -568,10 +922,35 @@ def describe(typing: dict, mouse: dict) -> list[str]:
 	if "hesitation_rate" in t:
 		lines.append(f"  a mid-phrase pause every {1 / t['hesitation_rate']:.0f} keys" if t["hesitation_rate"] else "  no mid-phrase pauses")
 
+	if "tempo_sd" in t:
+		lines += [
+			f"  how much you vary: key to key {t['within_sigma']:.0%}, from search to search {t['tempo_sd']:.0%}, "
+			f"from day to day {t.get('day_sd', 0):.0%}" + ("" if t.get("day_sd_measured") else " (assumed: record again on another day)"),
+			f"  quick keys come in runs ({t.get('gap_phi', 0):.2f}); common letter pairs are {abs(t.get('offset_common_pair', 0)):.0%} "
+			+ ("quicker" if t.get("offset_common_pair", 0) < 0 else "slower"),
+		]
+
+	if "hold_ms" in t:
+		lines.append(
+			f"  holds each key down about {t['hold_ms']:.0f} ms" + (f"; presses the next key before letting go in {t['rollover_rate']:.0%} of pairs" if "rollover_rate" in t else "")
+		)
+
+	if check and "ks" in check:
+		lines.append(
+			f"  check: a typist built from these numbers differs from your recording by {check['ks']:.2f} "
+			f"({'very close' if check['ks'] < 0.08 else 'close' if check['ks'] < 0.15 else 'rough'}; 0 is identical)"
+		)
+
 	lines += [
 		f"Mouse: MT = {mouse['fitts_a']:.3f} + {mouse['fitts_b']:.3f} * ID (fit {m.get('r_squared', 0):.2f}, {m.get('trials', 0)} clicks)",
 		f"  starts moving {m.get('reaction_ms', 0):.0f} ms after the target appears, hovers {m.get('hover_ms', 0):.0f} ms, holds the button {m.get('dwell_ms', 0):.0f} ms",
 		f"  misses {m.get('miss_rate', 0):.0%} of clicks, overshoots {m.get('overshoot_rate', 0):.0%}, path {m.get('straightness', 1):.2f}x a straight line",
 	]
+
+	if "move_rel_sd" in m:
+		lines.append(
+			f"  how much you vary: move to move {m['move_rel_sd']:.0%}, from day to day {m.get('day_sd', 0):.0%}"
+			+ ("" if m.get("day_sd_measured") else " (assumed: record again on another day)")
+		)
 
 	return lines
