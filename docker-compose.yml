@@ -227,6 +227,29 @@ services:
       REWARDS_ACCOUNTS: second
       REWARDS_SEARCH_RUNS_PER_DAY: ${SECOND_SEARCH_RUNS_PER_DAY:-3}
 
+  # A third account (a family member's, brand new). Same arrangement as the second,
+  # behind its own profile, signed in first and only then started with
+  #
+  #   docker compose --profile third up -d scheduler-third search-scheduler-third
+  #
+  # It starts on a 21-day ramp (ramp_days in data-dir/pacing.json) with no optional
+  # behaviours switched on, and fewer runs a day than the others.
+  scheduler-third:
+    extends: scheduler
+    profiles: ["third"]
+    environment:
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler-third.log
+      REWARDS_ACCOUNTS: third
+      REWARDS_ANCHOR_HOUR: ${THIRD_ANCHOR_HOUR:-11}
+
+  search-scheduler-third:
+    extends: search-scheduler
+    profiles: ["third"]
+    environment:
+      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler-third.log
+      REWARDS_ACCOUNTS: third
+      REWARDS_SEARCH_RUNS_PER_DAY: ${THIRD_SEARCH_RUNS_PER_DAY:-2}
+
   # One off, before the first run. Opens the Rewards sign-in in a browser
   # inside the container and puts that browser on your screen as a web page,
   # so the profile is written by the same Edge that will later read it.
