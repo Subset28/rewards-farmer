@@ -21,6 +21,11 @@
 #   data-dir/<account>/openvpn/auth.txt       optional: username, then password
 #   data-dir/<account>/openvpn/timezone       optional: the exit's timezone, such as America/Chicago
 #
+# One account on the VPN while the others stay on the real connection: set VPN_ACCOUNTS to
+# just that account (for the third account, VPN_ACCOUNTS=third), do NOT start its plain
+# scheduler-third / search-scheduler-third services, and `up -d vpn`. The accounts not
+# listed keep running as before.
+#
 # <account> is "default" for the unnamed profile. Which accounts run is VPN_ACCOUNTS
 # in .env (default: default,second). Other settings, all in .env:
 #
@@ -50,6 +55,10 @@ services:
       net.ipv6.conf.all.disable_ipv6: "1"
     environment:
       REWARDS_ACCOUNTS: ${VPN_ACCOUNTS:-default,second}
+      # How often the VPN container's schedulers run. A new account on its own wants fewer
+      # runs a day than the established ones (set both in .env, e.g. 2 and 11 for "third").
+      REWARDS_SEARCH_RUNS_PER_DAY: ${VPN_SEARCH_RUNS_PER_DAY:-4}
+      REWARDS_ANCHOR_HOUR: ${VPN_ANCHOR_HOUR:-12}
       REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/vpn.log
       NAME_SERVERS: ${NAME_SERVERS:-1.1.1.1,1.0.0.1}
       HOME_IP_BLACKLIST: ${HOME_IP_BLACKLIST:-}
