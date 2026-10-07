@@ -31,6 +31,7 @@ class HealthCase(unittest.TestCase):
 			mock.patch.object(health.safety, "paused_for", return_value=None),
 			mock.patch.object(health.journal, "events", return_value=[]),
 			mock.patch.object(health.points_log, "history", return_value=[]),
+			mock.patch.object(health.task_log, "history", return_value=[]),
 		):
 			patcher.start()
 			self.addCleanup(patcher.stop)
@@ -125,6 +126,80 @@ class TestSilence(HealthCase):
 		with mock.patch.object(health.safety, "paused_for", return_value=pause), \
 			mock.patch.object(health.journal, "events", return_value=[event("default", 40, outcome="skipped")]):
 			self.assertEqual(self.keys(), [])
+
+
+def task_rows(task, completed_flags, tag_for_failure="SKIP"):
+	return [{"t": f"2026-10-0{n % 9 + 1} 10:00:00", "account": "default", "task": task, "completed": ok, "tag": "OK" if ok else tag_for_failure, "gained": 5 if ok else 0} for n, ok in enumerate(completed_flags)]
+
+
+class TestTaskBroken(HealthCase):
+	def find_with(self, rows):
+		with mock.patch.object(health.task_log, "history", return_value=rows):
+			return self.find()
+
+	def test_a_task_that_worked_and_now_fails_three_times_needs_claude(self):
+		found = self.find_with(task_rows("Explore on Bing", [True] * 8 + [False] * 3))
+
+		self.assertEqual([f.key for f in found], ["task:Explore on Bing"])
+		self.assertEqual(found[0].needs, health.NEEDS_CLAUDE)
+		self.assertIn("Explore on Bing", found[0].message)
+
+	def test_two_failures_are_not_enough(self):
+		self.assertEqual(self.find_with(task_rows("Explore on Bing", [True] * 8 + [False] * 2)), [])
+
+	def test_a_task_that_never_worked_is_left_alone(self):
+		# Visual search is skipped as "not available" on every run; that is how it is, not a break.
+		self.assertEqual(self.find_with(task_rows("Visual search", [False] * 12)), [])
+
+	def test_a_task_that_only_rarely_worked_is_left_alone(self):
+		self.assertEqual(self.find_with(task_rows("Quests", [True, False, False, False, False, False, False, False, False, False, False, False])), [])
+
+	def test_one_success_among_the_last_three_clears_it(self):
+		self.assertEqual(self.find_with(task_rows("Explore on Bing", [True] * 8 + [False, True, False])), [])
+
+	def test_each_task_is_judged_on_its_own(self):
+		rows = task_rows("Bing daily set", [True] * 11) + task_rows("Explore on Bing", [True] * 8 + [False] * 3)
+
+		self.assertEqual(self.keys_for(rows), ["task:Explore on Bing"])
+
+	def keys_for(self, rows):
+		with mock.patch.object(health.task_log, "history", return_value=rows):
+			return self.keys()
+
+
+def day_readings(totals):
+	return [{"time": f"2026-10-{n + 1:02d} 10:00:00", "account": "x", "today": value, "lifetime": 1000 + n * 100} for n, value in enumerate(totals)]
+
+
+class TestLowDays(HealthCase):
+	def setUp(self):
+		super().setUp()
+		patcher = mock.patch.object(health.pacing, "in_ramp", return_value=False)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def keys_for(self, totals):
+		with mock.patch.object(health.points_log, "history", return_value=day_readings(totals)):
+			return self.keys()
+
+	def test_two_very_low_days_in_a_row_need_claude(self):
+		self.assertEqual(self.keys_for([230, 240, 220, 250, 235, 225, 245, 40, 35]), ["low_days"])
+
+	def test_one_low_day_is_a_light_day_not_a_problem(self):
+		self.assertEqual(self.keys_for([230, 240, 220, 250, 235, 225, 245, 240, 40]), [])
+
+	def test_normal_days_are_fine(self):
+		self.assertEqual(self.keys_for([230, 240, 220, 250, 235, 225, 245, 240, 200]), [])
+
+	def test_an_account_that_never_made_much_is_left_alone(self):
+		self.assertEqual(self.keys_for([20, 25, 22, 18, 24, 21, 23, 2, 1]), [])
+
+	def test_not_enough_history_says_nothing(self):
+		self.assertEqual(self.keys_for([230, 240, 40, 35]), [])
+
+	def test_a_new_account_in_its_ramp_is_left_alone(self):
+		with mock.patch.object(health.pacing, "in_ramp", return_value=True):
+			self.assertEqual(self.keys_for([230, 240, 220, 250, 235, 225, 245, 40, 35]), [])
 
 
 class TestPause(HealthCase):

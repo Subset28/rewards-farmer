@@ -26,6 +26,7 @@ import quests
 import journal
 import pacing
 import query_history
+import task_log
 
 from constants import REPO_ROOT
 
@@ -885,6 +886,7 @@ class RewardsTaskUtils:
 			# level, they are the per-task outcome summary and reading a run
 			# means scanning for them.
 			completed = False
+			tag = "OK"
 
 			try:
 				step()
@@ -912,11 +914,17 @@ class RewardsTaskUtils:
 			if not completed:
 				self.return_to_rewards_home()
 
+			gained = None
+
 			if track_points:
 				now = self.today_points()
 
 				if last_points is not None and now is not None:
-					logger.info("[POINTS] %s: %+d (today %d)", name, now - last_points, now)
+					gained = now - last_points
+					logger.info("[POINTS] %s: %+d (today %d)", name, gained, now)
 
 				if now is not None:
 					last_points = now
+
+			# For health.py: a task that worked and now fails every day is a changed page.
+			task_log.record(self.account_name, name, completed, tag, gained)

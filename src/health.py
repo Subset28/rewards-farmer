@@ -13,6 +13,8 @@ What it looks for, per account:
   * two or more failed runs in the last day (needs Claude)
   * no points gained for two days although the account ran (needs Claude)
   * no run of any kind for a day and a half (needs Claude: the scheduler is stuck or gone)
+  * a task that used to work failed its last three runs in a row (needs Claude: usually a changed page)
+  * points far below the account's normal for two days running (needs Claude)
 
 Each problem is reported once a day at most while it lasts, and again if it comes back after
 clearing. It never raises: a health check must not be the thing that breaks a run.
@@ -26,8 +28,10 @@ from datetime import datetime, timedelta
 import clock
 import journal
 import notify
+import pacing
 import points_log
 import safety
+import task_log
 from constants import USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,11 @@ NEEDS_YOU = "NEEDS YOU"
 REPEAT_AFTER = timedelta(hours=24)
 PAUSE_REMINDER_AFTER = timedelta(hours=12)
 FAILURES_TO_REPORT = 2
+TASK_FAILURES_TO_REPORT = 3     # runs in a row
+TASK_WORKED_BEFORE = 3          # times it completed among the ten runs before those
+LOW_DAY_SHARE = 0.4             # of the recent median
+LOW_DAYS_IN_A_ROW = 2
+MIN_TYPICAL_DAY = 60
 STALLED_AFTER = timedelta(hours=44)
 SILENT_AFTER = timedelta(hours=36)
 
@@ -173,6 +182,64 @@ def _silent(account: str, rows: list[dict], now: datetime, paused: bool) -> list
 	)]
 
 
+def _tasks_broken(account: str, rows: list[dict]) -> list[Finding]:
+	"""A task that used to work and has failed its last few runs in a row: a changed page."""
+	found = []
+	by_task: dict[str, list[dict]] = {}
+
+	for row in rows:
+		by_task.setdefault(row["task"], []).append(row)
+
+	for task, runs in by_task.items():
+		recent, before = runs[-TASK_FAILURES_TO_REPORT:], runs[-TASK_FAILURES_TO_REPORT - 10:-TASK_FAILURES_TO_REPORT]
+
+		if len(recent) < TASK_FAILURES_TO_REPORT or any(r.get("completed") for r in recent):
+			continue
+
+		if sum(1 for r in before if r.get("completed")) < TASK_WORKED_BEFORE:
+			continue
+
+		tags = ", ".join(sorted({str(r.get("tag")) for r in recent}))
+		found.append(Finding(
+			account, f"task:{task}", NEEDS_CLAUDE, f"\"{task}\" has failed {TASK_FAILURES_TO_REPORT} runs in a row",
+			f"It worked before and has now ended {tags} in each of its last {TASK_FAILURES_TO_REPORT} daily runs. Most often Microsoft changed that page.",
+			f"{account}'s \"{task}\" task keeps failing, check the bot",
+		))
+
+	return found
+
+
+def _low_days(account: str, readings: list[dict], now: datetime) -> list[Finding]:
+	"""Points far below what the account normally makes, two days running. One low day can be a light day."""
+	if pacing.in_ramp(account):
+		return []
+
+	by_day: dict[str, int] = {}
+
+	for reading in readings:
+		try:
+			by_day[str(reading["time"])[:10]] = int(reading["today"])
+		except (KeyError, TypeError, ValueError):
+			continue
+
+	days = sorted(by_day)
+
+	if len(days) < LOW_DAYS_IN_A_ROW + 4:
+		return []
+
+	latest, earlier = days[-LOW_DAYS_IN_A_ROW:], days[-LOW_DAYS_IN_A_ROW - 7:-LOW_DAYS_IN_A_ROW]
+	typical = sorted(by_day[d] for d in earlier)[len(earlier) // 2]
+
+	if typical < MIN_TYPICAL_DAY or any(by_day[d] >= typical * LOW_DAY_SHARE for d in latest):
+		return []
+
+	return [Finding(
+		account, "low_days", NEEDS_CLAUDE, "points far below normal for two days",
+		f"The last two daily readings were {', '.join(str(by_day[d]) for d in latest)}; a normal day here is about {typical}.",
+		f"{account}'s points have been far below normal, check the bot",
+	)]
+
+
 def findings(names: list[str], now: datetime | None = None) -> list[Finding]:
 	"""Everything wrong right now, for these accounts."""
 	now = now or clock.now()
@@ -186,6 +253,8 @@ def findings(names: list[str], now: datetime | None = None) -> list[Finding]:
 		found += _failures(name, [r for r in today if (_parse(r["t"]) or now) >= now - timedelta(days=1)])
 		found += _stalled(name, points_log.history(name), now)
 		found += _silent(name, week, now, held)
+		found += _tasks_broken(name, task_log.history(name))
+		found += _low_days(name, points_log.history(name), now)
 
 	return found
 
