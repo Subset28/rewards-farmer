@@ -285,7 +285,7 @@ class Batch:
 		self.driver = types.SimpleNamespace(get=lambda url: None)
 		self.tab_utils = types.SimpleNamespace(ensure_focus=lambda: None)
 		self.elements = types.SimpleNamespace(get_bing_search_bar=lambda: object())
-		self.keyboard = types.SimpleNamespace(send_keys=lambda text, **kw: self.typed.append(text))
+		self.keyboard = types.SimpleNamespace(send_keys=lambda text, **kw: self.typed.append(text), slip_settings=lambda: (0.08, 0.5))
 
 	def wait_for_element(self, getter, *a, **k):
 		return getter()
@@ -300,7 +300,7 @@ class TestSearchBatchRemembersAndAsksForThisAccount(HistoryTestCase):
 		page = Batch()
 
 		with mock.patch.object(rewards_tasks.queries, "related_queries", return_value=["alpha beta", "gamma delta"]) as ask, \
-			mock.patch.object(rewards_tasks.search_behavior, "with_typo", side_effect=lambda q: q), \
+			mock.patch.object(rewards_tasks.search_behavior, "with_typo", side_effect=lambda q, *a, **k: q), \
 			self.assertLogs(rewards_tasks.logger, level="INFO") as logs:
 			page.run_search_batch(2)
 
@@ -313,7 +313,7 @@ class TestSearchBatchRemembersAndAsksForThisAccount(HistoryTestCase):
 		page = Batch()
 
 		with mock.patch.object(rewards_tasks.queries, "related_queries", return_value=["haircare products"]), \
-			mock.patch.object(rewards_tasks.search_behavior, "with_typo", side_effect=lambda q: "hairacre products"):
+			mock.patch.object(rewards_tasks.search_behavior, "with_typo", side_effect=lambda q, *a, **k: "hairacre products"):
 			page.run_search_batch(1)
 
 		self.assertEqual(query_history.recent("second"), {"haircare products"})

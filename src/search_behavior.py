@@ -26,7 +26,7 @@ TYPO_RATE = 0.08
 MIN_WORD_LENGTH = 4
 
 
-def with_typo(query: str, rate: float = TYPO_RATE, rng=random) -> str:
+def with_typo(query: str, rate: float = TYPO_RATE, rng=random, neighbor_share: float = 0.5) -> str:
 	"""The query, with one slip in it about `rate` of the time.
 
 	Either a neighboring key hit instead of the right one, or two adjacent
@@ -53,7 +53,7 @@ def with_typo(query: str, rate: float = TYPO_RATE, rng=random) -> str:
 	i = rng.choice(positions)
 	letters = list(query)
 
-	if rng.random() < 0.5 and letters[i].lower() in NEIGHBORS:
+	if rng.random() < neighbor_share and letters[i].lower() in NEIGHBORS:
 		wrong = rng.choice(NEIGHBORS[letters[i].lower()])
 		letters[i] = wrong.upper() if letters[i].isupper() else wrong
 	else:

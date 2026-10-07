@@ -23,7 +23,9 @@ tests and one-off runs).
 
 Features:
 
-    typing           corrected typos, word-boundary and thinking pauses (mimic_typing.py)
+    typing           corrected typos, word-boundary and thinking pauses, and a recorded profile's own
+                     slip rate, pauses and correction habits (mimic_typing.py)
+    mouse            a recorded profile's own click hold time and hover before a click (mouse_trajectory.py)
     query_sessions   queries grouped into topical sessions with follow-ups (query_sources.py)
     habits           each owner's own favoured times of day for search runs (search_scheduler.py)
 """
@@ -41,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 FEATURES_FILE = os.path.join(USER_DATA_DIR, "features.json")
 
-KNOWN = ("typing", "query_sessions", "habits")
+KNOWN = ("typing", "mouse", "query_sessions", "habits")
 
 ENV = "REWARDS_FEATURES"
 EVERY_ACCOUNT = "*"

@@ -728,7 +728,10 @@ class RewardsTaskUtils:
 			# No operator on the query: an identical suffix on every search is
 			# something no person does.
 			logger.info("Search %d/%d: %r", i + 1, count, query)
-			self.keyboard.send_keys(f"{search_behavior.with_typo(query)}{Keys.ENTER}", intended=query)
+			slip_rate, neighbor_share = self.keyboard.slip_settings()
+			self.keyboard.send_keys(
+				f"{search_behavior.with_typo(query, slip_rate, neighbor_share=neighbor_share)}{Keys.ENTER}", intended=query,
+			)
 
 			# Remembered as the query that was meant, so it is not searched
 			# again by this account for a month.

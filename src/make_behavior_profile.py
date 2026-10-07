@@ -1,5 +1,9 @@
 """Build an account's behavior profile from a person's own recordings.
 
+    python src/calibrate.py <account>   # the whole recording in one window: use this one
+
+  The three steps below record only the rhythm and Fitts' law, and still work:
+
     python src/typing_test.py        # a fullscreen test: type 12 search-style phrases
                                      # -> writes keypress_times.txt when it finishes
     python src/fitts_law.py          # 18 quick clicks -> "MT = a + b * ID"
@@ -30,6 +34,12 @@ def show(name: str) -> int:
 	print(f"{name}: {profile.source} profile")
 	print(f"  typing: {fast:.1%} of intervals under 0.1s, {medium:.1%} from 0.1 to 0.2s, {slow:.1%} slower")
 	print(f"  mouse : Fitts' law MT = {profile.fitts_a:.4f} + {profile.fitts_b:.4f} * ID")
+
+	if profile.typing_detail:
+		print(f"  finer typing measurements: {', '.join(sorted(profile.typing_detail))}")
+
+	if profile.mouse_detail:
+		print(f"  finer mouse measurements : {', '.join(sorted(profile.mouse_detail))}")
 
 	if profile.source != "recorded":
 		print(f"  not recorded; written to {behavior.profile_path(name)} once you run this tool with --keys and --fitts")
