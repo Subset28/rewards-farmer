@@ -17,5 +17,6 @@ if ! git diff --quiet HEAD -- src docker-compose.yml docker-compose.vpn.yml Dock
 	exit 1
 fi
 
-git archive HEAD . | ssh synology 'cd /volume1/docker/rewards-farmer && tar -xf -'
+# The NAS clock is a few milliseconds behind this machine's, which makes tar complain on every file.
+git archive HEAD . | ssh synology 'cd /volume1/docker/rewards-farmer && tar -xf -' 2> >(grep -v 'in the future' >&2)
 sed 's/\r$//' scripts/deploy_remote.sh | ssh synology 'sh -s'

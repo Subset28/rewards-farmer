@@ -20,7 +20,13 @@ fi
 
 busy=0
 for c in $running; do
-	n=$($D exec "$c" sh -c 'ps -eo args | grep -c "[m]sedge .*--user-data-dir"' 2>/dev/null || echo 0)
+	n=$($D exec "$c" sh -c 'ps -eo args | grep -c "[m]sedge .*--user-data-dir"' 2>/dev/null)
+
+	# If it could not be read, treat it as busy: better to refuse than to kill a live run.
+	case "$n" in
+		''|*[!0-9]*) n=1 ;;
+	esac
+
 	busy=$((busy + n))
 done
 
