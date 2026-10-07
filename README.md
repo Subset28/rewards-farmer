@@ -355,8 +355,8 @@ Turn a feature off again the moment something looks wrong, and tell the changes 
 
 An account that earns its full quota at the same rate, every day, from its first day, is the clearest pattern an automated account leaves. `src/pacing.py` makes each account behave more like a person. Everything is worked out from the account's name and the date, so a restart or a new build gives the same answer and nothing has to be saved.
 
-- **Light days.** Now and then (about one day in seven, never two running) an account does only the bare minimum: the daily set, one small search and the daily claim. Never nothing: Rewards counts streaks (the daily set and a Bing search seven days in a row are level-up activities, and Gold needs two a month) and searching on 14 days a month earns the default search bonus, so a day with no activity would cost real points.
-- **Variable totals.** On a working day an account fills a share of its search quota (60% to 100%), not always all of it.
+- **Light days.** Now and then (about one day in ten, never two running) an account does only the bare minimum: the daily set, one small search and the daily claim. Never nothing: Rewards counts streaks (the daily set and a Bing search seven days in a row are level-up activities, and Gold needs two a month) and searching on 14 days a month earns the default search bonus, so a day with no activity would cost real points.
+- **Variable totals.** On a working day an account fills a share of its search quota (80% to 100%), not always all of it.
 - **A ramp.** For an account's first 7 days it asks for less each day (30% rising to a full day), takes no light days, and does only the daily set and its searches.
 - **Order.** The accounts of one run are taken in a different order each time.
 - **No shared queries.** An account avoids the queries any other account searched in the last 7 days, as well as its own from the last 30.
@@ -365,8 +365,8 @@ An account that earns its full quota at the same rate, every day, from its first
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `REWARDS_REST_DAY_CHANCE` | `0.15` | Chance a day is a light day. `0` turns light days off. |
-| `REWARDS_MIN_DAILY_FRACTION` | `0.6` | Least share of the search quota filled on a working day. `1` means always all of it. |
+| `REWARDS_REST_DAY_CHANCE` | `0.10` | Chance a day is a light day. `0` turns light days off. |
+| `REWARDS_MIN_DAILY_FRACTION` | `0.8` | Least share of the search quota filled on a working day. `1` means always all of it. |
 | `REWARDS_RAMP_DAYS` | `7` | Days of an account's ramp. `0` turns it off. |
 | `REWARDS_KEEP_ORDER` | `0` | `1` keeps the accounts in the order listed. |
 | `REWARDS_APP_HEADERS` | unset | `1` sends the old Windows/`MSRewards` header override. Off by default: it made the request header disagree with the browser's own identity. Set it only if a rewards-only quest stops earning. |

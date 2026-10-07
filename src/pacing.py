@@ -20,8 +20,8 @@ on the same answer and nothing needs to be saved to stay consistent.
 
 Settings (environment):
 
-    REWARDS_REST_DAY_CHANCE        chance a day is a light day, default 0.15 (about one a week); 0 turns it off
-    REWARDS_MIN_DAILY_FRACTION     least share of the search quota filled on a working day, default 0.6; 1 means always all of it
+    REWARDS_REST_DAY_CHANCE        chance a day is a light day, default 0.10 (about one in ten days); 0 turns it off
+    REWARDS_MIN_DAILY_FRACTION     least share of the search quota filled on a working day, default 0.8; 1 means always all of it
     REWARDS_RAMP_DAYS              days of an account's ramp, default 7; 0 turns it off
     REWARDS_KEEP_ORDER             1 keeps the accounts in the order listed
 
@@ -69,11 +69,11 @@ def _float(name: str, default: float, low: float, high: float) -> float:
 
 
 def rest_chance() -> float:
-	return _float("REWARDS_REST_DAY_CHANCE", 0.15, 0.0, 0.5)
+	return _float("REWARDS_REST_DAY_CHANCE", 0.10, 0.0, 0.5)
 
 
 def min_fraction() -> float:
-	return _float("REWARDS_MIN_DAILY_FRACTION", 0.6, 0.05, 1.0)
+	return _float("REWARDS_MIN_DAILY_FRACTION", 0.8, 0.05, 1.0)
 
 
 def ramp_days(account: str | None = None) -> int:

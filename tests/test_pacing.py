@@ -286,8 +286,8 @@ class TestOrder(PacingTestCase):
 class TestBadInput(PacingTestCase):
 	def test_settings_that_are_not_numbers_fall_back(self):
 		with mock.patch.dict(os.environ, {"REWARDS_REST_DAY_CHANCE": "lots", "REWARDS_MIN_DAILY_FRACTION": "x", "REWARDS_RAMP_DAYS": "?"}):
-			self.assertEqual(pacing.rest_chance(), 0.15)
-			self.assertEqual(pacing.min_fraction(), 0.6)
+			self.assertEqual(pacing.rest_chance(), 0.10)
+			self.assertEqual(pacing.min_fraction(), 0.8)
 			self.assertEqual(pacing.ramp_days(), 7)
 
 	def test_a_damaged_state_file_means_a_new_account_not_an_error(self):

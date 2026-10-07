@@ -66,6 +66,7 @@ services:
       NOTIFY_URL: ${NOTIFY_URL:-}
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
+      NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
       # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
       # plain request. Unset, nothing uses it. Never used for account pages.
       TRAWL_URL: ${TRAWL_URL:-}
@@ -123,6 +124,7 @@ services:
       NOTIFY_URL: ${NOTIFY_URL:-}
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
+      NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
       # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
       # plain request. Unset, nothing uses it. Never used for account pages.
       TRAWL_URL: ${TRAWL_URL:-}
@@ -182,6 +184,7 @@ services:
       NOTIFY_URL: ${NOTIFY_URL:-}
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
+      NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
       # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
       # plain request. Unset, nothing uses it. Never used for account pages.
       TRAWL_URL: ${TRAWL_URL:-}
