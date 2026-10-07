@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import accounts
 import features
 import footprint
+import health
 import journal
 import log_utils
 import notify
@@ -310,6 +311,7 @@ def main() -> None:
 	owner = run_lock.owner()
 
 	while True:
+		health.check()
 		now = datetime.now()
 		runs = outstanding(now, owner)
 

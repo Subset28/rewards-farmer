@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 import accounts
 import footprint
+import health
 import journal
 import log_utils
 import notify
@@ -84,6 +85,7 @@ def main() -> None:
 	owner = run_lock.owner()
 
 	while True:
+		health.check()
 		now = datetime.now()
 		at = plan_next_run(now, owner)
 		wait = max(0.0, (at - now).total_seconds())
