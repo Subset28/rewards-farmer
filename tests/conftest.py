@@ -21,9 +21,11 @@ def neutral_pacing(tmp_path, monkeypatch):
 
 	monkeypatch.setattr(pacing, "STATE_FILE", str(tmp_path / "pacing.json"))
 
+	import backup
 	import health
 
 	monkeypatch.setattr(health, "STATE_FILE", str(tmp_path / "health.json"))
+	monkeypatch.setattr(backup, "BACKUP_DIR", str(tmp_path / "backups"))
 	monkeypatch.setenv("REWARDS_REST_DAY_CHANCE", "0")
 	monkeypatch.setenv("REWARDS_MIN_DAILY_FRACTION", "1")
 	monkeypatch.setenv("REWARDS_RAMP_DAYS", "0")

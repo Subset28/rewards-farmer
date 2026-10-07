@@ -1,3 +1,5 @@
+"""Runs main.py once a day at an anchor hour plus a random delay, forever. Each loop it also checks health (health.py) and takes the day's backup (backup.py)."""
+
 import logging
 import os
 import random
@@ -7,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 
 import accounts
+import backup
 import footprint
 import health
 import journal
@@ -86,6 +89,7 @@ def main() -> None:
 
 	while True:
 		health.check()
+		backup.run_if_due()
 		now = datetime.now()
 		at = plan_next_run(now, owner)
 		wait = max(0.0, (at - now).total_seconds())

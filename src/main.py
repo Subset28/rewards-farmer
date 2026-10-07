@@ -1,3 +1,5 @@
+"""One full daily run: for each account, every Rewards task (daily set, Explore on Bing, cards, quests, bonus points, searches), then the points reading and its alert."""
+
 from constants import DOTENV_PATH
 import logging
 import os

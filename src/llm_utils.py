@@ -1,3 +1,5 @@
+"""Search queries from a language model (a local Ollama server or an OpenAI-compatible service), and random nouns for the fallback."""
+
 import os
 import re
 from typing import Generator

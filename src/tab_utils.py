@@ -1,3 +1,5 @@
+"""Finding, switching to and closing browser tabs, including the blank ones Edge opens by itself."""
+
 import logging
 from selenium.common.exceptions import WebDriverException, JavascriptException, NoSuchWindowException
 from selenium import webdriver

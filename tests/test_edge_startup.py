@@ -10,6 +10,7 @@ script was launched from. None of them start a browser.
 """
 
 import logging
+import importlib.util
 import os
 import subprocess
 import sys
@@ -195,6 +196,11 @@ class TestPathsIgnoreTheWorkingDirectory(unittest.TestCase):
 	)
 
 	def test_paths_resolve_to_the_repo_from_any_cwd(self):
+		# The probe imports the image-making tool, which needs Pillow. The runtime image leaves
+		# Pillow out (it only ever uploads a ready-made file), so there the test cannot run.
+		if importlib.util.find_spec("PIL") is None:
+			self.skipTest("Pillow is not installed")
+
 		with tempfile.TemporaryDirectory() as cwd:
 			result = subprocess.run(
 				[sys.executable, "-c", self.PROBE],

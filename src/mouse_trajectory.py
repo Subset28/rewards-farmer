@@ -1,3 +1,5 @@
+"""Moves the pointer along a curved path at a human speed (Fitts' law) to an element and clicks it."""
+
 import time
 from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from selenium.webdriver.common.action_chains import ActionChains

@@ -1,3 +1,5 @@
+"""Makes the random image the Visual search task uploads."""
+
 import io
 import json
 import logging

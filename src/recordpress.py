@@ -1,3 +1,5 @@
+"""The original tool that recorded keypress timings; calibrate.py replaces it."""
+
 import os
 import tempfile
 import time
@@ -12,7 +14,6 @@ keypress_times: list[float] = []
 def key_event_handler(event: kb.KeyboardEvent):
 	if event.event_type == kb.KEY_DOWN:
 		timestamp = event.time
-		key = event.name
 
 		window = pygw.getActiveWindow()
 
