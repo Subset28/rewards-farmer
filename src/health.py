@@ -25,6 +25,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+import backup
 import clock
 import journal
 import notify
@@ -240,12 +241,30 @@ def _low_days(account: str, readings: list[dict], now: datetime) -> list[Finding
 	)]
 
 
+def _offsite(account: str, now: datetime) -> list[Finding]:
+	"""The off-NAS backup has been refused for a day: most likely its GitHub token ran out."""
+	since = _parse(backup.offsite_failing_since() or "")
+
+	if since is None or now - since < REPEAT_AFTER:
+		return []
+
+	return [Finding(
+		account, "offsite_backup", NEEDS_YOU, "the off-NAS backup has failed for a day",
+		f"The copy of the bot's state that goes to the private GitHub backup repository has been refused since {since:%Y-%m-%d %H:%M}. Its GitHub token has most likely expired.",
+		"Make a new token (GitHub, Settings, Developer settings, Fine-grained tokens, repository rewards-backups, Contents: read and write) and give it to Claude to put on the NAS, or open Claude Code and say \"the off-NAS backup is failing\".",
+	)]
+
+
 def findings(names: list[str], now: datetime | None = None) -> list[Finding]:
 	"""Everything wrong right now, for these accounts."""
 	now = now or clock.now()
 	week = journal.events(days=8, now=now)
 	today = journal.events(days=2, now=now)
 	found: list[Finding] = []
+
+	if names:
+		# One alert for the whole setup, sent to the first account's channel.
+		found += _offsite(names[0], now)
 
 	for name in names:
 		held = safety.paused_for(name) is not None

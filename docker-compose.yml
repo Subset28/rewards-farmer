@@ -125,6 +125,9 @@ services:
       NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
       NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
       NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
+      # An off-NAS copy of the secret-free state, to a PRIVATE repository (src/backup.py). Unset: none.
+      BACKUP_REPO: ${BACKUP_REPO:-}
+      BACKUP_GITHUB_TOKEN: ${BACKUP_GITHUB_TOKEN:-}
       # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
       # plain request. Unset, nothing uses it. Never used for account pages.
       TRAWL_URL: ${TRAWL_URL:-}
