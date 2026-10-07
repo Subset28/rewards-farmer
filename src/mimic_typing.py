@@ -5,6 +5,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 
 import features
+import search_behavior
 
 # Measured from recordpress.py + analyze_keypresses.py against this user's
 # own typing (267 keypress intervals, keypress_times.txt).
@@ -30,6 +31,18 @@ class KeyboardUtils:
 		self.weights = list(behavior.typing_weights) if behavior else [
 			FIRST_INTERVAL_PROBABILITY, SECOND_INTERVAL_PROBABILITY, THIRD_INTERVAL_PROBABILITY
 		]
+		# What a recording of this person's own typing measured beyond the rhythm (calibration.py).
+		self.recorded = dict(getattr(behavior, "typing_detail", None) or {})
+
+	def personal(self) -> dict:
+		"""The recorded measurements, once the typing feature is on for this account; else nothing."""
+		return self.recorded if self.recorded and features.enabled("typing", self.account) else {}
+
+	def slip_settings(self) -> tuple[float, float]:
+		"""(how often a search has a slip in it, how often that slip is a neighbouring key)."""
+		detail = self.personal()
+
+		return detail.get("slip_rate", search_behavior.TYPO_RATE), detail.get("neighbor_share", 0.5)
 
 	def _mean_interval(self) -> float:
 		# The account's own average gap between keys. Every extra pause below is
@@ -39,7 +52,7 @@ class KeyboardUtils:
 
 		return sum(w * (b[0] + b[1]) / 2 for w, b in zip(self.weights, buckets)) / total
 
-	def _plan_correction(self, typed: list, intended: list, rng):
+	def _plan_correction(self, typed: list, intended: list, rng, detail: dict | None = None):
 		"""(first wrong index, keys typed before noticing) or None.
 
 		Only a same-length slip (what with_typo makes) is corrected, so the
@@ -55,11 +68,15 @@ class KeyboardUtils:
 
 		wrong = [i for i, (a, b) in enumerate(zip(typed, intended)) if a != b]
 
-		if not wrong or rng.random() >= CORRECTION_RATE:
+		detail = detail or {}
+
+		if not wrong or rng.random() >= detail.get("correction_rate", CORRECTION_RATE):
 			return None
 
 		first = wrong[0]
-		noticed = min(rng.randint(1, 3), len(intended) - 1 - first)
+		weights = detail.get("noticed_weights")
+		how_many = rng.choices((1, 2, 3, 4), weights=weights)[0] if weights else rng.randint(1, 3)
+		noticed = min(how_many, len(intended) - 1 - first)
 
 		# Everything wrong must be inside what gets retyped.
 		if wrong[-1] > first + noticed:
@@ -107,7 +124,8 @@ class KeyboardUtils:
 		buckets = [FIRST_INTERVAL, SECOND_INTERVAL, THIRD_INTERVAL]
 		text_len = len(intended) if intended is not None else len(keys)
 
-		plan = self._plan_correction(keys, list(intended), rng) if intended else None
+		detail = self.personal()
+		plan = self._plan_correction(keys, list(intended), rng, detail) if intended else None
 		# None marks the pause where the typist notices the slip.
 		sequence = []
 		for index, key in enumerate(keys):
@@ -126,13 +144,22 @@ class KeyboardUtils:
 
 		# Longer queries take a longer moment to formulate, mildly.
 		thinking = mean * rng.uniform(1.5, 3.0) * (1 + min(text_len, 40) / 100)
+
+		if "start_latency_ms" in detail:
+			# This person's own wait before the first key, a little shorter than measured (part
+			# of it was reading the phrase) and never longer than a few seconds.
+			thinking = min(3.0, detail["start_latency_ms"] / 1000 * rng.uniform(0.5, 1.0))
+
 		actions.pause(thinking)
 
 		fast = False
+		persistence = detail.get("fast_persistence", 0.5)
+		hesitation_rate = detail.get("hesitation_rate", HESITATION_RATE)
 
 		for key in sequence:
 			if key is None:
-				actions.pause(mean * rng.uniform(2.0, 4.0))
+				noticing = detail["notice_pause_ms"] / 1000 * rng.uniform(0.8, 1.2) if "notice_pause_ms" in detail else mean * rng.uniform(2.0, 4.0)
+				actions.pause(noticing)
 				continue
 
 			actions.send_keys(key)
@@ -140,17 +167,20 @@ class KeyboardUtils:
 			interval = rng.choices(buckets, weights=self.weights)[0]
 			pause = rng.uniform(interval[0], interval[1])
 
+			if key == Keys.BACKSPACE and "backspace_gap_ms" in detail:
+				pause = detail["backspace_gap_ms"] / 1000 * rng.uniform(0.8, 1.25)
+
 			# A run of fast keys within a word: speed is not independent per key.
 			if fast:
 				pause *= 0.6
 
-			fast = (pause < mean * 0.8) if rng.random() < 0.5 else False
+			fast = (pause < mean * 0.8) if rng.random() < persistence else False
 
 			if key == " ":
-				pause += mean * rng.uniform(0.3, 0.9)
+				pause += detail["space_extra_ms"] / 1000 * rng.uniform(0.7, 1.3) if "space_extra_ms" in detail else mean * rng.uniform(0.3, 0.9)
 				fast = False
-			elif rng.random() < HESITATION_RATE:
-				pause += mean * rng.uniform(2.0, 4.0)
+			elif rng.random() < hesitation_rate:
+				pause += detail["hesitation_ms"] / 1000 * rng.uniform(0.7, 1.4) if "hesitation_ms" in detail else mean * rng.uniform(2.0, 4.0)
 				fast = False
 
 			actions.pause(pause)

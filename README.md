@@ -289,16 +289,16 @@ Optionally give an account interests, one per line, in `data-dir/interests/<acco
 
 Every account types and moves with its own profile (`src/behavior.py`), so two accounts do not look like one operator. The account that was already running keeps the original measurements. Any other account gets a **provisional** profile, stable and different from every other account's, until you record its owner's real one. The log says which kind is in use.
 
-**1. Record the owner's typing and mouse speed**, on the machine and with the hands of the person the account belongs to:
+**1. Record the owner's hands**, on the machine and with the hands of the person the account belongs to. One program, about five minutes, one window with a page after each page (typing, then mouse), writing the profile at the end:
 
 ```
-python src/typing_test.py     # a fullscreen test: type 12 search-style phrases the way you normally do
-python src/fitts_law.py       # 18 quick clicks; note "MT = a + b * ID"
-python src/make_behavior_profile.py second --keys keypress_times.txt --fitts 0.43 0.16
-python src/make_behavior_profile.py --show second
+python src/calibrate.py second
+python src/calibrate.py --show second     # what profile an account has, and whether it is recorded
 ```
 
-Copy the resulting `data-dir/behavior/second.json` to the same place in the NAS's `data-dir`.
+It measures their typing rhythm, how often they slip and which kind (a neighbouring key or two letters swapped), how many keys go by before they notice, how long they pause before Backspace, how many slips they fix, their mid-phrase hesitations and the wait before starting; and for the mouse, Fitts' law, how long they take to start moving, how long they hover before a click, how long they hold the button, how often they miss or overshoot, and how straight their path is. The raw keys and movements are kept in `<account>.raw.json` so a better analysis later does not need the person back.
+
+Copy `data-dir/behavior/second.json` to the same place in the NAS's `data-dir`. The finer measurements take effect per account behind the `typing` switch (slip habits, pauses) and the `mouse` switch (hold time, hover); until then only the rhythm and Fitts' law are used, as before. (`typing_test.py`, `fitts_law.py` and `make_behavior_profile.py` still work but only record the rhythm and Fitts' law.)
 
 **2. Sign the account in** through the container, the same way as the first (type the password yourself, it never goes through the bot):
 

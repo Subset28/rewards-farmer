@@ -10,6 +10,7 @@ import random
 import numpy as np
 from typing import Callable
 from browser import HEADLESS
+import features
 
 Point = tuple[int, int]
 
@@ -243,6 +244,9 @@ class MouseUtils:
 		# original measured constants.
 		self.fitts_a = behavior.fitts_a if behavior else None
 		self.fitts_b = behavior.fitts_b if behavior else None
+		# What a recording of this person's own mouse measured beyond Fitts' law (calibration.py).
+		self.account = getattr(behavior, "name", None)
+		self.recorded = dict(getattr(behavior, "mouse_detail", None) or {})
 		self.fallback_init_pos = (0, 0) # default fallback position if mouse position is not initialized
 		# Nothing renders the visual cursor on a headless NAS deployment, so
 		# painting it every animation frame is a CDP round-trip for no reason.
@@ -489,5 +493,23 @@ class MouseUtils:
 
 		self.move_mouse(move_time, path_fn, visualize)
 
-	def human_like_click(self, time_interval: tuple[int, int]=(200, 300)):
+	def personal(self) -> dict:
+		"""The recorded measurements, once the mouse feature is on for this account; else nothing."""
+		return self.recorded if self.recorded and features.enabled("mouse", self.account) else {}
+
+	def human_like_click(self, time_interval: tuple[int, int] | None=None):
+		detail = self.personal()
+
+		if time_interval is None:
+			time_interval = (200, 300)
+
+			if "dwell_ms" in detail:
+				low = detail.get("dwell_low_ms", detail["dwell_ms"] * 0.8)
+				high = detail.get("dwell_high_ms", detail["dwell_ms"] * 1.25)
+				time_interval = (int(min(low, high)), int(max(low, high)) + 1)
+
+		# The beat between the pointer arriving and the button going down, as measured.
+		if "hover_ms" in detail:
+			time.sleep(min(0.4, detail["hover_ms"] / 1000 * random.uniform(0.6, 1.2)))
+
 		ActionChains(self.driver, duration=random.randint(time_interval[0], time_interval[1])).click().perform()

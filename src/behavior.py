@@ -24,7 +24,7 @@ import json
 import logging
 import os
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from constants import USER_DATA_DIR
 
@@ -55,6 +55,62 @@ class ProfileError(ValueError):
 	"""A behavior profile that cannot be used."""
 
 
+# What each optional measurement may be: (low, high). Anything outside is dropped, not clamped:
+# a recording that says a person pauses for twenty seconds mid-word is a bad recording, and
+# keeping the default is safer than keeping a made-up edge.
+TYPING_DETAIL_RANGES = {
+	"slip_rate": (0.0, 0.35),           # share of searches with a first wrong key
+	"neighbor_share": (0.0, 1.0),       # of slips, a neighbouring key (the rest: letters swapped)
+	"swap_share": (0.0, 1.0),
+	"correction_rate": (0.3, 1.0),      # share of slips fixed before Enter
+	"notice_pause_ms": (100.0, 3000.0),
+	"backspace_gap_ms": (40.0, 600.0),
+	"hesitation_rate": (0.0, 0.15),
+	"hesitation_ms": (400.0, 4000.0),
+	"space_extra_ms": (0.0, 1500.0),
+	"start_latency_ms": (200.0, 4000.0),
+	"enter_gap_ms": (40.0, 3000.0),
+	"fast_persistence": (0.1, 0.9),
+	"median_gap_ms": (40.0, 600.0),
+	"words_per_minute": (5.0, 200.0),
+}
+MOUSE_DETAIL_RANGES = {
+	"reaction_ms": (120.0, 1500.0),
+	"hover_ms": (0.0, 800.0),
+	"dwell_ms": (30.0, 400.0),
+	"dwell_low_ms": (20.0, 400.0),
+	"dwell_high_ms": (30.0, 600.0),
+	"miss_rate": (0.0, 0.4),
+	"overshoot_rate": (0.0, 0.6),
+	"straightness": (1.0, 1.8),
+	"speed_px_s": (100.0, 10000.0),
+	"r_squared": (0.0, 1.0),
+}
+NOTICED_KEYS = 4
+
+
+def clean_detail(raw, ranges: dict, weights_key: str | None = None) -> dict:
+	"""The values of `raw` that are numbers inside their range; everything else is left out."""
+	if not isinstance(raw, dict):
+		return {}
+
+	cleaned = {}
+
+	for key, (low, high) in ranges.items():
+		value = raw.get(key)
+
+		if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and low <= value <= high:
+			cleaned[key] = float(value)
+
+	if weights_key:
+		weights = raw.get(weights_key)
+
+		if isinstance(weights, list) and len(weights) == NOTICED_KEYS and all(isinstance(w, (int, float)) and not isinstance(w, bool) and w >= 0 for w in weights) and sum(weights) > 0:
+			cleaned[weights_key] = [float(w) for w in weights]
+
+	return cleaned
+
+
 @dataclass(frozen=True)
 class Behavior:
 	name: str
@@ -63,6 +119,11 @@ class Behavior:
 	medium_share: float  # 0.1s to 0.2s
 	fitts_a: float
 	fitts_b: float
+	# The finer measurements of a recorded profile (calibration.py): slip rate, pauses, click
+	# dwell and so on. Empty for the original and provisional profiles, which then behave as
+	# they always did. Each value is clamped to what a person could be, see clean_detail.
+	typing_detail: dict = field(default_factory=dict, compare=False, hash=False)
+	mouse_detail: dict = field(default_factory=dict, compare=False, hash=False)
 
 	@property
 	def slow_share(self) -> float:
@@ -135,7 +196,11 @@ def from_json(name: str, raw: dict) -> Behavior:
 
 	validate(fast, medium, a, b)
 
-	return Behavior(name, "recorded", fast, medium, a, b)
+	return Behavior(
+		name, "recorded", fast, medium, a, b,
+		typing_detail=clean_detail(typing.get("detail"), TYPING_DETAIL_RANGES, "noticed_weights"),
+		mouse_detail=clean_detail(mouse.get("detail"), MOUSE_DETAIL_RANGES),
+	)
 
 
 def load(name: str) -> Behavior:
@@ -172,7 +237,10 @@ def load(name: str) -> Behavior:
 	return provisional(name)
 
 
-def save(name: str, fast_share: float, medium_share: float, fitts_a: float, fitts_b: float, notes: dict | None = None) -> str:
+def save(
+	name: str, fast_share: float, medium_share: float, fitts_a: float, fitts_b: float, notes: dict | None = None,
+	typing_detail: dict | None = None, mouse_detail: dict | None = None,
+) -> str:
 	"""Write a recorded profile; returns its path. Validates before writing."""
 	validate(fast_share, medium_share, fitts_a, fitts_b)
 
@@ -182,8 +250,8 @@ def save(name: str, fast_share: float, medium_share: float, fitts_a: float, fitt
 	with open(path, "w", encoding="utf-8") as handle:
 		json.dump(
 			{
-				"typing": {"fast_share": fast_share, "medium_share": medium_share},
-				"mouse": {"fitts_a": fitts_a, "fitts_b": fitts_b},
+				"typing": {"fast_share": fast_share, "medium_share": medium_share, "detail": typing_detail or {}},
+				"mouse": {"fitts_a": fitts_a, "fitts_b": fitts_b, "detail": mouse_detail or {}},
 				"notes": notes or {},
 			},
 			handle,
