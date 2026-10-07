@@ -9,6 +9,8 @@ person has.
 import math
 import random
 
+import human_model
+
 # Keys next to each key on a QWERTY layout, for a slip of the finger.
 NEIGHBORS = {
 	"q": "wa", "w": "qeas", "e": "wrsd", "r": "etdf", "t": "ryfg",
@@ -26,12 +28,16 @@ TYPO_RATE = 0.08
 MIN_WORD_LENGTH = 4
 
 
-def with_typo(query: str, rate: float = TYPO_RATE, rng=random, neighbor_share: float = 0.5) -> str:
+def with_typo(query: str, rate: float = TYPO_RATE, rng=random, neighbor_share: float = 0.5, weights: list[float] | None = None) -> str:
 	"""The query, with one slip in it about `rate` of the time.
 
 	Either a neighboring key hit instead of the right one, or two adjacent
 	letters swapped. Never the first letter of a word, which people rarely get
 	wrong, and never in a short word. The length is unchanged either way.
+
+	`weights` (one per character, human_model.slip_weights) says where this person is likelier to slip:
+	on their quick keys and in everyday words. With them, a three-letter everyday word can slip as well
+	("teh" is the commonest typo there is). Without them every place is as likely as any other.
 	"""
 	if rng.random() >= rate:
 		return query
@@ -39,8 +45,10 @@ def with_typo(query: str, rate: float = TYPO_RATE, rng=random, neighbor_share: f
 	positions = []
 	start = 0
 
+	use_weights = weights is not None and len(weights) == len(query)
+
 	for word in query.split(" "):
-		if len(word) >= MIN_WORD_LENGTH:
+		if len(word) >= MIN_WORD_LENGTH or (use_weights and len(word) == 3 and human_model.common_word(word)):
 			# Letters after the first, and for a swap also not the last, so the
 			# pair (i, i + 1) stays inside the word.
 			positions.extend(start + i for i in range(1, len(word) - 1) if word[i].isalpha() and word[i + 1].isalpha())
@@ -50,7 +58,7 @@ def with_typo(query: str, rate: float = TYPO_RATE, rng=random, neighbor_share: f
 	if not positions:
 		return query
 
-	i = rng.choice(positions)
+	i = rng.choices(positions, weights=[weights[p] for p in positions])[0] if use_weights else rng.choice(positions)
 	letters = list(query)
 
 	if rng.random() < neighbor_share and letters[i].lower() in NEIGHBORS:

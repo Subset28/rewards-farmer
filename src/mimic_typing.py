@@ -6,7 +6,9 @@ from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 
+import clock
 import features
+import human_model
 import search_behavior
 
 # Measured from recordpress.py + analyze_keypresses.py against this user's
@@ -24,6 +26,11 @@ THIRD_INTERVAL_PROBABILITY = 1 - (FIRST_INTERVAL_PROBABILITY + SECOND_INTERVAL_P
 CORRECTION_RATE = 0.7
 HESITATION_RATE = 0.02
 
+def rhythm_start_default(rng) -> float:
+	"""A beat before the first key for someone whose own wait was not recorded."""
+	return rng.uniform(0.6, 1.6)
+
+
 class KeyboardUtils:
 	def __init__(self, driver: webdriver.Edge, behavior=None, account: str | None = None):
 		self.driver = driver
@@ -35,10 +42,21 @@ class KeyboardUtils:
 		]
 		# What a recording of this person's own typing measured beyond the rhythm (calibration.py).
 		self.recorded = dict(getattr(behavior, "typing_detail", None) or {})
+		self._rhythm = None
+		self._rhythm_detail = None
 
 	def personal(self) -> dict:
 		"""The recorded measurements, once the typing feature is on for this account; else nothing."""
 		return self.recorded if self.recorded and features.enabled("typing", self.account) else {}
+
+	def slip_weights(self, text: str) -> list[float] | None:
+		"""Where in `text` this person is likelier to slip, or None until their recorded habits are switched on."""
+		detail = self.personal()
+
+		if not any(key in detail for key in ("slip_fast_slope", "slip_common_pair_ratio", "slip_common_word_ratio")):
+			return None
+
+		return human_model.slip_weights(text, detail)
 
 	def slip_settings(self) -> tuple[float, float]:
 		"""(how often a search has a slip in it, how often that slip is a neighbouring key)."""
@@ -111,6 +129,115 @@ class KeyboardUtils:
 
 		actions.perform()
 
+	def rhythm(self, detail: dict, rng) -> human_model.TypingRhythm:
+		"""This person's typist, kept for the whole run so the tempo wanders from search to search."""
+		if self._rhythm is None or self._rhythm_detail is not detail:
+			day = human_model.normal_for(f"day|{(self.account or '').lower()}|{clock.today().isoformat()}")
+			self._rhythm = human_model.TypingRhythm(detail, rng, day)
+			self._rhythm_detail = detail
+
+		return self._rhythm
+
+	def _type_as_recorded(self, sequence: list, detail: dict, rng, thinking: float | None):
+		"""Type `sequence` the way the recorded person does.
+
+		The gap before each key is drawn from their rhythm (hand moves, common pairs, a wandering tempo,
+		runs of quick keys, a day that is brisk or sluggish). If their key holds were recorded as well, the
+		keys really go down and come up at separate times: held for as long as they hold a key, and, as often
+		as they do, the next key going down before the last one is let go. Without holds each key is a
+		single press as before.
+		"""
+		rhythm = self.rhythm(detail, rng)
+		rhythm.start_search()
+
+		if "start_mu" in detail:
+			thinking = human_model.lognormal_ms(detail["start_mu"], detail.get("start_sigma", 0.4), rng, 200, 6000) / 1000
+		elif thinking is None:
+			thinking = rhythm_start_default(rng)
+
+		hesitation_rate = detail.get("hesitation_rate", HESITATION_RATE)
+		timeline: list[tuple[float, object]] = []
+		now = thinking
+		carry = 0.0
+		previous = ""
+
+		for key in sequence:
+			if key is None:
+				carry += detail["notice_pause_ms"] / 1000 * rng.uniform(0.8, 1.2) if "notice_pause_ms" in detail else 0.5
+				continue
+
+			char = key if isinstance(key, str) and len(key) == 1 else ""
+
+			if not timeline:
+				gap = 0.0
+			elif key == Keys.BACKSPACE and "backspace_gap_ms" in detail:
+				gap = detail["backspace_gap_ms"] / 1000 * rng.uniform(0.8, 1.25)
+			elif key == Keys.ENTER and "enter_gap_ms" in detail:
+				gap = detail["enter_gap_ms"] / 1000 * rng.uniform(0.8, 1.25)
+			else:
+				gap = rhythm.next_gap(previous, char)
+
+			if timeline and char and rng.random() < hesitation_rate:
+				gap += detail["hesitation_ms"] / 1000 * rng.uniform(0.7, 1.4) if "hesitation_ms" in detail else 0.5
+
+			now += gap + carry
+			carry = 0.0
+			timeline.append((now, key))
+			previous = char
+
+		actions = ActionChains(self.driver, duration=0)
+
+		if "hold_mu" not in detail:
+			elapsed = 0.0
+
+			for when, key in timeline:
+				actions.pause(when - elapsed)
+				actions.send_keys(key)
+				elapsed = when
+
+			actions.perform()
+
+			return
+
+		events = self.key_events(timeline, detail, rng)
+		elapsed = 0.0
+
+		for when, down, key in events:
+			actions.pause(max(0.0, when - elapsed))
+			actions.key_down(key) if down else actions.key_up(key)
+			elapsed = when
+
+		actions.perform()
+
+	@staticmethod
+	def key_events(timeline: list, detail: dict, rng) -> list[tuple[float, bool, object]]:
+		"""(time, down?, key) for every press and release, in order, from when each key goes down.
+
+		How long a key is held is drawn from the person's own holds; whether the next key goes down before
+		this one comes up is decided by how often they do that. The same key twice in a row never
+		overlaps itself (the browser would call that a held-down repeat)."""
+		rollover = detail.get("rollover_rate", 0.0)
+		events = []
+
+		for index, (when, key) in enumerate(timeline):
+			hold = human_model.lognormal_ms(detail["hold_mu"], detail.get("hold_sigma", 0.3), rng, 25, 320) / 1000
+
+			if index + 1 < len(timeline):
+				gap = timeline[index + 1][0] - when
+
+				if timeline[index + 1][1] == key or gap <= 0:
+					hold = min(hold, max(0.02, gap * 0.8))
+				elif rng.random() < rollover:
+					hold = max(hold, gap * rng.uniform(1.05, 1.6))
+				else:
+					hold = min(hold, gap * rng.uniform(0.5, 0.9))
+
+			events.append((when, True, key))
+			events.append((when + hold, False, key))
+
+		# Releases can fall after later presses, so put everything in time order (a press before a release at a tie).
+		return sorted(events, key=lambda e: (e[0], not e[1]))
+
 	def _send_keys_human(self, keys: Iterable[str], intended: str | None = None, rng=None):
 		"""Type `keys` with human timing.
 
@@ -151,6 +278,10 @@ class KeyboardUtils:
 			# This person's own wait before the first key, a little shorter than measured (part
 			# of it was reading the phrase) and never longer than a few seconds.
 			thinking = min(3.0, detail["start_latency_ms"] / 1000 * rng.uniform(0.5, 1.0))
+
+		# A person's own recorded rhythm, tempo and key holds, when they have been recorded (calibrate.py).
+		if "log_gap_mu" in detail:
+			return self._type_as_recorded(sequence, detail, rng, thinking if "start_latency_ms" in detail else None)
 
 		actions.pause(thinking)
 
