@@ -67,6 +67,66 @@ def transition(previous: str, current: str) -> str:
 	return "alternate" if (a < 4) != (b < 4) else "same_hand"
 
 
+# Short, everyday words. People type them quickly, and they are where fast typists slip most ("teh").
+COMMON_WORDS = frozenset((
+	"the of and to in is you that it he was for on are as with his they at be this have from or one had by "
+	"but not what all were we when your can said there use an each which she do how their if will up other "
+	"about out many then them these so some her would make like him into time has look two more go see no "
+	"way could people my than first been who its now find long down day did get come made may part best "
+	"near me weather where does new used cheap good top free online price how to buy"
+).split())
+
+
+def common_word(word: str) -> bool:
+	return word.lower() in COMMON_WORDS
+
+
+def word_at(text: str, index: int) -> str:
+	"""The word that contains position `index` of `text` ("" on a space)."""
+	if not 0 <= index < len(text) or text[index] == " ":
+		return ""
+
+	start = text.rfind(" ", 0, index) + 1
+	end = text.find(" ", index)
+
+	return text[start:end if end != -1 else len(text)]
+
+
+def slip_weights(text: str, detail: dict) -> list[float]:
+	"""How likely a slip is at each position of `text`, relative to the others, for this person.
+
+	People slip where they are quick: on the letter pairs and hand moves they run through, and in everyday
+	words. Both are learned from the recording (slip_fast_slope, slip_common_pair_ratio,
+	slip_common_word_ratio); a person whose slips did not lean either way gets near-equal weights."""
+	slope = detail.get("slip_fast_slope", 0.0)
+	pair_ratio = detail.get("slip_common_pair_ratio", 1.0)
+	word_ratio = detail.get("slip_common_word_ratio", 1.0)
+	sigma = max(0.1, detail.get("within_sigma", 0.35))
+	common_offset = detail.get("offset_common_pair", 0.0)
+	weights = []
+
+	for index, char in enumerate(text):
+		if index == 0 or not char.isalpha():
+			weights.append(1.0)
+
+			continue
+
+		previous = text[index - 1]
+		kind = transition(previous, char)
+		quick = -(detail.get(f"offset_{kind}", 0.0) + (common_offset if common_pair(previous, char) and kind != "other" else 0.0)) / sigma
+		weight = math.exp(slope * quick)
+
+		if common_pair(previous, char):
+			weight *= pair_ratio
+
+		if common_word(word_at(text, index)):
+			weight *= word_ratio
+
+		weights.append(weight)
+
+	return weights
+
+
 def common_pair(previous: str, current: str) -> bool:
 	return (str(previous) + str(current)).lower() in COMMON_PAIRS
 

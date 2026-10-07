@@ -257,6 +257,8 @@ def analyze_phrase(record: PhraseRecord) -> dict:
 	first_key = next((e for e in record.events if e[1] in ("char", "back")), None)
 	start_latency = (first_key[0] - record.shown_at) if first_key else None
 	opportunities = 0
+	spots: list[dict] = []                   # every key typed while still on track: where a slip could have been
+	slip_spot = None
 
 	for when, kind, char in record.events:
 		if kind in ("char", "back") and previous_time is not None:
@@ -276,11 +278,19 @@ def analyze_phrase(record: PhraseRecord) -> dict:
 			if on_track and position < len(record.target):
 				opportunities += 1
 				expected = record.target[position]
+				before = record.target[position - 1] if position > 0 else ""
+				spots.append({
+					"gap": (when - previous_time) if previous_time is not None and previous_char != "" else None,
+					"pair": bool(before) and human_model.common_pair(before, expected),
+					"word": human_model.common_word(human_model.word_at(record.target, position)),
+					"letter": expected.isalpha() and position > 0,
+				})
 
 				if char != expected and slip is None:
 					following = record.target[position + 1] if position + 1 < len(record.target) else ""
 					kind_of = "swap" if (char == following and following != expected) else ("neighbor" if _neighbor(char, expected) else "other")
 					slip = kind_of
+					slip_spot = len(spots) - 1
 					pending = {"at": when, "after": 0}
 					chars_since = 0
 			elif pending is not None:
@@ -316,8 +326,48 @@ def analyze_phrase(record: PhraseRecord) -> dict:
 		"start_latency": start_latency,
 		"enter_gap": (enter[0] - last_key_time) if enter and last_key_time is not None else None,
 		"opportunities": opportunities,
+		"spots": spots,
+		"slip_spot": slip_spot,
 		"chars": len(record.target),
 	}
+
+
+def slip_habits(phrases: list[dict]) -> dict:
+	"""Where this person's slips fall: on quick keys, on common letter pairs, in everyday words.
+
+	A handful of slips says little, so each figure is pulled towards "no preference" by the number of
+	slips seen, and a person with none gets nothing here."""
+	slips = [(p, p["spots"][p["slip_spot"]]) for p in phrases if p["slip_spot"] is not None and p["slip_spot"] < len(p["spots"])]
+
+	if not slips:
+		return {}
+
+	everything = [spot for p in phrases for spot in p["spots"] if spot["letter"]]
+	slip_spots = [spot for _, spot in slips if spot["letter"]]
+
+	if len(everything) < 40 or not slip_spots:
+		return {}
+
+	result = {}
+	count = len(slip_spots)
+
+	for key, field in (("slip_common_pair_ratio", "pair"), ("slip_common_word_ratio", "word")):
+		share = sum(1 for s in everything if s[field]) / len(everything)
+		expected = count * share
+		result[key] = min(3.0, max(0.4, (sum(1 for s in slip_spots if s[field]) + 1) / (expected + 1)))
+
+	# How much quicker than the rest of the phrase the key before each slip was, in units of the person's own spread.
+	logs = [math.log(s["gap"]) for p in phrases for s in p["spots"] if s["gap"] and 0 < s["gap"] < TYPING_GAP_MAX]
+
+	if len(logs) >= 40:
+		spread = max(0.1, statistics.pstdev(logs))
+		centres = {id(p): _mean(math.log(s["gap"]) for s in p["spots"] if s["gap"] and 0 < s["gap"] < TYPING_GAP_MAX) for p in phrases if p["spots"]}
+		seen = [(centres[id(p)] - math.log(spot["gap"])) / spread for p, spot in slips if spot["gap"] and 0 < spot["gap"] < TYPING_GAP_MAX and id(p) in centres]
+
+		if seen:
+			result["slip_fast_slope"] = min(1.5, max(-1.0, _mean(seen) * len(seen) / (len(seen) + 5)))
+
+	return result
 
 
 def _median(values, default=None):
@@ -552,6 +602,7 @@ def analyze_typing(sessions: list) -> dict:
 		"day_sd": day_sd,
 		"day_sd_measured": day_measured,
 		**key_holds(everything),
+		**slip_habits(phrases),
 		"phrases": len(phrases),
 		"made_up": len(made),
 		"sittings": len(sessions),
@@ -933,6 +984,12 @@ def describe(typing: dict, mouse: dict, check: dict | None = None) -> list[str]:
 	if "hold_ms" in t:
 		lines.append(
 			f"  holds each key down about {t['hold_ms']:.0f} ms" + (f"; presses the next key before letting go in {t['rollover_rate']:.0%} of pairs" if "rollover_rate" in t else "")
+		)
+
+	if "slip_common_word_ratio" in t:
+		lines.append(
+			f"  slips fall in everyday words {t['slip_common_word_ratio']:.1f}x as often as chance, on common letter pairs "
+			f"{t.get('slip_common_pair_ratio', 1):.1f}x" + (", and on your quicker keys" if t.get("slip_fast_slope", 0) > 0.15 else "")
 		)
 
 	if check and "ks" in check:

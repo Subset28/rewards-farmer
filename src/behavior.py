@@ -93,6 +93,9 @@ TYPING_DETAIL_RANGES = {
 	"hold_sigma": (0.02, 1.0),
 	"hold_ms": (15.0, 300.0),
 	"rollover_rate": (0.0, 0.95),       # the next key goes down before this one comes up
+	"slip_fast_slope": (-1.0, 1.5),     # slips lean towards the person's quicker keys
+	"slip_common_pair_ratio": (0.4, 3.0),
+	"slip_common_word_ratio": (0.4, 3.0),
 }
 MOUSE_DETAIL_RANGES = {
 	"reaction_ms": (120.0, 1500.0),
