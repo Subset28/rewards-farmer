@@ -16,6 +16,7 @@ import tab_utils
 import queries
 import mouse_trajectory
 import mimic_typing
+import pace
 import element_selectors
 import search_behavior
 import safety
@@ -78,6 +79,16 @@ def task_failure_report(exc: BaseException) -> tuple[str, str]:
 	return "FAIL", f"{type(exc).__name__}: {log_utils.exception_summary(exc)}"
 
 
+def _wait(owner, low: float, high: float) -> None:
+	"""Pause between actions: spread like this person's (pace.py) when the account has that on, else the old flat range."""
+	pace_for = getattr(owner, "pace", None)
+
+	if pace_for is None:
+		time.sleep(random.uniform(low, high))
+	else:
+		pace_for.sleep(low, high)
+
+
 class RewardsTaskUtils:
 	def __init__(self, driver: webdriver.Edge, account_name: str = "default"):
 		self.driver = driver
@@ -116,6 +127,8 @@ class RewardsTaskUtils:
 
 		self.mouse = mouse_trajectory.MouseUtils(driver, self.behavior)
 		self.keyboard = mimic_typing.KeyboardUtils(driver, self.behavior, account=account_name)
+		# The pauses between actions, spread the way this person's are (pace.py).
+		self.pace = pace.Pace(account_name, dict(getattr(self.behavior, "typing_detail", None) or {}))
 		self.elements = element_selectors.ElementSelectionUtils(driver)
 		self.verify_signed_in_state()
 
@@ -213,7 +226,7 @@ class RewardsTaskUtils:
 	def read_monthly_bonuses(self) -> dict[str, str]:
 		"""What each monthly bonus paid last month (Bing Star, level-up, default search), from the dashboard."""
 		self.switch_to_dashboard()
-		time.sleep(random.uniform(2, 4))
+		_wait(self, 2, 4)
 
 		return points_log.parse_bonuses(self.driver.find_element(By.TAG_NAME, "body").text)
 
@@ -283,7 +296,7 @@ class RewardsTaskUtils:
 				logger.warning("Failed to click daily set activity %d: %s", index + 1, exc)
 				continue
 
-			time.sleep(random.uniform(2, 3))
+			_wait(self, 2, 3)
 			self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 
 		self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
@@ -307,7 +320,7 @@ class RewardsTaskUtils:
 		# Explore cards stayed uncredited after a 2-3 second look; with the
 		# plain query and a few seconds of scrolling, one of them credited in
 		# a supervised run. Not proven to be the cause.
-		time.sleep(random.uniform(4, 6))
+		_wait(self, 4, 6)
 
 		try:
 			self.mouse.wheel_scroll_read(max_steps=4)
@@ -345,7 +358,7 @@ class RewardsTaskUtils:
 
 			self.search_explore_card(card)
 
-		time.sleep(random.uniform(1, 2)) # allow card statuses to update
+		_wait(self, 1, 2) # allow card statuses to update
 
 		# One more try, with a different query, for cards that did not credit.
 		# Fresh elements: the page has changed since the cards were first read.
@@ -361,7 +374,7 @@ class RewardsTaskUtils:
 					logger.info("Retrying Explore card with a different query: %r", self.elements.extract_card_descriptions(card))
 					self.search_explore_card(card, pick=1)
 
-			time.sleep(random.uniform(1, 2))
+			_wait(self, 1, 2)
 
 		for desc in self.incomplete_explore_descriptions():
 			logger.warning(
@@ -418,7 +431,7 @@ class RewardsTaskUtils:
 
 		self.mouse.wheel_scroll_element_into_view(card)
 		self.move_to_and_click(card)
-		time.sleep(random.uniform(3, 5))
+		_wait(self, 3, 5)
 
 		quest_url = self.driver.current_url
 		tried: set[str] = set()
@@ -447,7 +460,7 @@ class RewardsTaskUtils:
 
 			self.mouse.wheel_scroll_element_into_view(link)
 			self.move_to_and_click(link)
-			time.sleep(random.uniform(2, 3))
+			_wait(self, 2, 3)
 
 			opened_elsewhere = len(self.driver.window_handles) > 1
 
@@ -455,7 +468,7 @@ class RewardsTaskUtils:
 				self.tab_utils.switch_to_other_tab()
 
 			# Look at what the task opened before leaving it, as for the cards.
-			time.sleep(random.uniform(3, 6))
+			_wait(self, 3, 6)
 
 			try:
 				self.mouse.wheel_scroll_read(max_steps=3)
@@ -469,7 +482,7 @@ class RewardsTaskUtils:
 				self.driver.get(quest_url)
 				self.tab_utils.ensure_focus()
 
-			time.sleep(random.uniform(2, 3))
+			_wait(self, 2, 3)
 
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
@@ -491,7 +504,7 @@ class RewardsTaskUtils:
 
 		file_input.send_keys(VISUAL_SEARCH_IMAGE_PATH)
 
-		time.sleep(random.uniform(3, 5))
+		_wait(self, 3, 5)
 
 		self.tab_utils.switch_to_other_tab()
 		self.tab_utils.close_all_other_tabs()
@@ -513,7 +526,7 @@ class RewardsTaskUtils:
 
 				if not self.elements.card_is_complete(card) and self.elements.get_card_point_value(card) > 0:
 					self.move_to_and_click(card)
-					time.sleep(random.uniform(1, 2))
+					_wait(self, 1, 2)
 
 					# Look at the page the card opened before closing it. Closed
 					# after a second or two without ever being focused, two +15
@@ -522,7 +535,7 @@ class RewardsTaskUtils:
 					# a supervised run. A card that opens in the same tab has no
 					# other tab to switch to, which switch_to_other_tab allows.
 					self.tab_utils.switch_to_other_tab()
-					time.sleep(random.uniform(3, 6))
+					_wait(self, 3, 6)
 
 					self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
 			except Exception as exc:
@@ -603,7 +616,7 @@ class RewardsTaskUtils:
 				# 11:33 and 14:48 runs on 1 Oct). Look again before deciding the
 				# searches earned nothing, so a slow update is not reported as a
 				# restriction.
-				time.sleep(random.uniform(20, 35))
+				_wait(self, 20, 35)
 				points_earned, max_pts = self.read_search_points()
 				goal = pacing.search_target(self.account_name, max_pts)
 
@@ -671,7 +684,7 @@ class RewardsTaskUtils:
 
 			self.driver.get(REWARDS_HOME_URL)
 			self.tab_utils.ensure_focus()
-			time.sleep(random.uniform(4, 7))
+			_wait(self, 4, 7)
 
 			return self._read_search_points_once()
 
@@ -720,7 +733,7 @@ class RewardsTaskUtils:
 
 			self.wait_for_element(self.elements.get_bing_search_bar)
 
-			time.sleep(random.uniform(2.5, 5.5))
+			_wait(self, 2.5, 5.5)
 
 			pause = breaks.before_search()
 
@@ -741,11 +754,11 @@ class RewardsTaskUtils:
 			# again by this account for a month.
 			query_history.record(self.account_name, query)
 
-			time.sleep(random.uniform(2, 4))
+			_wait(self, 2, 4)
 
 			self.browse_results()
 
-			time.sleep(random.uniform(2, 4))
+			_wait(self, 2, 4)
 
 		self.driver.get(REWARDS_HOME_URL)
 		self.tab_utils.ensure_focus()
@@ -764,14 +777,14 @@ class RewardsTaskUtils:
 
 				self.move_to_and_click(self.elements.get_search_results_tab(tab))
 
-				time.sleep(random.uniform(1, 2))
+				_wait(self, 1, 2)
 
 				# These tabs open in a new window. Left open in the background
 				# they stalled the next driver command for minutes (seen on a
 				# throwaway profile), so follow it, look, and close it.
 				self.tab_utils.switch_to_other_tab()
 
-				time.sleep(random.uniform(3, 6))
+				_wait(self, 3, 6)
 			elif random.random() < self.RESULTS_SCROLL_RATE:
 				self.mouse.wheel_scroll_read()
 		except WebDriverException as exc:

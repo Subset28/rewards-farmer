@@ -111,7 +111,18 @@ def _write(data: dict[str, list[str]]) -> None:
 		with open(temporary, "w", encoding="utf-8") as handle:
 			json.dump({feature: data.get(feature, []) for feature in KNOWN}, handle, indent=1)
 
-		os.replace(temporary, FEATURES_FILE)
+		# On Windows a file another process has open (a scanner, an indexer, a reader) cannot be
+		# replaced for a moment; it is almost always free again straight away.
+		for attempt in range(6):
+			try:
+				os.replace(temporary, FEATURES_FILE)
+
+				break
+			except PermissionError:
+				if attempt == 5:
+					raise
+
+				time.sleep(0.05)
 	except OSError:
 		try:
 			os.unlink(temporary)
@@ -140,6 +151,12 @@ def _locked():
 		try:
 			os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
 			break
+		except PermissionError:
+			# Windows says this, not "exists", while another switch is deleting the lock it held.
+			if time.monotonic() >= deadline:
+				raise OSError(f"{lock} is held by another switch; try again in a moment")
+
+			time.sleep(0.02)
 		except FileExistsError:
 			try:
 				if time.time() - os.path.getmtime(lock) > LOCK_STALE_SECONDS:

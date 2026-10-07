@@ -162,6 +162,23 @@ class TestHoldsAndOverlap(unittest.TestCase):
 
 			self.assertAlmostEqual(overlap, rate, delta=0.08, msg=f"rollover {rate}")
 
+	def test_no_key_is_held_through_a_pause(self):
+		rng = random.Random(1)
+		timeline = [(0.0, "a"), (0.2, "b"), (1.4, "c"), (1.55, "d"), (3.0, "e")]
+		events = mimic_typing.KeyboardUtils.key_events(timeline, {**DETAIL, "rollover_rate": 1.0}, rng)
+		up = {key: when for when, down, key in events if not down}
+
+		for when, key in timeline:
+			self.assertLessEqual(up[key] - when, mimic_typing.MAX_HOLD + 1e-9, key)
+
+	def test_a_quick_follow_up_can_overlap_but_a_slow_one_cannot(self):
+		rng = random.Random(2)
+		quick = mimic_typing.KeyboardUtils.key_events([(0.0, "a"), (0.15, "b")], {**DETAIL, "rollover_rate": 1.0}, rng)
+		slow = mimic_typing.KeyboardUtils.key_events([(0.0, "a"), (0.9, "b")], {**DETAIL, "rollover_rate": 1.0}, rng)
+
+		self.assertGreater(next(w for w, d, k in quick if not d and k == "a"), 0.15)
+		self.assertLess(next(w for w, d, k in slow if not d and k == "a"), 0.9)
+
 	def test_the_same_key_twice_never_overlaps_itself(self):
 		timeline, events = self.events(1.0, count=200, text="aabbccdd")
 		order = []

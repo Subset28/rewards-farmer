@@ -12,7 +12,9 @@ import random
 import numpy as np
 from typing import Callable
 from browser import HEADLESS
+import clock
 import features
+import human_model
 
 Point = tuple[int, int]
 
@@ -249,6 +251,8 @@ class MouseUtils:
 		# What a recording of this person's own mouse measured beyond Fitts' law (calibration.py).
 		self.account = getattr(behavior, "name", None)
 		self.recorded = dict(getattr(behavior, "mouse_detail", None) or {})
+		self._tempo = None
+		self._tempo_detail = None
 		self.fallback_init_pos = (0, 0) # default fallback position if mouse position is not initialized
 		# Nothing renders the visual cursor on a headless NAS deployment, so
 		# painting it every animation frame is a CDP round-trip for no reason.
@@ -487,6 +491,13 @@ class MouseUtils:
 			self.fitts_b
 		)
 
+		# The same move does not take the same time twice: it scatters around the person's Fitts line by
+		# as much as theirs did, drifts over the run, and is a little quicker or slower on a given day.
+		tempo = self.tempo()
+
+		if tempo is not None:
+			move_time = max(MIN_MOVE_TIME, move_time * tempo.next_factor())
+
 		path_fn = get_final_path_from_real_time(
 			movement_time=move_time,
 			start=current_mouse_position,
@@ -499,19 +510,39 @@ class MouseUtils:
 		"""The recorded measurements, once the mouse feature is on for this account; else nothing."""
 		return self.recorded if self.recorded and features.enabled("mouse", self.account) else {}
 
+	def tempo(self):
+		"""How much longer or shorter than the Fitts line the next move runs, or None for an unrecorded person."""
+		detail = self.personal()
+
+		if "move_rel_sd" not in detail:
+			return None
+
+		if self._tempo is None or self._tempo_detail is not detail:
+			day = human_model.normal_for(f"day|mouse|{(self.account or '').lower()}|{clock.today().isoformat()}")
+			self._tempo = human_model.MoveTempo(detail, random, day)
+			self._tempo_detail = detail
+
+		return self._tempo
+
 	def human_like_click(self, time_interval: tuple[int, int] | None=None):
 		detail = self.personal()
 
 		if time_interval is None:
 			time_interval = (200, 300)
 
-			if "dwell_ms" in detail:
+			if "dwell_mu" in detail:
+				# Drawn from the spread of this person's own button holds, not a fixed range.
+				held = int(human_model.lognormal_ms(detail["dwell_mu"], detail.get("dwell_sigma", 0.3), random, 30, 400))
+				time_interval = (held, held)
+			elif "dwell_ms" in detail:
 				low = detail.get("dwell_low_ms", detail["dwell_ms"] * 0.8)
 				high = detail.get("dwell_high_ms", detail["dwell_ms"] * 1.25)
 				time_interval = (int(min(low, high)), int(max(low, high)) + 1)
 
 		# The beat between the pointer arriving and the button going down, as measured.
-		if "hover_ms" in detail:
+		if "hover_mu" in detail:
+			time.sleep(human_model.lognormal_ms(detail["hover_mu"], detail.get("hover_sigma", 0.4), random, 0, 400, offset=20) / 1000)
+		elif "hover_ms" in detail:
 			time.sleep(min(0.4, detail["hover_ms"] / 1000 * random.uniform(0.6, 1.2)))
 
 		ActionChains(self.driver, duration=random.randint(time_interval[0], time_interval[1])).click().perform()
