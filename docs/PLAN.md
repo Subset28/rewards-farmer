@@ -2,7 +2,7 @@
 
 The one place that says where things stand, what is next, and what is still open. Update it when a step is done. How to do each thing is in `RUNBOOK.md`; what each file is, in `MODULES.md`.
 
-## Where the three accounts stand (2026-10-08)
+## Where the three accounts stand (2026-10-07)
 
 | Account | Whose | Level | Connection | Pacing | Switched on |
 |---|---|---|---|---|---|
