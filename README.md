@@ -2,6 +2,8 @@
 
 Automation for MS Rewards based on [https://youtu.be/4qdPcMNaioA](https://youtu.be/4qdPcMNaioA).
 
+> Where things stand and what is next: [docs/PLAN.md](docs/PLAN.md). How to run and fix things: [docs/RUNBOOK.md](docs/RUNBOOK.md). What each file is: [docs/MODULES.md](docs/MODULES.md).
+
 ## Table of Contents
 
 - [Core Setup & Running Instructions](#core-setup--running-instructions)

@@ -1,3 +1,5 @@
+"""Paths the rest of the code is built from: the repo root, data-dir and the .env, resolved from this file so the working directory never matters."""
+
 from os.path import abspath, dirname, join
 
 # Resolved from this file rather than the working directory, so launching from

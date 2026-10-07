@@ -1,3 +1,5 @@
+"""Types text the way a person does: the account's own rhythm, and, when switched on, slips that are noticed and fixed."""
+
 import random
 from typing import Iterable
 from selenium import webdriver

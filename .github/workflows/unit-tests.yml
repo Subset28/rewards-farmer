@@ -34,7 +34,17 @@ jobs:
         shell: bash
         run: poetry install --no-interaction
 
+      # pytest, not unittest: tests/conftest.py (neutral pacing, a private data folder for every
+      # test, all features on) only applies under pytest, and 60 tests fail without it.
+      - name: Install the test tools
+        shell: bash
+        run: poetry run pip install pytest pyflakes
+
+      - name: Lint (unused names, undefined names, syntax)
+        shell: bash
+        run: poetry run python -m pyflakes src tests
+
       - name: Run unit tests
         shell: bash
         run: |
-          poetry run python -m unittest discover -s tests -v
+          poetry run python -m pytest -q

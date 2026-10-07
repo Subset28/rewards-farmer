@@ -1,3 +1,5 @@
+"""One search run: the required searches up to today's target for the accounts it serves, and nothing else."""
+
 from constants import DOTENV_PATH
 import logging
 import os

@@ -1,3 +1,5 @@
+"""Where things are on the Rewards and Bing pages, in one place, so a change to a page is a fix in one file."""
+
 import re
 
 from selenium.webdriver.common.by import By

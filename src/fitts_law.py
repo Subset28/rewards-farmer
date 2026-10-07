@@ -84,8 +84,8 @@ def run_single_trial(start: Tuple[int, int], target_x: float, target_y: float, t
 	canvas.pack(fill="both", expand=True)
 
 	start_x, start_y = start
-	start_marker = canvas.create_oval(start_x - 14, start_y - 14, start_x + 14, start_y + 14, fill="#1f1f1f")
-	target_id = canvas.create_rectangle(
+	canvas.create_oval(start_x - 14, start_y - 14, start_x + 14, start_y + 14, fill="#1f1f1f")
+	canvas.create_rectangle(
 		target_x,
 		target_y,
 		target_x + target_w,

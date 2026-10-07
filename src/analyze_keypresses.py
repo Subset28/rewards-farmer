@@ -1,3 +1,5 @@
+"""The original analysis of keypress_times.txt into 0.1 s buckets; calibration.py replaces it."""
+
 keypress_times: list[float] = [
 	float(keypress_time) for keypress_time in open("keypress_times.txt").read().splitlines()
 ]

@@ -1,3 +1,5 @@
+"""A pygame window that draws the pointer path model, for looking at how it moves."""
+
 import math
 import random
 import time

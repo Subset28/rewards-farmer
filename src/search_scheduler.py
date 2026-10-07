@@ -1,3 +1,5 @@
+"""Spreads each owner's required searches over the day in several runs of search_only.py, keeps a journal so a restart catches up, and stops runs when the quota is complete."""
+
 import hashlib
 import logging
 import math

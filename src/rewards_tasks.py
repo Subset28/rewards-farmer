@@ -1,3 +1,5 @@
+"""Every Microsoft Rewards task the bot does on the page: daily set, Explore on Bing, required searches, cards, quests and bonus points."""
+
 import logging
 import log_utils
 import os
