@@ -58,7 +58,7 @@ services:
       # How often the VPN container's schedulers run. A new account on its own wants fewer
       # runs a day than the established ones (set both in .env, e.g. 2 and 11 for "third").
       REWARDS_SEARCH_RUNS_PER_DAY: ${VPN_SEARCH_RUNS_PER_DAY:-4}
-      REWARDS_ANCHOR_HOUR: ${VPN_ANCHOR_HOUR:-12}
+      REWARDS_ANCHOR_HOUR: ${VPN_ANCHOR_HOUR:-9}
       REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/vpn.log
       NAME_SERVERS: ${NAME_SERVERS:-1.1.1.1,1.0.0.1}
       HOME_IP_BLACKLIST: ${HOME_IP_BLACKLIST:-}
