@@ -45,7 +45,13 @@ A sign-in page, a human check or a restriction notice pauses the account and sen
 
 ## Deploying a change
 
-Never recreate the containers while a run is live: it kills the run and leaves a stale lock.
+Never recreate the containers while a run is live: it kills the run and leaves a stale lock. `scripts/deploy.sh` does all of this safely: it deploys what is committed, restarts every running container (the VPN one too, which the plain `up` below does not touch) only when no browser is mid-run, and checks each one is on the new image. Run it from the project folder; it exits 3 if a run was live (try again later) and 4 if any container is still on old code.
+
+```sh
+scripts/deploy.sh
+```
+
+The manual steps it replaces, for reference:
 
 ```sh
 git archive HEAD . | ssh synology 'cd /volume1/docker/rewards-farmer && tar -xf - && sed -i "s/\r$//" src/*.py && docker compose build rewards-farmer'
