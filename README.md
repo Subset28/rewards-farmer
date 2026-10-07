@@ -373,6 +373,15 @@ An account that earns its full quota at the same rate, every day, from its first
 
 None of this makes automation allowed or undetectable; it only avoids the most regular pattern.
 
+## Alerts that say who has to act
+
+`src/health.py` runs at the start of each scheduler cycle and, when something is wrong, sends one message to that account's Discord channel, at most once a day while it lasts:
+
+- `[NEEDS YOU]` is for what only a person can do: the brake has been on for 12+ hours (finish the verification in the sign-in browser, then `python src/safety.py clear <account>`).
+- `[NEEDS CLAUDE]` is for the bot itself: two or more failed runs in a day, no points gained for two days, or no run recorded for a day and a half. The message ends with the exact sentence to say after opening Claude Code in the project folder.
+
+`python src/health.py` shows what would be sent right now (it sends nothing). State is in `data-dir/health.json`.
+
 ## Footprint: nearly free when idle, light while running
 
 Idle, the schedulers sleep (about 0% CPU, 20-35 MB each). The virtual display (Xvfb, 35-70 MB) is not kept running: with `REWARDS_LAZY_DISPLAY=1`, which the compose scheduler services set, `src/footprint.py` starts one for the length of a run and stops it after. An existing `DISPLAY` (the one-shot service, the VPN container) is left alone. The schedulers also run at nice 10, which every browser they start inherits, so a run yields to the NAS's other containers. Edge's disk and media cache are capped at 64 MB per profile (it had grown to over 500 MB); pages cannot see that.
