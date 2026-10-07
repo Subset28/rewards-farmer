@@ -73,6 +73,26 @@ TYPING_DETAIL_RANGES = {
 	"fast_persistence": (0.1, 0.9),
 	"median_gap_ms": (40.0, 600.0),
 	"words_per_minute": (5.0, 200.0),
+	# How much this person varies, at each level (see human_model.py).
+	"log_gap_mu": (-4.5, -0.8),         # typical log gap in seconds
+	"within_sigma": (0.05, 1.2),        # key to key
+	"sigma_sd": (0.0, 0.4),             # how much that steadiness differs between searches
+	"tempo_sd": (0.0, 0.6),             # tempo from search to search
+	"tempo_phi": (0.0, 0.9),            # how long a tempo lasts
+	"gap_phi": (0.0, 0.8),              # runs of quick or slow keys
+	"offset_alternate": (-1.0, 1.0),
+	"offset_same_hand": (-1.0, 1.0),
+	"offset_same_finger": (-1.0, 1.0),
+	"offset_other": (-1.0, 1.0),
+	"offset_common_pair": (-0.8, 0.5),
+	"day_sd": (0.0, 0.3),               # day to day
+	"day_sd_measured": (0.0, 1.0),
+	"start_mu": (-1.6, 1.8),            # log seconds before the first key
+	"start_sigma": (0.05, 1.5),
+	"hold_mu": (3.0, 5.7),              # log milliseconds a key is held
+	"hold_sigma": (0.02, 1.0),
+	"hold_ms": (15.0, 300.0),
+	"rollover_rate": (0.0, 0.95),       # the next key goes down before this one comes up
 }
 MOUSE_DETAIL_RANGES = {
 	"reaction_ms": (120.0, 1500.0),
@@ -85,6 +105,17 @@ MOUSE_DETAIL_RANGES = {
 	"straightness": (1.0, 1.8),
 	"speed_px_s": (100.0, 10000.0),
 	"r_squared": (0.0, 1.0),
+	"move_rel_sd": (0.0, 0.8),          # scatter of a move's time around the Fitts line
+	"move_phi": (0.0, 0.9),
+	"day_sd": (0.0, 0.3),
+	"day_sd_measured": (0.0, 1.0),
+	"dwell_mu": (3.4, 6.0),             # log milliseconds
+	"dwell_sigma": (0.02, 1.2),
+	"hover_mu": (2.9, 6.9),
+	"hover_sigma": (0.02, 1.2),
+	"reaction_mu": (4.8, 7.4),
+	"reaction_sigma": (0.02, 1.2),
+	"straightness_sd": (0.0, 1.0),
 }
 NOTICED_KEYS = 4
 
