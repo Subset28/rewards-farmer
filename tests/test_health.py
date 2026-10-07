@@ -202,6 +202,25 @@ class TestLowDays(HealthCase):
 			self.assertEqual(self.keys_for([230, 240, 220, 250, 235, 225, 245, 40, 35]), [])
 
 
+class TestOffsiteBackup(HealthCase):
+	def keys_with(self, since):
+		with mock.patch.object(health.backup, "offsite_failing_since", return_value=since):
+			return self.keys()
+
+	def test_failing_for_a_day_needs_the_person(self):
+		self.assertEqual(self.keys_with(stamp(timedelta(hours=30))), ["offsite_backup"])
+
+	def test_a_first_failure_is_given_a_day_to_clear(self):
+		self.assertEqual(self.keys_with(stamp(timedelta(hours=3))), [])
+
+	def test_working_or_not_set_up_says_nothing(self):
+		self.assertEqual(self.keys_with(None), [])
+
+	def test_it_is_sent_once_for_the_whole_setup_not_once_per_account(self):
+		with mock.patch.object(health.backup, "offsite_failing_since", return_value=stamp(timedelta(hours=30))):
+			self.assertEqual(sorted(f.key for f in self.find(("default", "second", "third"))), ["offsite_backup"])
+
+
 class TestPause(HealthCase):
 	def pause(self, hours):
 		return {"kind": "captcha", "reason": "human check", "time": (NOW - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")}

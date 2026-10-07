@@ -132,5 +132,154 @@ class TestNeverBreaksARun(BackupCase):
 		self.assertEqual((restored / "Default" / "Cookies").read_text(), "cookies")
 
 
+class FakeResponse:
+	def __init__(self, status, body=None):
+		self.status_code = status
+		self._body = body or {}
+
+	def json(self):
+		return self._body
+
+
+class FakeSession:
+	"""Stands in for the GitHub API: remembers what was put and where."""
+
+	def __init__(self, existing_sha=None, put_status=201, get_status=None):
+		self.existing_sha = existing_sha
+		self.put_status = put_status
+		self.get_status = get_status
+		self.puts = []
+		self.gets = []
+
+	def get(self, url, headers=None, timeout=None):
+		self.gets.append((url, headers))
+
+		if self.get_status:
+			return FakeResponse(self.get_status)
+
+		return FakeResponse(200, {"sha": self.existing_sha}) if self.existing_sha else FakeResponse(404)
+
+	def put(self, url, headers=None, json=None, timeout=None):
+		self.puts.append((url, headers, json))
+
+		return FakeResponse(self.put_status)
+
+
+class TestOffNas(BackupCase):
+	TOKEN = "github_pat_SECRETVALUE"
+
+	def setUp(self):
+		super().setUp()
+		patcher = mock.patch.dict(os.environ, {"BACKUP_REPO": "owner/rewards-backups", "BACKUP_GITHUB_TOKEN": self.TOKEN})
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def archive_names(self):
+		with tarfile.open(fileobj=__import__("io").BytesIO(backup.shareable_archive(str(self.data))), mode="r:gz") as archive:
+			return sorted(m.name.replace("\\", "/") for m in archive.getmembers())
+
+	def test_the_off_nas_copy_has_the_state_and_no_secret(self):
+		names = self.archive_names()
+
+		for expected in ("pacing.json", "points.jsonl", "features.json", "behavior/mom.json", "vpn-servers.json"):
+			self.assertIn(expected, names)
+
+		for secret in ("second/openvpn/auth.txt", "second/openvpn/config.ovpn", "Default/Cookies", "Local State", "second/Default/Cookies"):
+			self.assertNotIn(secret, names)
+
+		self.assertFalse([n for n in names if "openvpn" in n or "Cookies" in n or "auth" in n])
+
+	def test_the_vpn_summary_names_the_server_but_not_the_login_or_keys(self):
+		(self.data / "second" / "openvpn" / "timezone").write_text("America/New_York\n")
+		(self.data / "second" / "openvpn" / "config.ovpn").write_text("remote 1.2.3.4 1194\n<key>\nSECRETKEY\n</key>\n")
+		summary = backup.vpn_summary(str(self.data))
+
+		self.assertEqual(summary, {"second": {"remote": "1.2.3.4 1194", "timezone": "America/New_York"}})
+		self.assertNotIn("SECRETKEY", str(summary))
+		self.assertNotIn("pass", str(summary))
+
+	def test_a_first_upload_creates_the_file(self):
+		session = FakeSession()
+
+		self.assertTrue(backup.offsite_if_due(str(self.data), str(self.out), NOW, session))
+		url, headers, body = session.puts[0]
+
+		self.assertTrue(url.endswith("/repos/owner/rewards-backups/contents/state/rewards-state.tar.gz"))
+		self.assertNotIn("sha", body)
+		self.assertEqual(headers["Authorization"], f"Bearer {self.TOKEN}")
+
+	def test_a_later_upload_replaces_it_using_the_old_sha(self):
+		session = FakeSession(existing_sha="abc123")
+		backup.offsite_if_due(str(self.data), str(self.out), NOW, session)
+
+		self.assertEqual(session.puts[0][2]["sha"], "abc123")
+
+	def test_once_a_day_only(self):
+		session = FakeSession()
+
+		self.assertTrue(backup.offsite_if_due(str(self.data), str(self.out), NOW, session))
+		self.assertFalse(backup.offsite_if_due(str(self.data), str(self.out), NOW + timedelta(hours=2), session))
+		self.assertEqual(len(session.puts), 1)
+
+	def test_a_refused_upload_is_tried_again_next_time(self):
+		bad = FakeSession(put_status=403)
+
+		self.assertFalse(backup.offsite_if_due(str(self.data), str(self.out), NOW, bad))
+		self.assertTrue(backup.offsite_if_due(str(self.data), str(self.out), NOW + timedelta(hours=1), FakeSession()))
+
+	def test_a_refusal_is_remembered_from_the_first_time_and_forgotten_on_success(self):
+		self.out.mkdir(exist_ok=True)
+
+		backup.offsite_if_due(str(self.data), str(self.out), NOW, FakeSession(put_status=401))
+		backup.offsite_if_due(str(self.data), str(self.out), NOW + timedelta(hours=5), FakeSession(put_status=401))
+
+		self.assertEqual(backup.offsite_failing_since(str(self.out)), NOW.isoformat(timespec="seconds"))
+
+		backup.offsite_if_due(str(self.data), str(self.out), NOW + timedelta(hours=6), FakeSession())
+
+		self.assertIsNone(backup.offsite_failing_since(str(self.out)))
+
+	def test_unset_means_nothing_is_sent(self):
+		session = FakeSession()
+
+		with mock.patch.dict(os.environ, {"BACKUP_GITHUB_TOKEN": ""}):
+			self.assertFalse(backup.offsite_if_due(str(self.data), str(self.out), NOW, session))
+
+		self.assertEqual(session.puts, [])
+		self.assertEqual(session.gets, [])
+
+	def test_a_network_error_does_not_raise_and_the_token_is_not_logged(self):
+		class Down:
+			def get(self, *a, **k):
+				raise OSError(f"cannot reach https://x with {TestOffNas.TOKEN}")
+
+		with self.assertLogs(backup.logger, level="DEBUG") as logs:
+			self.assertFalse(backup.offsite_if_due(str(self.data), str(self.out), NOW, Down()))
+
+		self.assertNotIn(self.TOKEN, "\n".join(logs.output))
+
+	def test_a_conflict_is_looked_at_again_once(self):
+		class Racy(FakeSession):
+			def put(self, *a, **k):
+				result = super().put(*a, **k)
+				self.put_status = 201
+
+				return FakeResponse(409) if len(self.puts) == 1 else result
+
+		session = Racy()
+
+		self.assertTrue(backup.upload(b"x", "owner/r", "t", session=session))
+		self.assertEqual(len(session.puts), 2)
+
+	def test_run_if_due_sends_it_even_when_the_local_backup_already_exists(self):
+		session = FakeSession()
+
+		with mock.patch.object(backup, "BACKUP_DIR", str(self.out)), mock.patch.object(backup, "USER_DATA_DIR", str(self.data)), 			mock.patch.object(backup.requests, "get", session.get), mock.patch.object(backup.requests, "put", session.put):
+			backup.create(str(self.data), str(self.out), NOW)
+			backup.run_if_due()
+
+		self.assertEqual(len(session.puts), 1)
+
+
 if __name__ == "__main__":
 	unittest.main()
