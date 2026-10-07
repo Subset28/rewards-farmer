@@ -26,6 +26,11 @@ THIRD_INTERVAL_PROBABILITY = 1 - (FIRST_INTERVAL_PROBABILITY + SECOND_INTERVAL_P
 CORRECTION_RATE = 0.7
 HESITATION_RATE = 0.02
 
+# Keys overlap only when the next one follows quickly, and no key is held longer than this.
+ROLLOVER_ONLY_BELOW = 0.30
+MAX_HOLD = 0.34
+
+
 def rhythm_start_default(rng) -> float:
 	"""A beat before the first key for someone whose own wait was not recorded."""
 	return rng.uniform(0.6, 1.6)
@@ -227,8 +232,11 @@ class KeyboardUtils:
 
 				if timeline[index + 1][1] == key or gap <= 0:
 					hold = min(hold, max(0.02, gap * 0.8))
+				elif gap > ROLLOVER_ONLY_BELOW:
+					# After a pause nobody is still holding the last key.
+					hold = min(hold, gap * 0.9)
 				elif rng.random() < rollover:
-					hold = max(hold, gap * rng.uniform(1.05, 1.6))
+					hold = min(MAX_HOLD, max(hold, gap * rng.uniform(1.05, 1.6)))
 				else:
 					hold = min(hold, gap * rng.uniform(0.5, 0.9))
 
