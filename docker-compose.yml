@@ -4,10 +4,10 @@
 #   docker compose run --rm rewards-farmer
 #
 # For unattended daily runs at a varying time instead of one manual run, use
-# the scheduler service, and search-scheduler to spread required searches
-# across the day instead of doing them all in the same daily run:
+# the home service: for every account on the home connection, a daily loop and
+# a search loop that spreads the required searches across the day:
 #
-#   docker compose up -d scheduler search-scheduler
+#   docker compose up -d home
 #
 # See the Docker section of the README.
 
@@ -88,7 +88,18 @@ services:
   # restart: unless-stopped keeps it running across NAS reboots; the loop
   # itself never exits on a purpose, so only a crash or `docker compose down`
   # should stop it.
-  scheduler:
+  # Every account on the home connection, in ONE container: for each, a daily loop (the once-a-day tasks) and a
+  # search loop (the required searches, spread over the day), side by side under src/supervisor.py. Each keeps
+  # its own settings, log file and schedule, and the run lock in data-dir keeps their browsers strictly one at
+  # a time. The second account runs at a different hour and fewer times a day than the first, because an
+  # account that has barely been used should not start at the first account's pace. The daily loops skip the
+  # searches (REWARDS_SKIP_SEARCHES): the search loops already spread them across the day.
+  #
+  # Adding an account on the home connection: a daily and a search command below with REWARDS_ACCOUNTS=<name>,
+  # after signing it in (see the README). The account behind the VPN is NOT here: it lives in the vpn container
+  # (docker-compose.vpn.yml), which has the extra network rights and the firewall that account needs, so that a
+  # VPN outage cannot stop these accounts.
+  home:
     build:
       context: .
       target: runtime
@@ -98,7 +109,35 @@ services:
     init: true
     restart: unless-stopped
     # No always-on display: src/footprint.py starts one only for the length of a run.
-    command: ["python", "src/daily_loop.py"]
+    command:
+      - python
+      - src/supervisor.py
+      - "--"
+      - env
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/scheduler.log
+      - REWARDS_SKIP_SEARCHES=1
+      - python
+      - src/daily_loop.py
+      - "--"
+      - env
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler.log
+      - python
+      - src/search_scheduler.py
+      - "--"
+      - env
+      - REWARDS_ACCOUNTS=second
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/scheduler-second.log
+      - REWARDS_SKIP_SEARCHES=1
+      - REWARDS_ANCHOR_HOUR=${SECOND_ANCHOR_HOUR:-15}
+      - python
+      - src/daily_loop.py
+      - "--"
+      - env
+      - REWARDS_ACCOUNTS=second
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-second.log
+      - REWARDS_SEARCH_RUNS_PER_DAY=${SECOND_SEARCH_RUNS_PER_DAY:-3}
+      - python
+      - src/search_scheduler.py
     # See the rewards-farmer service above for why cpus is left unset.
     deploy:
       resources:
@@ -136,122 +175,14 @@ services:
       REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
       REWARDS_JITTER_SECONDS: ${REWARDS_JITTER_SECONDS:-10800}
       TZ: ${TZ:-America/New_York}
-      # search-scheduler below already spreads the required searches across
-      # the day; without this the once-a-day run would redo them in one batch
-      # right after the last spread-out run, undoing the point of spreading
-      # them at all.
-      REWARDS_SKIP_SEARCHES: "1"
-    volumes:
-      - ./data-dir:/app/data-dir
-      - ./visual_search.jpg:/app/visual_search.jpg:ro
-
-  # Runs src/search_only.py (required searches only) a handful of times a day
-  # at random points within waking hours (src/search_scheduler.py), rather
-  # than all 25 in one sitting the way the once-a-day `scheduler` run above
-  # would. Separate from `scheduler` because the daily set/explore/misc/bonus
-  # tasks above genuinely only make sense once a day, while search timing is
-  # what most obviously reads as bot-like when batched.
-  search-scheduler:
-    build:
-      context: .
-      target: runtime
-    image: rewards-farmer:runtime
-    shm_size: 1gb
-    # Reaps the processes Edge leaves defunct, which pile up over days otherwise.
-    init: true
-    restart: unless-stopped
-    # No always-on display: src/footprint.py starts one only for the length of a run.
-    command: ["python", "src/search_scheduler.py"]
-    # See the rewards-farmer service above for why cpus is left unset.
-    deploy:
-      resources:
-        limits:
-          memory: 2048M
-    environment:
-      # Readable log lines that survive a rebuild (the container's own log does not).
-      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler.log
-      QUERY_SOURCE: ${QUERY_SOURCE:-trends}
-      # QUERY_SOURCE=openrouter uses OpenRouter's free models for the daily
-      # batch of searches (src/openrouter_queries.py). Put the key in .env next
-      # to this file, never here: OPENROUTER_API_KEY=...
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free}
-      OPENROUTER_DAILY_LIMIT: ${OPENROUTER_DAILY_LIMIT:-40}
-      REWARDS_HEADLESS: "1"
-      REWARDS_VIRTUAL_DISPLAY: "1"
-      REWARDS_LAZY_DISPLAY: "1"
-      REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
-      OLLAMA_HOST: ${OLLAMA_HOST:-}
-      # Alert destinations, one per account (src/notify.py). A Discord webhook
-      # address is a secret: put these in .env next to this file, never here.
-      NOTIFY_URL: ${NOTIFY_URL:-}
-      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
-      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
-      NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
-      # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
-      # plain request. Unset, nothing uses it. Never used for account pages.
-      TRAWL_URL: ${TRAWL_URL:-}
-      # How many times a day to run, and the waking-hours window (in TZ below)
-      # they are randomly placed within.
+      # How many search runs a day, and the waking-hours window (in TZ) they are placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
       REWARDS_SEARCH_START_HOUR: ${REWARDS_SEARCH_START_HOUR:-8}
       REWARDS_SEARCH_END_HOUR: ${REWARDS_SEARCH_END_HOUR:-23}
-      TZ: ${TZ:-America/New_York}
     volumes:
       - ./data-dir:/app/data-dir
       - ./visual_search.jpg:/app/visual_search.jpg:ro
 
-  # A second account, its own profile and its own schedule. Behind a compose
-  # profile on purpose: `docker compose up -d` leaves these off, so nothing
-  # starts against an account that has not been signed in yet. After signing
-  # in (see the README), start them with
-  #
-  #   docker compose --profile second up -d scheduler-second search-scheduler-second
-  #
-  # Runs strictly one at a time with the first account (the run lock in
-  # data-dir makes an overlap wait), at a different hour, and on fewer search
-  # runs a day, because an account that has barely been used should not start
-  # at the first account's pace.
-  scheduler-second:
-    extends: scheduler
-    profiles: ["second"]
-    environment:
-      # Readable log lines that survive a rebuild (the container's own log does not).
-      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler-second.log
-      REWARDS_ACCOUNTS: second
-      REWARDS_ANCHOR_HOUR: ${SECOND_ANCHOR_HOUR:-15}
-
-  search-scheduler-second:
-    extends: search-scheduler
-    profiles: ["second"]
-    environment:
-      # Readable log lines that survive a rebuild (the container's own log does not).
-      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler-second.log
-      REWARDS_ACCOUNTS: second
-      REWARDS_SEARCH_RUNS_PER_DAY: ${SECOND_SEARCH_RUNS_PER_DAY:-3}
-
-  # A third account (a family member's, brand new). Same arrangement as the second,
-  # behind its own profile, signed in first and only then started with
-  #
-  #   docker compose --profile third up -d scheduler-third search-scheduler-third
-  #
-  # It starts on a 21-day ramp (ramp_days in data-dir/pacing.json) with no optional
-  # behaviours switched on, and fewer runs a day than the others.
-  scheduler-third:
-    extends: scheduler
-    profiles: ["third"]
-    environment:
-      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler-third.log
-      REWARDS_ACCOUNTS: third
-      REWARDS_ANCHOR_HOUR: ${THIRD_ANCHOR_HOUR:-11}
-
-  search-scheduler-third:
-    extends: search-scheduler
-    profiles: ["third"]
-    environment:
-      REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/search-scheduler-third.log
-      REWARDS_ACCOUNTS: third
-      REWARDS_SEARCH_RUNS_PER_DAY: ${THIRD_SEARCH_RUNS_PER_DAY:-2}
 
   # One off, before the first run. Opens the Rewards sign-in in a browser
   # inside the container and puts that browser on your screen as a web page,

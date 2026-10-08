@@ -10,7 +10,7 @@ The one place that says where things stand, what is next, and what is still open
 | `second` | the owner | Member, Silver soon | home | normal (ramp ended about 10-11) | `typing` |
 | `third` | mom | new | **own VPN exit** (Surfshark Ashburn, 185.156.46.101) | 21-day ramp from 10-07, light | nothing |
 
-`third` runs only inside the `vpn` container, never as plain `scheduler-third`. It is the VPN's first live account.
+`third` runs only inside the `vpn` container, never in the `home` container. It is the VPN's first live account.
 
 ## Order of the rollout
 
@@ -64,3 +64,11 @@ The gate (`src/gate.py`) lets an account run only with its own recording, so the
 real browser first (`mouse_events_probe.py` with `PROBE_PROFILE`: events trusted, speed profile plausible). The staged
 dates above for typing and mouse no longer apply; `chains`, `query_sessions` and `habits` are still switches, and each is
 to be deleted the same way once it has run cleanly on a real account.
+
+## 2026-10-08: two containers
+
+Five containers became two. `home` (rewards-farmer-home-1) runs the daily and search loops of every account on the home
+connection (default and second) side by side under `src/supervisor.py`; `vpn` (rewards-farmer-vpn-1) runs the account
+behind the VPN (third). They stay apart on purpose: `vpn` holds network-admin rights and a firewall for its account, and a
+VPN outage must not stop the home accounts. `scripts/deploy_remote.sh` removes the old four containers on the first
+deploy after this change. Logs keep their old file names (`scheduler.log`, `search-scheduler-second.log`, ...).
