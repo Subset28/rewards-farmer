@@ -410,6 +410,23 @@ class MouseUtils:
 
 			time.sleep(random.uniform(0.4, 1.2))
 
+	def read_page(self, steps: list[tuple]):
+		"""Carry out a reading plan (reading.py): wheel ticks, stops to read, and small drifts of the hand."""
+		for step in steps:
+			if step[0] == "scroll":
+				ActionChains(self.driver).scroll_by_amount(0, step[1]).perform()
+			elif step[0] == "wait":
+				time.sleep(step[1])
+			elif step[0] == "drift":
+				try:
+					here = self.get_current_mouse_position()
+					end = (max(1, here[0] + step[1]), max(1, here[1] + step[2]))
+					duration = min(0.6, max(0.15, math.dist(here, end) / 260))
+					self.move_mouse(duration, self.path_for(here, end, duration), False)
+				except Exception:
+					# A drift is decoration; a page that will not take it is not a reason to stop reading.
+					pass
+
 	def wheel_scroll_to_top(self, max_wheel_events: int = 80):
 		"""Scroll back to the top of the page with simulated wheel input.
 

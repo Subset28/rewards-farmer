@@ -12,6 +12,7 @@ Bing, and Bing's own autosuggest answers that question directly.
 """
 
 import logging
+import random
 import os
 
 import features
@@ -70,6 +71,41 @@ def search_query_for_task(task_description: str, pick: int = 0, account: str | N
 	import llm_utils
 
 	return llm_utils.get_search_query_from_task_description(task_description)
+
+
+def tangent_starts(count: int, account: str | None = None, rng=random) -> list[str]:
+	"""Where `count` threads of searching begin: the account's own interests, put the way a person asks, and the news.
+
+	An interest is searched through Bing's own suggestions for it, so it comes out as a real query
+	("portland trail blazers" becomes "portland trail blazers schedule"). Nothing already searched lately."""
+	import chains
+
+	searched = query_history.avoid_for(account)
+	interests: list[str] = []
+
+	try:
+		import openrouter_queries
+
+		interests = list(openrouter_queries.interests(account))
+	except Exception as exc:
+		logger.debug("No interests for %s: %s", account, exc)
+
+	trending = [q for q in query_sources.trending_queries()[:40] if query_history.normalize(q) not in searched]
+	starts = []
+
+	for pick in chains.starting_points(interests, trending, count, rng):
+		query = pick
+
+		if pick in interests:
+			options = [s for s in query_sources.suggestions(pick)[:8] if query_history.normalize(s) not in searched and s.lower() != pick.lower()]
+
+			if options:
+				query = rng.choice(options)
+
+		if query_history.normalize(query) not in searched:
+			starts.append(query)
+
+	return starts
 
 
 def related_queries(count: int, account: str | None = None):

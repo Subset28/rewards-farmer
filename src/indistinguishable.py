@@ -219,9 +219,14 @@ def mouse_simulated_features(trials: list, detail: dict | None, rng, repeats: in
 
 	rows = []
 
-	for trial in trials:
+	for position, trial in enumerate(trials):
 		if not trial.done or not trial.presses or len(trial.samples) < mouse_fit.MIN_SAMPLES:
 			continue
+
+		# A recorded move must not stand in for itself: leave it out of the library it is judged against.
+		own = detail
+		if detail and detail.get("path_library"):
+			own = {**detail, "path_library": [e for e in detail["path_library"] if e.get("id") != position]}
 
 		early = trial.early[0] if trial.early else trial.samples[0]
 		x0, y0 = early[1], early[2]
@@ -234,7 +239,7 @@ def mouse_simulated_features(trials: list, detail: dict | None, rng, repeats: in
 				path = mouse_trajectory.get_final_path_from_real_time(duration + lead, (x0, y0), (hit_x, hit_y))
 				path.total = duration + lead
 			else:
-				path = pointer_path.build((x0, y0), (hit_x, hit_y), duration, detail, rng, lead)
+				path = pointer_path.build((x0, y0), (hit_x, hit_y), duration, own, rng, lead)
 
 			made = mouse_fit.track(trial_like(trial, path))
 
@@ -262,7 +267,7 @@ def mouse_tell_apart(trials: list, detail: dict, rng=None, repeats: int = 12) ->
 # ----------------------------------------------------------------------------- tuning the pointer to match
 
 REFINED = (
-	("path_a", 1.3, 8.0, "scale"), ("path_b", 1.3, 8.0, "scale"), ("path_lat_sd", 0.0, 0.25, "scale"),
+	("path_a", 1.3, 10.0, "scale"), ("path_b", 1.3, 16.0, "scale"), ("path_lat_sd", 0.0, 0.25, "scale"),
 	("path_lat_bias", -0.15, 0.15, "shift"), ("path_tremor", 0.0, 4.0, "scale"), ("path_over_rate", 0.0, 0.7, "shift"),
 )
 
@@ -313,7 +318,11 @@ def refine_mouse(trials: list, detail: dict, rounds: int = 5, repeats: int = 4) 
 		improved = False
 
 		for key, low, high, kind in REFINED:
-			current = best.get(key, pointer_path.DEFAULTS[key])
+			if key in ("path_a", "path_b") and best.get("path_shapes"):
+				# The person's own shapes are in use: scale those, not the single averages.
+				key, low, high = ("path_a_scale", 0.6, 1.7) if key == "path_a" else ("path_b_scale", 0.6, 1.7)
+
+			current = best.get(key, 1.0 if key.endswith("_scale") else pointer_path.DEFAULTS[key])
 
 			for factor in (1.08, 0.93) if kind == "scale" else (0.025, -0.025) if key == "path_over_rate" else (0.006, -0.006):
 				value = current * factor if kind == "scale" else current + factor

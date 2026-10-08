@@ -116,8 +116,74 @@ def _progress_curve(t: Track, points: int = GRID_TAUS) -> list[float]:
 	return [min(1.0, max(0.0, t.along[round(k / points * last)] / t.distance)) for k in range(1, points)]
 
 
+LIBRARY_POINTS = 48
+MAX_LIBRARY = 400
+
+
+def library(tracks: list[Track]) -> list[dict]:
+	"""The person's own moves as shapes: progress along the line and distance off it, as shares of the move's
+	length, at evenly spaced fractions of its time. pointer_path replays them, rescaled, for new moves."""
+	entries = []
+
+	for index, t in enumerate(tracks):
+		if not t or len(t.along) < 8:
+			continue
+
+		last = len(t.along) - 1
+
+		def sample(values, k):
+			position = k / (LIBRARY_POINTS - 1) * last
+			low = min(last - 1, int(position))
+			mix = position - low
+
+			return values[low] * (1 - mix) + values[low + 1] * mix
+
+		entries.append({
+			"id": index,
+			"d": round(t.distance, 1),
+			"T": round(t.duration, 3),
+			"u": [round(sample(t.along, k) / t.distance, 4) for k in range(LIBRARY_POINTS)],
+			"l": [round(sample(t.sideways, k) / t.distance, 4) for k in range(LIBRARY_POINTS)],
+		})
+
+	return entries[:MAX_LIBRARY]
+
+
+_TABLES: dict = {}
+SHAPE_A = [1.2 + 0.25 * n for n in range(36)]          # 1.2 to 9.95
+SHAPE_B = [1.2 + 0.4 * n for n in range(36)]           # 1.2 to 15.2
+
+
+def _shape_tables(points: int = GRID_TAUS):
+	"""Progress curves for every (a, b) on the grid, built once."""
+	if points not in _TABLES:
+		import pointer_path
+
+		taus = [(k + 1) / points for k in range(points - 1)]
+		_TABLES[points] = [
+			((a, b), [pointer_path.progress(pointer_path.velocity_table(a, b), tau) for tau in taus])
+			for a in SHAPE_A for b in SHAPE_B
+		]
+
+	return _TABLES[points]
+
+
+def best_shape(curve: list[float]) -> tuple[float, float]:
+	"""The (a, b) whose progress curve is closest to one recorded move's."""
+	best, best_error = (2.7, 3.6), None
+
+	for shape, candidate in _shape_tables(len(curve) + 1):
+		error = sum((x - y) ** 2 for x, y in zip(candidate, curve))
+
+		if best_error is None or error < best_error:
+			best, best_error = shape, error
+
+	return best
+
+
 def fit(tracks: list[Track]) -> dict:
 	"""The numbers pointer_path.build draws from, from a person's moves. Empty if there are too few moves."""
+	original = list(tracks)          # kept with its gaps, so a move's place in the recording is its id
 	tracks = [t for t in tracks if t]
 
 	if len(tracks) < 8:
@@ -172,9 +238,14 @@ def fit(tracks: list[Track]) -> dict:
 		along_offsets.append((off_x * ux + off_y * uy) / extent_along)
 		across.append((-off_x * uy + off_y * ux) / extent_across)
 
+	# The shape of each move on its own, to draw from.
+	shapes = [best_shape(_progress_curve(t)) for t in tracks]
+
 	result = {
-		"path_a": min(8.0, best[0]),
-		"path_b": min(8.0, best[1]),
+		"path_library": library(original),
+		"path_shapes": [[round(a, 2), round(b, 2)] for a, b in shapes][:300],
+		"path_a": min(9.95, best[0]),
+		"path_b": min(15.2, best[1]),
 		"path_lat_bias": max(-0.15, min(0.15, statistics.mean(bows))),
 		"path_lat_sd": max(0.0, min(0.25, statistics.pstdev(bows))),
 		"path_tremor": max(0.0, min(4.0, statistics.pstdev(residual))) if len(residual) > 20 else 0.35,
