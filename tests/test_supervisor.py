@@ -80,3 +80,33 @@ class TestRun(unittest.TestCase):
 
 		self.assertTrue(process.terminated)
 		self.assertTrue(process.killed)
+
+
+class TestOptionalCommands(unittest.TestCase):
+	def test_an_optional_command_that_ends_is_restarted_and_never_ends_the_others(self):
+		made = []
+		clock_now = [0.0]
+
+		def popen(command):
+			process = Fake(command, ends_after=0 if command == ["api"] else None)
+			made.append(process)
+
+			return process
+
+		ticks = {"n": 0}
+
+		def sleep(seconds):
+			ticks["n"] += 1
+			clock_now[0] += 30.0
+
+			if ticks["n"] > 6:
+				raise KeyboardInterrupt
+
+		with self.assertRaises(KeyboardInterrupt):
+			supervisor.run([["loop"], ["optional", "api"]], popen=popen, sleep=sleep, handle_signals=False, clock=lambda: clock_now[0])
+
+		self.assertGreater(len([p for p in made if p.command == ["api"]]), 1)
+		self.assertFalse(made[0].terminated)
+
+	def test_only_optional_commands_is_an_error(self):
+		self.assertEqual(supervisor.run([["optional", "api"]], handle_signals=False), 2)
