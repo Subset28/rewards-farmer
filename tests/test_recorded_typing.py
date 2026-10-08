@@ -411,14 +411,6 @@ class TestNothingChangesForEveryoneElse(Case):
 		self.assertTrue(timeline)
 		self.assertTrue(all(kind == "send" for _, kind, _ in timeline))
 
-	def test_with_the_feature_off_the_original_classic_typing_runs(self):
-		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}):
-			keyboard = self.keyboard()
-			keyboard.send_keys("hello" + Keys.ENTER, intended="hello", rng=random.Random(1))
-
-		self.assertTrue(all(kind == "send" for _, kind, _ in FakeChains.last.timeline()))
-
-
 class TestACorrectionStillFinishesWithTheRightText(Case):
 	def test_a_slip_is_backspaced_and_retyped(self):
 		keyboard = self.keyboard({**DETAIL, "correction_rate": 1.0, "noticed_weights": [0, 1, 0, 0]})

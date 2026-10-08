@@ -6,7 +6,7 @@ behaviour reads as natural. Turned on together, an account that gets flagged can
 to the change that did it, and a ban costs the account. So each is off until it is switched on,
 for one account first (the one that matters least), a few days apart.
 
-    data-dir/features.json    {"typing": ["second"], "query_sessions": [], "habits": []}
+    data-dir/features.json    {"chains": ["second"], "query_sessions": [], "habits": []}
 
 A feature is on for an account that is listed under it, and for every account if "*" is. Nothing
 is on by default, and a missing or unreadable file means everything is off: the old behaviour,
@@ -23,9 +23,9 @@ tests and one-off runs).
 
 Features:
 
-    typing           corrected typos, word-boundary and thinking pauses, and a recorded profile's own
-                     slip rate, pauses and correction habits (mimic_typing.py)
-    mouse            a recorded profile's own click hold time and hover before a click (mouse_trajectory.py)
+    (typing and mouse are not switches any more: an account runs only with its own recording, gate.py, and
+    that recording is always used. mimic_typing.py, mouse_trajectory.py.)
+
     chains           searches in tangents: the next search comes from the results page's own related searches,
                      typed or clicked, with reading and the odd opened result between (chains.py, reading.py)
     query_sessions   queries grouped into topical sessions with follow-ups (query_sources.py)
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 FEATURES_FILE = os.path.join(USER_DATA_DIR, "features.json")
 
-KNOWN = ("typing", "mouse", "chains", "query_sessions", "habits")
+KNOWN = ("chains", "query_sessions", "habits")
 
 ENV = "REWARDS_FEATURES"
 EVERY_ACCOUNT = "*"

@@ -56,3 +56,11 @@ One change at a time, one account at a time, a few days apart, `python src/statu
 - The unit tests prove the logic, not the live pages. A change on Microsoft's side shows up as a task earning nothing until item 3 is built.
 - Everything is on one disk on one NAS and one home connection.
 - Container limit is 2 GB (raised from 1.5 GB on 2026-10-08). Measured in a 1.5 GB container with the real task code: searching in tangents and only reading the results peaks near 1.08 GB after 6 tangents (about +100 MB per tangent, the blank-page relief does not give it back); opening a third-party result page jumped from 555 MB to 1.3 GB in 90 s and froze the browser. So result-opening is off by default (`REWARDS_OPEN_RESULT_CHANCE`); measure again at 2 GB before turning it on.
+
+## 2026-10-08: typing and mouse are no longer switches
+
+The gate (`src/gate.py`) lets an account run only with its own recording, so the recording is always used: no
+`typing` or `mouse` switch exists any more, and the original generic typing code is deleted. Mouse was checked in a
+real browser first (`mouse_events_probe.py` with `PROBE_PROFILE`: events trusted, speed profile plausible). The staged
+dates above for typing and mouse no longer apply; `chains`, `query_sessions` and `habits` are still switches, and each is
+to be deleted the same way once it has run cleanly on a real account.

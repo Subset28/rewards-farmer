@@ -34,12 +34,12 @@ class FeatureFileTestCase(unittest.TestCase):
 
 class TestCaseInsensitiveNames(FeatureFileTestCase):
 	def test_an_account_is_matched_whatever_the_case(self):
-		self.write({"typing": ["Second"]})
+		self.write({"chains": ["Second"]})
 
 		for name in ("second", "SECOND", "Second", " second "):
-			self.assertTrue(features.enabled("typing", name), name)
+			self.assertTrue(features.enabled("chains", name), name)
 
-		self.assertFalse(features.enabled("typing", "default"))
+		self.assertFalse(features.enabled("chains", "default"))
 
 	def test_a_scheduler_owner_is_matched_whatever_the_case(self):
 		self.write({"habits": ["second"]})
@@ -47,35 +47,35 @@ class TestCaseInsensitiveNames(FeatureFileTestCase):
 		self.assertTrue(features.enabled("habits", "Default,SECOND"))
 
 	def test_switching_off_with_a_different_case_really_turns_it_off(self):
-		features.switch("typing", "Second", True)
-		features.switch("typing", "SECOND", False)
+		features.switch("chains", "Second", True)
+		features.switch("chains", "SECOND", False)
 
-		self.assertFalse(features.enabled("typing", "second"))
-		self.assertEqual(json.loads(self.file.read_text())["typing"], [])
+		self.assertFalse(features.enabled("chains", "second"))
+		self.assertEqual(json.loads(self.file.read_text())["chains"], [])
 
 	def test_switching_on_twice_in_different_cases_lists_it_once(self):
-		features.switch("typing", "second", True)
-		features.switch("typing", "Second", True)
+		features.switch("chains", "second", True)
+		features.switch("chains", "Second", True)
 
-		self.assertEqual(len(json.loads(self.file.read_text())["typing"]), 1)
+		self.assertEqual(len(json.loads(self.file.read_text())["chains"]), 1)
 
 
 class TestOneAccountPerEntry(FeatureFileTestCase):
 	def test_a_comma_is_refused_rather_than_stored_as_a_name_that_never_matches(self):
 		with self.assertRaisesRegex(ValueError, "one account"):
-			features.switch("typing", "default,second", True)
+			features.switch("chains", "default,second", True)
 
 		self.assertFalse(self.file.exists())
 
 	def test_an_empty_name_is_refused(self):
 		for name in ("", "   "):
 			with self.assertRaises(ValueError):
-				features.switch("typing", name, True)
+				features.switch("chains", name, True)
 
 	def test_surrounding_spaces_are_dropped(self):
-		features.switch("typing", "  second  ", True)
+		features.switch("chains", "  second  ", True)
 
-		self.assertEqual(json.loads(self.file.read_text())["typing"], ["second"])
+		self.assertEqual(json.loads(self.file.read_text())["chains"], ["second"])
 
 
 class TestSwitchingIsSafeToRace(FeatureFileTestCase):
@@ -85,7 +85,7 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 
 		def go(name):
 			try:
-				features.switch("typing", name, True)
+				features.switch("chains", name, True)
 			except Exception as exc:  # pragma: no cover - reported below
 				errors.append(exc)
 
@@ -98,13 +98,13 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 			t.join()
 
 		self.assertEqual(errors, [])
-		self.assertEqual(sorted(json.loads(self.file.read_text())["typing"]), sorted(names))
+		self.assertEqual(sorted(json.loads(self.file.read_text())["chains"]), sorted(names))
 
 	def test_a_race_cannot_lose_an_off(self):
 		for n in range(6):
-			features.switch("typing", f"a{n}", True)
+			features.switch("chains", f"a{n}", True)
 
-		threads = [threading.Thread(target=features.switch, args=("typing", f"a{n}", False)) for n in range(6)]
+		threads = [threading.Thread(target=features.switch, args=("chains", f"a{n}", False)) for n in range(6)]
 		threads += [threading.Thread(target=features.switch, args=("habits", "x", True))]
 
 		for t in threads:
@@ -115,11 +115,11 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 
 		data = json.loads(self.file.read_text())
 
-		self.assertEqual(data["typing"], [])
+		self.assertEqual(data["chains"], [])
 		self.assertEqual(data["habits"], ["x"])
 
 	def test_the_lock_is_released_afterwards(self):
-		features.switch("typing", "second", True)
+		features.switch("chains", "second", True)
 
 		self.assertFalse(os.path.exists(f"{features.FEATURES_FILE}.lock"))
 
@@ -130,7 +130,7 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 			started = time.monotonic()
 
 			with self.assertRaisesRegex(OSError, "held by another switch"):
-				features.switch("typing", "second", True)
+				features.switch("chains", "second", True)
 
 		self.assertLess(time.monotonic() - started, 2)
 		os.unlink(f"{features.FEATURES_FILE}.lock")
@@ -141,14 +141,14 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 		old = time.time() - 600
 		os.utime(lock, (old, old))
 
-		features.switch("typing", "second", True)
+		features.switch("chains", "second", True)
 
-		self.assertTrue(features.enabled("typing", "second"))
+		self.assertTrue(features.enabled("chains", "second"))
 		self.assertFalse(os.path.exists(lock))
 
 	def test_a_failed_write_leaves_no_temporary_file_and_says_so(self):
 		with mock.patch.object(features.os, "replace", side_effect=PermissionError("in use")), self.assertRaises(OSError):
-			features.switch("typing", "second", True)
+			features.switch("chains", "second", True)
 
 		leftovers = [p.name for p in self.file.parent.iterdir() if p.name.startswith("features.json.")]
 
@@ -165,19 +165,19 @@ class TestTheCommandLine(FeatureFileTestCase):
 		return code, out.getvalue()
 
 	def test_on_and_off_work_and_show_the_result(self):
-		code, text = self.run_cli("on", "typing", "second")
+		code, text = self.run_cli("on", "chains", "second")
 
 		self.assertEqual(code, 0)
 		self.assertIn("second", text)
-		self.assertTrue(features.enabled("typing", "second"))
+		self.assertTrue(features.enabled("chains", "second"))
 
-		code, _ = self.run_cli("off", "typing", "second")
+		code, _ = self.run_cli("off", "chains", "second")
 
 		self.assertEqual(code, 0)
-		self.assertFalse(features.enabled("typing", "second"))
+		self.assertFalse(features.enabled("chains", "second"))
 
 	def test_a_bad_request_exits_non_zero_and_changes_nothing(self):
-		for args in (("on", "made_up", "second"), ("on", "typing", "a,b"), ("on", "typing"), ("sideways", "typing", "x")):
+		for args in (("on", "made_up", "second"), ("on", "chains", "a,b"), ("on", "chains"), ("sideways", "chains", "x")):
 			code, _ = self.run_cli(*args)
 
 			self.assertEqual(code, 2, args)
@@ -186,14 +186,14 @@ class TestTheCommandLine(FeatureFileTestCase):
 
 	def test_a_name_no_account_answers_to_is_called_out(self):
 		with mock.patch("status.known_names", return_value=["default", "second"]):
-			_, text = self.run_cli("on", "typing", "Secnod")
+			_, text = self.run_cli("on", "chains", "Secnod")
 
 		self.assertIn("note:", text)
 		self.assertIn("not an account", text)
 
 	def test_a_known_account_in_any_case_gets_no_note(self):
 		with mock.patch("status.known_names", return_value=["default", "second"]):
-			_, text = self.run_cli("on", "typing", "SECOND")
+			_, text = self.run_cli("on", "chains", "SECOND")
 
 		self.assertNotIn("note:", text)
 

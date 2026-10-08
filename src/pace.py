@@ -15,7 +15,6 @@ import random
 import time
 
 import clock
-import features
 import human_model
 
 DISTRACTION_CHANCE = 0.04
@@ -32,8 +31,8 @@ class Pace:
 		self.drift = 0.0
 
 	def active(self) -> bool:
-		"""On for an account that has the typing switch AND a recorded profile of its own to take the spread from."""
-		return bool(self.account) and "tempo_sd" in self.detail and features.enabled("typing", self.account)
+		"""On for an account with a recorded profile of its own to take the spread from."""
+		return bool(self.account) and "tempo_sd" in self.detail
 
 	def factor(self) -> float:
 		"""How much slower (above 1) or quicker this account is being right now."""

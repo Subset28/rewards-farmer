@@ -10,7 +10,6 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 
 import clock
-import features
 import human_model
 import search_behavior
 
@@ -75,8 +74,8 @@ class KeyboardUtils:
 		self._latency = None
 
 	def personal(self) -> dict:
-		"""The recorded measurements, once the typing feature is on for this account; else nothing."""
-		return self.recorded if self.recorded and features.enabled("typing", self.account) else {}
+		"""The account's recorded measurements; nothing for a profile that was not recorded."""
+		return self.recorded or {}
 
 	def slip_weights(self, text: str) -> list[float] | None:
 		"""Where in `text` this person is likelier to slip, or None until their recorded habits are switched on."""
@@ -140,29 +139,8 @@ class KeyboardUtils:
 		return first, noticed
 
 	def send_keys(self, keys: Iterable[str], intended: str | None = None, rng=None):
-		"""Type `keys`: the original timing, or the more human one when the "typing" feature is on for this account.
-
-		The new typing changes what Microsoft sees, so it goes live one account at a time
-		(features.py); until it is switched on the original code runs, unchanged."""
-		if not features.enabled("typing", self.account):
-			return self._send_keys_classic(keys)
-
+		"""Type `keys` the human way, from the account's recorded rhythm. (An account with no recording does not run: gate.py.)"""
 		return self._send_keys_human(keys, intended, rng)
-
-	def _send_keys_classic(self, keys: Iterable[str]):
-		actions = ActionChains(self.driver, duration=0)
-
-		for key in keys:
-			actions.send_keys(key)
-
-			interval = random.choices(
-				[FIRST_INTERVAL, SECOND_INTERVAL, THIRD_INTERVAL],
-				weights=self.weights
-			)[0]
-
-			actions.pause(random.uniform(interval[0], interval[1]))
-
-		actions.perform()
 
 	def rhythm(self, detail: dict, rng) -> human_model.TypingRhythm:
 		"""This person's typist, kept for the whole run so the tempo wanders from search to search."""
