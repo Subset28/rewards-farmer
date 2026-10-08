@@ -170,6 +170,68 @@ def run_long(count: int) -> dict:
 			driver.quit()
 
 
+def run_latency(keys: int = 80, gap: float = 0.15, hold: float = 0.08) -> dict:
+	"""How much the driver adds to the timing it is asked for: type a fixed pattern and compare with what the page saw."""
+	with tempfile.TemporaryDirectory(prefix="latency-probe-") as profile:
+		account = accounts.Account(name="probe-latency", user_data_dir=profile, profile_name="Default")
+		driver = browser.start_driver(account)
+
+		if driver is None:
+			return {"error": "driver did not start"}
+
+		try:
+			page = os.path.join(profile, "keys.html")
+
+			with open(page, "w", encoding="utf-8") as handle:
+				handle.write(PAGE)
+
+			driver.get(("file:///" if os.name == "nt" else "file://") + page.replace(os.sep, "/"))
+			driver.find_element(By.ID, "box").click()
+			letters = "asdfjklqweruiop"
+			timeline = [(0.5 + n * gap, letters[n % len(letters)]) for n in range(keys)]
+			events = []
+
+			for when, key in timeline:
+				events += [(when, True, key), (when + hold, False, key)]
+
+			actions = mimic_typing.ActionChains(driver, duration=0)
+			elapsed = 0.0
+
+			for when, down, key in sorted(events, key=lambda e: (e[0], not e[1])):
+				actions.pause(max(0.0, when - elapsed))
+				actions.key_down(key) if down else actions.key_up(key)
+				elapsed = when
+
+			actions.perform()
+			log = driver.execute_script("return window.__log")
+			downs = [e for e in log if e["type"] == "keydown"]
+			ups = {e["key"] + str(round(e["t"] / 1000, 0)): e for e in log if e["type"] == "keyup"}
+			gaps = [(b["t"] - a["t"]) / 1000 for a, b in zip(downs, downs[1:])]
+			holds = []
+			pending = {}
+
+			for e in sorted((x for x in log if x["type"] in ("keydown", "keyup")), key=lambda x: x["t"]):
+				if e["type"] == "keydown":
+					pending[e["key"]] = e["t"]
+				elif e["key"] in pending:
+					holds.append(e["t"] - pending.pop(e["key"]))
+
+			def stats(values, target):
+				ordered = sorted(values)
+
+				return {
+					"mean_extra_ms": round(statistics.mean(values) - target, 1),
+					"median_extra_ms": round(statistics.median(values) - target, 1),
+					"spread_ms": round(statistics.pstdev(values), 1),
+					"p90_extra_ms": round(ordered[int(0.9 * (len(ordered) - 1))] - target, 1),
+					"max_extra_ms": round(max(values) - target, 1),
+				}
+
+			return {"asked": {"gap_ms": gap * 1000, "hold_ms": hold * 1000}, "gaps": stats([g * 1000 for g in gaps], gap * 1000), "holds": stats(holds, hold * 1000), "keys": len(downs), "unused": len(ups)}
+		finally:
+			driver.quit()
+
+
 def run() -> dict:
 	os.environ["REWARDS_FEATURES"] = "typing"
 
@@ -209,6 +271,10 @@ def run() -> dict:
 
 
 if __name__ == "__main__":
+	if len(sys.argv) > 1 and sys.argv[1] == "latency":
+		print("LATENCY " + json.dumps(run_latency()))
+		sys.exit(0)
+
 	if len(sys.argv) > 1 and sys.argv[1] == "long":
 		print("ROWS " + json.dumps(run_long(int(sys.argv[2]) if len(sys.argv) > 2 else 40)))
 		sys.exit(0)
