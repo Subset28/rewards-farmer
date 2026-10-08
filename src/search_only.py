@@ -12,6 +12,7 @@ import log_utils
 import accounts
 import browser
 import desktop_utils
+import gate
 import rewards_tasks
 import time
 import search_behavior
@@ -124,6 +125,9 @@ def main() -> int:
 		if one:
 			logger.error("[BRAKE] Skipping %s: paused (%s: %s).", account.name, one.get("kind"), one.get("reason"))
 
+			continue
+
+		if gate.blocked(account.name):
 			continue
 
 		if len(configured) > 1:

@@ -9,6 +9,7 @@ import log_utils
 import accounts
 import browser
 import desktop_utils
+import gate
 import rewards_tasks
 import safety
 import run_lock
@@ -119,6 +120,9 @@ def main() -> int:
 		if one:
 			logger.error("[BRAKE] Skipping %s: paused (%s: %s). `python src/safety.py clear %s` once it is signed in again.", account.name, one.get("kind"), one.get("reason"), account.name)
 
+			continue
+
+		if gate.blocked(account.name):
 			continue
 
 		if len(configured) > 1:
