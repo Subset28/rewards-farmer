@@ -79,6 +79,41 @@ def _tremor(duration: float, size: float, rng) -> list[tuple[float, float]]:
 	return points
 
 
+NEAREST_MOVES = 6
+LIBRARY_MIN_DISTANCE = 60.0
+
+
+def _from_library(library: list[dict], distance: float, rng) -> dict:
+	"""A recorded move of about this length: one of the nearest in length, chosen at random."""
+	ranked = sorted(library, key=lambda entry: abs(math.log(max(1.0, entry["d"]) / distance)))
+
+	return rng.choice(ranked[:NEAREST_MOVES])
+
+
+def _replay(entry: dict, distance: float, rng):
+	"""A function from the share of the move's time to (progress, sideways) as shares of its length, for a recorded
+	move, varied a little: its timing warped by a few percent and its bow by about a tenth, so a recorded move is
+	never repeated exactly."""
+	u, l = entry["u"], entry["l"]
+	end = u[-1] or 1.0
+	warp = rng.gauss(0, 0.025)
+	scale = math.exp(rng.gauss(0, 0.1))
+	size = len(u) - 1
+
+	def at(tau: float):
+		tau = min(1.0, max(0.0, tau + warp * math.sin(math.pi * tau)))
+		position = tau * size
+		low = min(size - 1, int(position))
+		mix = position - low
+
+		return (
+			(u[low] * (1 - mix) + u[low + 1] * mix) / end,
+			(l[low] * (1 - mix) + l[low + 1] * mix) * scale,
+		)
+
+	return at
+
+
 def build(start, end, duration: float, params: dict | None = None, rng=random, lead: float = 0.0):
 	"""A function t (seconds) -> (x, y) for a move from `start` to `end`.
 
@@ -102,13 +137,24 @@ def build(start, end, duration: float, params: dict | None = None, rng=random, l
 
 	ux, uy = dx / distance, dy / distance
 	px, py = -uy, ux
-	table = velocity_table(params["path_a"] * math.exp(rng.gauss(0, 0.08)), params["path_b"] * math.exp(rng.gauss(0, 0.08)))
+	shapes = params.get("path_shapes")
+
+	if shapes:
+		# One of this person's own moves' shapes, as measured, a touch varied: the sharpness of their peak and how
+		# much one move differs from the next come out as they are instead of as an average of them.
+		a, b = rng.choice(shapes)
+		a, b = a * params.get("path_a_scale", 1.0), b * params.get("path_b_scale", 1.0)
+		table = velocity_table(max(1.15, a * math.exp(rng.gauss(0, 0.04))), max(1.15, b * math.exp(rng.gauss(0, 0.04))))
+	else:
+		table = velocity_table(params["path_a"] * math.exp(rng.gauss(0, 0.08)), params["path_b"] * math.exp(rng.gauss(0, 0.08)))
 	bow = distance * (params["path_lat_bias"] + params["path_lat_sd"] * rng.gauss(0, 1))
 	second_bend = bow * rng.gauss(0, 0.25)
 	over = distance * rng.uniform(0.015, 0.05) + 2 if distance > 60 and rng.random() < params["path_over_rate"] else 0.0
 	reach = distance + over
 	main_time = duration * (1 - CORRECTION_SHARE) if over else duration
-	tremor = _tremor(duration, params["path_tremor"], rng)
+	library = params.get("path_library") if distance >= LIBRARY_MIN_DISTANCE else None
+	replay = _replay(_from_library(library, distance, rng), distance, rng) if library else None
+	tremor = _tremor(duration, min(params["path_tremor"], 0.5) if replay else params["path_tremor"], rng)
 
 	def at(t: float):
 		if t >= duration:
@@ -117,13 +163,17 @@ def build(start, end, duration: float, params: dict | None = None, rng=random, l
 		if t <= 0:
 			return (sx, sy)
 
-		if t <= main_time:
-			along = progress(table, t / main_time) * reach
+		if replay:
+			progress_share, sideways_share = replay(t / duration)
+			along, sideways = progress_share * distance, sideways_share * distance
 		else:
-			along = reach + (distance - reach) * _smooth((t - main_time) / (duration - main_time))
+			if t <= main_time:
+				along = progress(table, t / main_time) * reach
+			else:
+				along = reach + (distance - reach) * _smooth((t - main_time) / (duration - main_time))
 
-		share = min(1.0, along / distance)
-		sideways = bow * math.sin(math.pi * share) + second_bend * math.sin(2 * math.pi * share)
+			share = min(1.0, along / distance)
+			sideways = bow * math.sin(math.pi * share) + second_bend * math.sin(2 * math.pi * share)
 		index = t / TREMOR_STEP
 		low = int(index)
 		mix = index - low

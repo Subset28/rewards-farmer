@@ -470,6 +470,26 @@ return (
 		"news": "b-scopeListItem-news",
 	}
 
+	def get_related_searches(self) -> list[WebElement]:
+		"""The page's own "related searches" links (Bing keeps them in the sidebar, sometimes at the foot), visible ones only."""
+		return self.driver.execute_script(
+			"const seen = new Set(), out = [];"
+			"for (const a of document.querySelectorAll("
+			"'#b_context a[href*=\"/search?q=\"], #brs a[href*=\"/search?q=\"], .b_rs a[href*=\"/search?q=\"]')) {"
+			"  const text = (a.innerText || '').trim().replace(/\\s+/g, ' ').toLowerCase();"
+			"  if (text && !seen.has(text) && a.offsetParent !== null) { seen.add(text); out.push(a); }"
+			"}"
+			"return out.slice(0, 12);"
+		)
+
+	def get_organic_results(self) -> list[WebElement]:
+		"""The titles of the ordinary results, as links, top first."""
+		return self.driver.find_elements(By.CSS_SELECTOR, "#b_results .b_algo h2 a")
+
+	def get_serp_search_box(self) -> WebElement:
+		"""The search box at the top of a results page, which holds the current query."""
+		return self.driver.find_element(By.CSS_SELECTOR, "#sb_form_q")
+
 	def get_search_results_tab(self, name: str) -> WebElement:
 		"""The link of the Images, Videos or News tab on a results page."""
 		return self.driver.find_element(By.CSS_SELECTOR, f"#{self.SEARCH_TAB_IDS[name]} a")

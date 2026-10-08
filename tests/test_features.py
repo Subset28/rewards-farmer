@@ -97,7 +97,7 @@ class TestSwitching(FeatureTestCase):
 		features.switch("typing", "default", True)
 		features.switch("typing", "second", False)
 
-		self.assertEqual(json.loads(self.file.read_text()), {"typing": ["default"], "mouse": [], "query_sessions": [], "habits": ["default"]})
+		self.assertEqual(json.loads(self.file.read_text()), {"typing": ["default"], "mouse": [], "chains": [], "query_sessions": [], "habits": ["default"]})
 
 	def test_switching_on_twice_does_not_list_an_account_twice(self):
 		features.switch("typing", "second", True)

@@ -217,7 +217,11 @@ class TestACassifierCannotTellItApart(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		cls.trials = recorded_moves(PERSON, count=60)
-		cls.fitted = mouse_fit.fit([mouse_fit.track(t) for t in cls.trials])
+		fitted = mouse_fit.fit([mouse_fit.track(t) for t in cls.trials])
+		# The formula alone, without the replay of recorded moves, which would make refining pointless
+		# (the replay is already as good as the person): this is the fallback for a new recording and the
+		# thing refining improves.
+		cls.fitted = {k: v for k, v in fitted.items() if k not in ("path_library", "path_shapes")}
 		cls.refined = indistinguishable.refine_mouse(cls.trials, cls.fitted)
 
 	def test_the_original_generator_is_easy_to_tell_from_a_person(self):
@@ -247,6 +251,64 @@ class TestACassifierCannotTellItApart(unittest.TestCase):
 		without = indistinguishable.mouse_tell_apart(self.trials, flat, random.Random(1))["auc"]
 
 		self.assertGreater(without, measured + 0.1)
+
+
+class TestReplayingTheAccountsOwnMoves(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		cls.trials = recorded_moves(PERSON, count=40, seed=11)
+		cls.fitted = mouse_fit.fit([mouse_fit.track(t) for t in cls.trials])
+
+	def test_every_usable_recorded_move_is_in_the_library(self):
+		self.assertGreaterEqual(len(self.fitted["path_library"]), 35)
+
+	def test_a_replayed_move_starts_and_ends_where_asked(self):
+		path = pointer_path.build((100, 100), (800, 500), 0.7, self.fitted, random.Random(1))
+
+		self.assertEqual(path(0), (100, 100))
+		self.assertEqual(path(path.total), (800, 500))
+
+	def test_a_replayed_move_is_never_the_same_twice(self):
+		paths = [pointer_path.build((0, 0), (700, 200), 0.7, self.fitted, random.Random(seed)) for seed in range(6)]
+		middles = {round(p(0.35)[0], 1) for p in paths}
+
+		self.assertGreater(len(middles), 3)
+
+	def test_a_replayed_move_stays_near_the_line_and_the_target(self):
+		for seed in range(40):
+			path = pointer_path.build((0, 0), (700, 0), 0.7, self.fitted, random.Random(seed))
+			points = [path(n * 0.7 / 40) for n in range(41)]
+
+			self.assertTrue(all(-60 <= x <= 900 and abs(y) <= 400 for x, y in points))
+
+	def test_a_short_move_below_the_library_minimum_falls_back_to_the_formula(self):
+		path = pointer_path.build((0, 0), (30, 10), 0.3, self.fitted, random.Random(1))
+
+		self.assertEqual(path(0.3), (30, 10))
+
+	def test_the_discriminator_does_not_let_a_move_stand_in_for_itself(self):
+		own = {e["id"] for e in self.fitted["path_library"]}
+		rows = indistinguishable.mouse_simulated_features(self.trials[:3], self.fitted, random.Random(1), repeats=2)
+
+		self.assertTrue(rows)
+		self.assertEqual(own & {0, 1, 2}, {0, 1, 2})
+
+	@unittest.skipUnless(HAVE_NUMPY, "numpy is not installed")
+	def test_replaying_the_persons_own_moves_cannot_be_told_from_them(self):
+		outcome = indistinguishable.mouse_tell_apart(self.trials, self.fitted, random.Random(1))
+
+		self.assertIsNotNone(outcome)
+		self.assertLess(outcome["auc"], 0.68, indistinguishable.verdict(outcome["auc"]))
+
+	def test_the_library_survives_the_profile_check(self):
+		cleaned = behavior.clean_detail(self.fitted, behavior.MOUSE_DETAIL_RANGES)
+
+		self.assertGreaterEqual(len(cleaned["path_library"]), 35)
+
+	def test_a_damaged_library_is_dropped_not_trusted(self):
+		bad = {"path_library": [{"d": 500, "T": 0.5, "u": [0.0, 1.0], "l": [0.0]} for _ in range(20)]}
+
+		self.assertNotIn("path_library", behavior.clean_detail(bad, behavior.MOUSE_DETAIL_RANGES))
 
 
 class TestTheMouseUsesIt(unittest.TestCase):

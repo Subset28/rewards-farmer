@@ -124,8 +124,10 @@ MOUSE_DETAIL_RANGES = {
 	"reaction_sigma": (0.02, 1.2),
 	"straightness_sd": (0.0, 1.0),
 	# The shape of the pointer's path (pointer_path.py).
-	"path_a": (1.2, 8.0),
-	"path_b": (1.2, 8.0),
+	"path_a": (1.2, 10.0),
+	"path_b": (1.2, 16.0),
+	"path_a_scale": (0.5, 2.0),
+	"path_b_scale": (0.5, 2.0),
 	"path_lat_sd": (0.0, 0.25),
 	"path_lat_bias": (-0.15, 0.15),
 	"path_tremor": (0.0, 4.0),
@@ -152,6 +154,35 @@ def clean_detail(raw, ranges: dict, weights_key: str | None = None) -> dict:
 
 		if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and low <= value <= high:
 			cleaned[key] = float(value)
+
+	library = raw.get("path_library")
+
+	if isinstance(library, list):
+		good_library = []
+
+		for entry in library:
+			try:
+				u, l = [float(x) for x in entry["u"]], [float(x) for x in entry["l"]]
+
+				if len(u) == len(l) >= 8 and 30 <= float(entry["d"]) <= 6000 and 0.05 <= float(entry["T"]) <= 6 and abs(u[-1]) > 0.5 and max(abs(x) for x in u) < 3 and max(abs(x) for x in l) < 2:
+					good_library.append({"d": float(entry["d"]), "T": float(entry["T"]), "u": u, "l": l, "id": int(entry.get("id", -1))})
+			except (KeyError, TypeError, ValueError):
+				continue
+
+		if len(good_library) >= 8:
+			cleaned["path_library"] = good_library[:400]
+
+	shapes = raw.get("path_shapes")
+
+	if isinstance(shapes, list):
+		good_shapes = [
+			[float(p[0]), float(p[1])] for p in shapes
+			if isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in p)
+			and 1.1 <= p[0] <= 12 and 1.1 <= p[1] <= 18
+		][:300]
+
+		if len(good_shapes) >= 8:
+			cleaned["path_shapes"] = good_shapes
 
 	pairs = raw.get("hold_pairs")
 
