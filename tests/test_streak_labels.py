@@ -28,3 +28,25 @@ class TestStreakLabels(unittest.TestCase):
 		driver.find_element.side_effect = NoSuchElementException("no streaks")
 
 		self.assertEqual(element_selectors.ElementSelectionUtils(driver).streak_labels(), [])
+
+
+class TestVisualSearchEntry(unittest.TestCase):
+	def selectors(self, texts):
+		section = mock.Mock()
+		section.find_elements.return_value = [button(t) for t in texts]
+		driver = mock.Mock()
+		driver.find_elements.return_value = []
+		driver.find_element.return_value = section
+
+		return element_selectors.ElementSelectionUtils(driver), section
+
+	def test_a_plainly_worded_entry_in_the_streaks_section_is_found(self):
+		selectors, section = self.selectors(["Daily set streak", "Visual search"])
+
+		self.assertEqual(selectors.get_open_visual_search_sidebar().text, "Visual search")
+
+	def test_the_position_in_streaks_is_still_the_last_resort(self):
+		selectors, section = self.selectors(["Daily set streak"])
+		section.find_element.return_value = "fifth"
+
+		self.assertEqual(selectors.get_open_visual_search_sidebar(), "fifth")
