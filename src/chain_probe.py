@@ -9,6 +9,7 @@ figures. Prints what was searched, how long it took, and the peak memory against
 """
 
 import json
+import logging
 import os
 import random
 import sys
@@ -34,8 +35,9 @@ def sampler(samples: list, stop: threading.Event):
 
 		if figures:
 			samples.append((time.time(), figures[0] / 2**20, figures[1] / 2**20))
+			print(f"MEM {figures[0] / 2**20:.0f} of {figures[1] / 2**20:.0f} MB", flush=True)
 
-		stop.wait(2.0)
+		stop.wait(10.0)
 
 
 def run(count: int, open_share: float) -> dict:
@@ -97,6 +99,7 @@ def run(count: int, open_share: float) -> dict:
 
 
 if __name__ == "__main__":
+	logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", stream=sys.stdout)
 	random.seed(int(os.environ.get("PROBE_SEED", "1")))
 	print("RESULT " + json.dumps(run(int(sys.argv[1]) if len(sys.argv) > 1 else 20, float(sys.argv[2]) if len(sys.argv) > 2 else 0.5)))
 	sys.exit(0)

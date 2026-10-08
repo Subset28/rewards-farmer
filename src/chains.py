@@ -16,6 +16,7 @@ text and numbers, so all of it can be tested. rewards_tasks.run_chain_batch does
 """
 
 import math
+import os
 import random
 
 # How many searches a tangent has. Most are short; a few go on.
@@ -24,7 +25,10 @@ LENGTH_WEIGHTS = (28, 22, 16, 11, 8, 5, 3, 3, 2, 2)
 
 CLICK_RELATED_CHANCE = 0.42      # when the page offers related searches
 RETYPE_CHANCE = 0.46             # otherwise a follow-up typed in the results page's box
-OPEN_RESULT_CHANCE = 0.22        # reading includes opening one of the results
+# Off until a lighter way exists: a probe in a 1.5 GB container saw one opened news page take memory from 555 MB to
+# 1,317 MB in about 90 seconds and freeze the browser, faster than the guard (which looks between actions) can react.
+# REWARDS_OPEN_RESULT_CHANCE turns it on for measuring.
+OPEN_RESULT_CHANCE = float(os.environ.get("REWARDS_OPEN_RESULT_CHANCE", "0"))
 INTEREST_SHARE = 0.55            # of new threads, those that start on the account's own interests
 
 # Seconds spent reading a results page, and a result opened from it: log-normal, so mostly near the middle and sometimes long.
