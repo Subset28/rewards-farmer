@@ -22,6 +22,8 @@ import statistics
 
 import calibration
 import human_model
+import mouse_fit
+import pointer_path
 
 FEATURES = ("mean_log_gap", "sd_log_gap", "lag1", "tail", "hold_ms", "overlap")
 
@@ -174,3 +176,161 @@ def verdict(score: float) -> str:
 		return "detectable"
 
 	return "obviously a bot"
+
+
+# ----------------------------------------------------------------------------- the pointer
+
+FRAME = 1 / 60          # the browser reports pointer movement about once a frame
+
+
+def mouse_real_features(trials: list) -> list[list[float]]:
+	tracks = [mouse_fit.track(trial) for trial in trials]
+
+	return [mouse_fit.features(t) for t in tracks if t]
+
+
+def trial_like(trial, path, rng=None):
+	"""A copy of a recorded move whose samples are a made path instead: same start, landing, timing and target."""
+	import calibration as c
+
+	t0, x0, y0 = trial.samples[0]
+	hit_time, hit_x, hit_y = trial.presses[-1]
+	copy = c.Trial(trial.start, trial.rect, trial.shown_at)
+	total = getattr(path, "total", hit_time - t0)
+	begin = hit_time - total
+	moment = 0.0
+
+	# Fed through the same 3-pixel rule as a recording, so the two are measured the same way.
+	while moment < total:
+		x, y = path(moment)
+		copy.move(begin + moment, x, y)
+		moment += FRAME
+
+	copy.presses = [(hit_time, hit_x, hit_y)]
+	copy.release_at = trial.release_at
+	copy.done = True
+
+	return copy
+
+
+def mouse_simulated_features(trials: list, detail: dict | None, rng, repeats: int = 12, original: bool = False) -> list[list[float]]:
+	"""The same features from paths made for the same moves: from a person's numbers, or by the original generator."""
+	import mouse_trajectory
+
+	rows = []
+
+	for trial in trials:
+		if not trial.done or not trial.presses or len(trial.samples) < mouse_fit.MIN_SAMPLES:
+			continue
+
+		early = trial.early[0] if trial.early else trial.samples[0]
+		x0, y0 = early[1], early[2]
+		hit_time, hit_x, hit_y = trial.presses[-1]
+		duration = hit_time - trial.samples[0][0]
+		lead = trial.samples[0][0] - early[0]
+
+		for _ in range(repeats):
+			if original:
+				path = mouse_trajectory.get_final_path_from_real_time(duration + lead, (x0, y0), (hit_x, hit_y))
+				path.total = duration + lead
+			else:
+				path = pointer_path.build((x0, y0), (hit_x, hit_y), duration, detail, rng, lead)
+
+			made = mouse_fit.track(trial_like(trial, path))
+
+			if made:
+				rows.append(mouse_fit.features(made))
+
+	return rows
+
+
+def mouse_tell_apart(trials: list, detail: dict, rng=None, repeats: int = 12) -> dict | None:
+	"""AUC of telling a person's recorded pointer moves from paths built from their numbers (None if too few)."""
+	if importlib.util.find_spec("numpy") is None:
+		return None
+
+	real = mouse_real_features(trials)
+
+	if len(real) < 12 or "path_a" not in detail:
+		return None
+
+	simulated = mouse_simulated_features(trials, detail, rng or random.Random(0), repeats)
+
+	return {"auc": auc(real, simulated), "real_moves": len(real), "simulated_moves": len(simulated)} if len(simulated) >= len(real) else None
+
+
+# ----------------------------------------------------------------------------- tuning the pointer to match
+
+REFINED = (
+	("path_a", 1.3, 8.0, "scale"), ("path_b", 1.3, 8.0, "scale"), ("path_lat_sd", 0.0, 0.25, "scale"),
+	("path_lat_bias", -0.15, 0.15, "shift"), ("path_tremor", 0.0, 4.0, "scale"), ("path_over_rate", 0.0, 0.7, "shift"),
+)
+
+
+def _mismatch(real, simulated) -> float:
+	"""How far the simulated moves' features are from the recorded ones: centres and spreads, in the recorded spread."""
+	import numpy as np
+
+	r, s = np.array(real, dtype=float), np.array(simulated, dtype=float)
+	sd = r.std(axis=0)
+	sd[sd == 0] = 1.0
+	r, s = r / sd, s / sd
+	# The centres, measured against how the recorded features vary together (this is what a linear classifier
+	# uses), the spreads, and how the features move together.
+	covariance = np.cov(r.T) + 0.05 * np.eye(r.shape[1])
+	gap = s.mean(axis=0) - r.mean(axis=0)
+	centre = float(gap @ np.linalg.solve(covariance, gap))
+	spread = float((np.log((s.std(axis=0) + 1e-9) / (r.std(axis=0) + 1e-9)) ** 2).sum())
+	together = float(((np.corrcoef(s.T) - np.corrcoef(r.T)) ** 2).sum())
+
+	return centre + 0.5 * spread + 0.5 * together
+
+
+def refine_mouse(trials: list, detail: dict, rounds: int = 5, repeats: int = 4) -> dict:
+	"""The pointer settings, nudged one at a time until paths made from them match the person's recorded ones.
+
+	The estimates read straight off the recording are close but carry small errors (the tremor picks up the
+	bow's remains, the overshoot rate misses small ones), and a classifier is sensitive to the sum of them.
+	This simulates the person's own moves with the settings, compares their shape features with the recording's
+	and keeps any change that brings them closer. The same random numbers are used every time, so a change
+	is judged on the setting and not on luck. Returns the settings unchanged if numpy is missing."""
+	if importlib.util.find_spec("numpy") is None or "path_a" not in detail:
+		return detail
+
+	real = mouse_real_features(trials)
+
+	if len(real) < 12:
+		return detail
+
+	def loss(candidate: dict) -> float:
+		simulated = mouse_simulated_features(trials, candidate, random.Random(7), repeats)
+
+		return _mismatch(real, simulated) if len(simulated) >= len(real) else float("inf")
+
+	best, best_loss = dict(detail), loss(detail)
+
+	for _ in range(rounds):
+		improved = False
+
+		for key, low, high, kind in REFINED:
+			current = best.get(key, pointer_path.DEFAULTS[key])
+
+			for factor in (1.08, 0.93) if kind == "scale" else (0.025, -0.025) if key == "path_over_rate" else (0.006, -0.006):
+				value = current * factor if kind == "scale" else current + factor
+				value = min(high, max(low, value))
+
+				if value == current:
+					continue
+
+				trial_detail = {**best, key: value}
+				trial_loss = loss(trial_detail)
+
+				if trial_loss < best_loss - 1e-4:
+					best, best_loss, improved = trial_detail, trial_loss, True
+
+					break
+
+		if not improved:
+			break
+
+	return best
