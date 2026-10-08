@@ -179,6 +179,21 @@ class ElementSelectionUtils:
 
 		return streaks.find_element(By.XPATH, f"./div/div[2]/div/div/button[{index}]")
 
+	def streak_labels(self) -> list[str]:
+		"""What the streaks section offers, one line per button: for a log line when an expected entry is missing."""
+		labels = []
+
+		try:
+			for button in self.driver.find_element(By.ID, "streaks").find_elements(By.TAG_NAME, "button"):
+				text = " ".join((button.text or "").split())
+
+				if text:
+					labels.append(text[:80])
+		except (NoSuchElementException, StaleElementReferenceException):
+			pass
+
+		return labels
+
 	def get_open_daily_set_button(self):
 		# Lives in the streaks section, not in a section of its own. Match on
 		# "daily set streak" rather than "daily set", because the level up

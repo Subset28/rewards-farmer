@@ -497,7 +497,13 @@ class RewardsTaskUtils:
 			import random_image_for_visual_search
 			random_image_for_visual_search.get_random_image()
 
-		self.wait_for_then_click(self.elements.get_open_visual_search_sidebar)
+		try:
+			self.wait_for_then_click(self.elements.get_open_visual_search_sidebar)
+		except ElementNeverAppeared:
+			# Not offered on this page. Say what is, so a changed label can be found from the log.
+			logger.info("Visual search is not offered. The streaks section shows: %s", self.elements.streak_labels() or "nothing")
+
+			raise
 
 		self.wait_for_then_click(self.elements.get_search_now_link_from_visual_search_sidebar)
 
