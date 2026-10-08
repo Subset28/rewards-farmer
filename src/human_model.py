@@ -204,6 +204,42 @@ class MoveTempo:
 		return math.exp(self.day + self.drift + self.rng.gauss(0, self.noise_sd))
 
 
+NEAREST_HOLDS = 12
+
+
+def _nearest_hold(pairs: list, next_gap: float | None, rng) -> float:
+	"""A hold (seconds) taken from this person's own recorded holds that were followed by a similar gap."""
+	if not next_gap or next_gap <= 0:
+		pool = pairs
+	else:
+		target = math.log(min(next_gap, MAX_GAP) * 1000)
+		pool = sorted(pairs, key=lambda p: abs(math.log(max(1.0, p[0])) - target))[:NEAREST_HOLDS]
+
+	# A small jitter, so the same recorded hold is not reused to the millisecond.
+	return min(0.34, max(0.02, rng.choice(pool)[1] * math.exp(rng.gauss(0, 0.05)) / 1000))
+
+
+def hold_seconds(detail: dict, next_gap: float | None, rng=random) -> float:
+	"""How long a key is held, given how soon the next key goes down.
+
+	Best is the person's own recorded holds: a hold is taken from those that were followed by a similar gap,
+	so whatever shape their holds have (cut short by a quick next key, longer after a pause, two kinds of
+	hold) comes out as it was recorded. Failing that, a line fitted through them.
+
+	A quick typist presses the next key before letting go of this one, so a hold is shorter when the next
+	press comes soon and longer when it comes late. The person's own relationship is a line in log space
+	(hold_alpha at the typical gap hold_gap_ref, hold_beta per log-unit of the gap) with scatter hold_resid;
+	whether keys overlap then follows from it instead of being decided separately."""
+	if detail.get("hold_pairs"):
+		return _nearest_hold(detail["hold_pairs"], next_gap, rng)
+
+	reference = detail["hold_gap_ref"]
+	log_gap = reference if not next_gap or next_gap <= 0 else math.log(min(next_gap, MAX_GAP))
+	log_ms = detail["hold_alpha"] + detail.get("hold_beta", 0.0) * (log_gap - reference) + rng.gauss(0, detail.get("hold_resid", 0.25))
+
+	return min(0.34, max(0.02, math.exp(log_ms) / 1000))
+
+
 def lognormal_ms(mu: float, sigma: float, rng=random, low: float = 0.0, high: float = 10_000.0, offset: float = 0.0) -> float:
 	"""A duration in milliseconds from a log-normal fit (exp(N(mu, sigma)) - offset), kept inside a believable range."""
 	return min(high, max(low, math.exp(rng.gauss(mu, sigma)) - offset))

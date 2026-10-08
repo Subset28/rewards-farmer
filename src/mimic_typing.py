@@ -222,16 +222,25 @@ class KeyboardUtils:
 		this one comes up is decided by how often they do that. The same key twice in a row never
 		overlaps itself (the browser would call that a held-down repeat)."""
 		rollover = detail.get("rollover_rate", 0.0)
+		learned = "hold_alpha" in detail
 		events = []
 
 		for index, (when, key) in enumerate(timeline):
-			hold = human_model.lognormal_ms(detail["hold_mu"], detail.get("hold_sigma", 0.3), rng, 25, 320) / 1000
+			following = timeline[index + 1][0] - when if index + 1 < len(timeline) else None
+
+			if learned:
+				# The person's own hold given how soon the next key follows: overlaps come out of it.
+				hold = human_model.hold_seconds(detail, following, rng)
+			else:
+				hold = human_model.lognormal_ms(detail["hold_mu"], detail.get("hold_sigma", 0.3), rng, 25, 320) / 1000
 
 			if index + 1 < len(timeline):
-				gap = timeline[index + 1][0] - when
+				gap = following
 
 				if timeline[index + 1][1] == key or gap <= 0:
 					hold = min(hold, max(0.02, gap * 0.8))
+				elif learned:
+					pass
 				elif gap > ROLLOVER_ONLY_BELOW:
 					# After a pause nobody is still holding the last key.
 					hold = min(hold, gap * 0.9)

@@ -93,6 +93,10 @@ TYPING_DETAIL_RANGES = {
 	"hold_sigma": (0.02, 1.0),
 	"hold_ms": (15.0, 300.0),
 	"rollover_rate": (0.0, 0.95),       # the next key goes down before this one comes up
+	"hold_alpha": (3.0, 5.7),           # log milliseconds a key is held at the typical gap to the next key
+	"hold_beta": (-0.5, 1.5),           # how much more a hold grows as the next press comes later
+	"hold_resid": (0.02, 1.0),
+	"hold_gap_ref": (-4.0, -0.5),
 	"slip_fast_slope": (-1.0, 1.5),     # slips lean towards the person's quicker keys
 	"slip_common_pair_ratio": (0.4, 3.0),
 	"slip_common_word_ratio": (0.4, 3.0),
@@ -121,6 +125,8 @@ MOUSE_DETAIL_RANGES = {
 	"straightness_sd": (0.0, 1.0),
 }
 NOTICED_KEYS = 4
+MAX_HOLD_PAIRS = 500
+MIN_HOLD_PAIRS = 40
 
 
 def clean_detail(raw, ranges: dict, weights_key: str | None = None) -> dict:
@@ -135,6 +141,18 @@ def clean_detail(raw, ranges: dict, weights_key: str | None = None) -> dict:
 
 		if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and low <= value <= high:
 			cleaned[key] = float(value)
+
+	pairs = raw.get("hold_pairs")
+
+	if isinstance(pairs, list):
+		good = [
+			[float(p[0]), float(p[1])] for p in pairs
+			if isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in p)
+			and 10 <= p[0] <= 700 and 5 <= p[1] <= 500
+		][:MAX_HOLD_PAIRS]
+
+		if len(good) >= MIN_HOLD_PAIRS:
+			cleaned["hold_pairs"] = good
 
 	if weights_key:
 		weights = raw.get(weights_key)
