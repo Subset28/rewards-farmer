@@ -90,11 +90,24 @@ class TestSwitchedOff(Case):
 
 		self.assertTrue(all(2 <= w <= 4 for w in waits))
 
-	def test_with_the_switch_it_sleeps_the_drawn_time(self):
+	def test_with_the_switch_and_a_recording_it_sleeps_the_drawn_time(self):
 		with mock.patch.object(pace.time, "sleep") as sleep:
-			pace.Pace("mom", {}, random.Random(1)).sleep(2, 4)
+			pacer = pace.Pace("mom", {"tempo_sd": 0.1, "day_sd": 0.05}, random.Random(1))
+
+			self.assertTrue(pacer.active())
+			pacer.sleep(2, 4)
 
 		self.assertEqual(len(sleep.call_args_list), 1)
+
+	def test_a_switched_on_account_with_no_recorded_profile_keeps_the_old_range(self):
+		with mock.patch.object(pace.time, "sleep") as sleep:
+			pacer = pace.Pace("mom", {}, random.Random(1))
+
+			for _ in range(300):
+				pacer.sleep(2, 4)
+
+		self.assertTrue(all(2 <= call.args[0] <= 4 for call in sleep.call_args_list))
+		self.assertFalse(pacer.active())
 
 	def test_an_account_with_no_name_is_never_paced(self):
 		self.assertFalse(pace.Pace(None, {}).active())

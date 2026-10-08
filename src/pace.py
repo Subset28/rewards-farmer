@@ -4,7 +4,7 @@ Waiting a flat random 2 to 4 seconds after every page is a pattern: the edges ar
 likelier than the ends, and a sluggish day looks the same as a brisk one. A person's waits cluster around
 a typical value, run long now and then (a distraction), and are all a little longer on a slow day.
 
-For an account that has the "typing" switch on, a pause that used to be uniform(low, high) is instead drawn
+For an account that has the "typing" switch on and a recorded profile, a pause that used to be uniform(low, high) is instead drawn
 from a skewed spread with the same range as its usual body, scaled by that account's pace: the day it is
 (stable all day) and a tempo that wanders from one pause to the next, the same way the typing's does. For
 every other account it is exactly the old uniform draw.
@@ -32,7 +32,8 @@ class Pace:
 		self.drift = 0.0
 
 	def active(self) -> bool:
-		return bool(self.account) and features.enabled("typing", self.account)
+		"""On for an account that has the typing switch AND a recorded profile of its own to take the spread from."""
+		return bool(self.account) and "tempo_sd" in self.detail and features.enabled("typing", self.account)
 
 	def factor(self) -> float:
 		"""How much slower (above 1) or quicker this account is being right now."""
