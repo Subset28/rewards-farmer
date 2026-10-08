@@ -30,8 +30,9 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 
 1. Check the first runs on the new setup: searches for default and second, second's daily run, and the first bot run for
    third. `ctl.sh status` and `ctl.sh tasks`.
-2. **Visual search is skipped on every account every day.** Read its snapshot (`ctl.sh snapshots`) and fix
-   `element_selectors.get_open_visual_search_sidebar`.
+2. **Visual search is skipped on the brother's account every day.** (The owner's account is on its ramp and does not try it
+   until about 10-11.) The first snapshot comes from the brother's daily run (about 10:42 on 10-09): read it with
+   `ctl.sh snapshots` and fix `element_selectors.get_open_visual_search_sidebar`.
 3. Third's calibration scored typing 0.64 / mouse 0.68 from one short sitting. Have her record again on another day
    (`python src/calibrate.py third`, with the clearer screens), re-score, and copy the profile over only if it is at least as
    good. Until a bot run of hers succeeds, her daily set and search are done by hand.
