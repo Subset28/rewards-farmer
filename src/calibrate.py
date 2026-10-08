@@ -277,6 +277,7 @@ class App:
 			mouse = calibration.analyze_mouse(mouse_sittings)
 			# Nudge the pointer settings until paths made from them match the recorded ones (about half a minute).
 			mouse["detail"] = indistinguishable.refine_mouse([t for sitting in mouse_sittings for t in sitting], mouse["detail"])
+			typing["detail"] = indistinguishable.tune_slip_weights([r.target for sitting in typing_sittings for r in sitting if not r.compose], typing["detail"])
 			arguments = calibration.build(typing, mouse)
 			lines = calibration.describe(typing, mouse, calibration.rhythm_check(typing_sittings, typing["detail"], random.Random(1)))
 			told = indistinguishable.tell_apart([r for sitting in typing_sittings for r in sitting], typing["detail"], random.Random(1))
@@ -458,6 +459,7 @@ def reanalyze(account: str) -> int:
 		typed = calibration.analyze_typing(typing)
 		moved = calibration.analyze_mouse(mouse)
 		moved["detail"] = indistinguishable.refine_mouse([t for sitting in mouse for t in sitting], moved["detail"])
+		typed["detail"] = indistinguishable.tune_slip_weights([r.target for sitting in typing for r in sitting if not r.compose], typed["detail"])
 		path = behavior.save(account, notes={"recorded_with": "calibrate.py --reanalyze", "sittings": len(typing)}, **calibration.build(typed, moved))
 	except (behavior.ProfileError, ValueError, OSError) as exc:
 		print(f"Could not rebuild the profile: {exc}")

@@ -99,8 +99,10 @@ def slip_weights(text: str, detail: dict) -> list[float]:
 	words. Both are learned from the recording (slip_fast_slope, slip_common_pair_ratio,
 	slip_common_word_ratio); a person whose slips did not lean either way gets near-equal weights."""
 	slope = detail.get("slip_fast_slope", 0.0)
-	pair_ratio = detail.get("slip_common_pair_ratio", 1.0)
-	word_ratio = detail.get("slip_common_word_ratio", 1.0)
+	# slip_pair_weight / slip_word_weight are the ratios nudged until the slips the bot makes fall as often
+	# as the person's did (indistinguishable.tune_slip_weights); without them the measured ratios are used.
+	pair_ratio = detail.get("slip_pair_weight", detail.get("slip_common_pair_ratio", 1.0))
+	word_ratio = detail.get("slip_word_weight", detail.get("slip_common_word_ratio", 1.0))
 	sigma = max(0.1, detail.get("within_sigma", 0.35))
 	common_offset = detail.get("offset_common_pair", 0.0)
 	weights = []
