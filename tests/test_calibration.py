@@ -428,7 +428,7 @@ class TestProfileFormat(unittest.TestCase):
 		self.addCleanup(patcher.stop)
 
 	def test_out_of_range_values_are_dropped_not_kept(self):
-		cleaned = behavior.clean_detail({"slip_rate": 0.9, "notice_pause_ms": 900, "hesitation_ms": "slow", "nonsense": 5}, behavior.TYPING_DETAIL_RANGES)
+		cleaned = behavior.clean_detail({"slip_rate": 0.99, "notice_pause_ms": 900, "hesitation_ms": "slow", "nonsense": 5}, behavior.TYPING_DETAIL_RANGES)
 
 		self.assertEqual(cleaned, {"notice_pause_ms": 900.0})
 
