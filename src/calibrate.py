@@ -299,7 +299,8 @@ class App:
 			path = None
 
 			if self.save:
-				path = behavior.save(self.account, notes={"recorded_with": "calibrate.py", "sittings": len(typing_sittings)}, **arguments)
+				scores = {key: round(result["auc"], 3) for key, result in (("typing_score", told), ("mouse_score", moved)) if result}
+				path = behavior.save(self.account, notes={"recorded_with": "calibrate.py", "sittings": len(typing_sittings), **scores}, **arguments)
 				self._save_raw()
 
 			self.outcome = {"typing": typing, "mouse": mouse, "path": path, "lines": lines, "error": None}

@@ -102,3 +102,11 @@ Idle: each scheduler container is about 20-35 MB and ~0% CPU, with no display ru
 ## Already live, not behind a switch
 
 Light days and variable daily totals, the 7-day ramp for a new account, shuffled account order, no shared queries between accounts, the run journal and its catch-up, one clock for all dates, the Discord alerts, and the browser identity fix (the header override is off unless `REWARDS_APP_HEADERS=1`). `python src/pacing.py` shows what today holds.
+
+## The gate: an account without a recording does not run
+
+`src/gate.py` holds an account back (and sends a Discord alert once a day) when it has no recorded profile, or when the
+recording's own check scored above 0.70 (0.5 = cannot be told from a person). Fix: have the owner run
+`python src/calibrate.py <account>` on a PC, copy `data-dir/behavior/<account>.json` (and `.raw.json`) to the NAS
+`data-dir/behavior/`. `python src/gate.py` lists which accounts run. Profiles recorded before 2026-10-08 carry no stored
+score and pass.

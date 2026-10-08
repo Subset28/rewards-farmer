@@ -42,3 +42,14 @@ def neutral_pacing(tmp_path, monkeypatch):
 
 	monkeypatch.setattr(features, "FEATURES_FILE", str(tmp_path / "features.json"))
 	monkeypatch.setenv("REWARDS_FEATURES", ",".join(features.KNOWN))
+
+
+@pytest.fixture(autouse=True)
+def gate_open(request, monkeypatch):
+	"""Test accounts have no recorded profile; only the gate's own tests want it to hold them back."""
+	if request.module.__name__.endswith("test_gate"):
+		return
+
+	import gate
+
+	monkeypatch.setattr(gate, "reason", lambda name: None)
