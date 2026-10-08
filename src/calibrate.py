@@ -141,7 +141,8 @@ class App:
 		self._label("Calibration", 30, pad=(120, 20))
 		self._label(f"This records how you type and move the mouse, for the account \"{self.account}\".", 18)
 		self._label(
-			"Part 1: type some short phrases the way you would into a search box, and make up a few searches of your own.\n"
+			"Part 1: type some short phrases the way you would into a search box, and think up a few searches of your own\n"
+			"(an actual search you might make, not the instruction on the screen).\n"
 			"Part 2: click a dot and then a blue rectangle, 30 times.\n\n"
 			"It takes about eight minutes. Type and click naturally; there is no right speed. Esc quits.\n"
 			"Doing it again on another day makes the profile better: people differ from one day to the next.",

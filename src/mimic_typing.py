@@ -63,11 +63,17 @@ class KeyboardUtils:
 
 		return human_model.slip_weights(text, detail)
 
-	def slip_settings(self) -> tuple[float, float]:
-		"""(how often a search has a slip in it, how often that slip is a neighbouring key)."""
-		detail = self.personal()
+	def slip_settings(self, text: str | None = None) -> tuple[float, float]:
+		"""(how often a search has a slip in it, how often that slip is a neighbouring key).
 
-		return detail.get("slip_rate", search_behavior.TYPO_RATE), detail.get("neighbor_share", 0.5)
+		A recorded person slips at a rate per key typed, so a longer query is likelier to have one than a short one."""
+		detail = self.personal()
+		neighbor = detail.get("neighbor_share", 0.5)
+
+		if "slip_per_char" in detail and text:
+			return 1 - (1 - detail["slip_per_char"]) ** len(text), neighbor
+
+		return detail.get("slip_rate", search_behavior.TYPO_RATE), neighbor
 
 	def _mean_interval(self) -> float:
 		# The account's own average gap between keys. Every extra pause below is

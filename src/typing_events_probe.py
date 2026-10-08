@@ -43,6 +43,17 @@ SEARCHES = (
 	"who won the basketball game last night", "cheap flights to lisbon in march", "what time does the pharmacy close",
 )
 
+def load_person() -> dict:
+	"""The made-up person below, or the recorded typing of a real profile when PROBE_PROFILE names its json."""
+	path = os.environ.get("PROBE_PROFILE")
+
+	if path:
+		with open(path, encoding="utf-8") as handle:
+			return behavior.clean_detail(json.load(handle)["typing"]["detail"], behavior.TYPING_DETAIL_RANGES, "noticed_weights")
+
+	return PERSON
+
+
 PERSON = {
 	"log_gap_mu": math.log(0.15), "within_sigma": 0.34, "sigma_sd": 0.05, "tempo_sd": 0.12, "tempo_phi": 0.3, "gap_phi": 0.3,
 	"offset_alternate": -0.1, "offset_same_hand": 0.05, "offset_same_finger": 0.3, "offset_other": 0.1, "offset_common_pair": -0.2,
@@ -86,6 +97,79 @@ def summarise(log: list[dict]) -> dict:
 	}
 
 
+def rows_from(log: list[dict]) -> list | None:
+	"""One search's feature row from what the page saw, in the same terms as a recording's."""
+	import indistinguishable
+
+	downs = [e for e in log if e["type"] == "keydown" and len(e["key"]) == 1]
+	gaps = [(b["t"] - a["t"]) / 1000 for a, b in zip(downs, downs[1:])]
+	open_keys, holds, overlaps, pairs = {}, [], 0, 0
+
+	for event in sorted((e for e in log if e["type"] in ("keydown", "keyup")), key=lambda e: e["t"]):
+		identity = event["code"] + event["key"]
+
+		if event["type"] == "keydown":
+			pairs += 1
+			overlaps += bool(open_keys)
+			open_keys[identity] = event["t"]
+		else:
+			started = open_keys.pop(identity, None)
+
+			if started is not None:
+				holds.append(event["t"] - started)
+
+	return indistinguishable.phrase_row(gaps, holds, overlaps / max(1, pairs - 1))
+
+
+def run_long(count: int) -> dict:
+	"""Type `count` searches the way the real KeyboardUtils does (slips included) and report what the page saw."""
+	import calibration
+	import search_behavior
+
+	os.environ["REWARDS_FEATURES"] = "typing"
+	person = load_person()
+
+	with tempfile.TemporaryDirectory(prefix="typing-probe-") as profile:
+		account = accounts.Account(name="probe-typing", user_data_dir=profile, profile_name="Default")
+		driver = browser.start_driver(account)
+
+		if driver is None:
+			return {"error": "driver did not start"}
+
+		try:
+			page = os.path.join(profile, "keys.html")
+
+			with open(page, "w", encoding="utf-8") as handle:
+				handle.write(PAGE)
+
+			driver.get(("file:///" if os.name == "nt" else "file://") + page.replace(os.sep, "/"))
+			profile_object = behavior.Behavior("probe-typing", "recorded", 0.4, 0.4, 0.2, 0.13, typing_detail=person)
+			keyboard = mimic_typing.KeyboardUtils(driver, profile_object, account="probe-typing")
+			rng = random.Random(3)
+			texts = list(calibration.PHRASES) + list(SEARCHES)
+			rows, wrong, slipped_count, backspaces = [], 0, 0, 0
+
+			for n in range(count):
+				text = texts[n % len(texts)]
+				driver.find_element(By.ID, "box").click()
+				driver.execute_script("window.__log.length = 0; document.getElementById('box').value = '';")
+				rate, neighbor = keyboard.slip_settings(text)
+				typed = search_behavior.with_typo(text, rate, rng, neighbor, keyboard.slip_weights(text))
+				slipped_count += typed != text
+				keyboard.send_keys(typed + mimic_typing.Keys.ENTER, intended=text, rng=rng)
+				log = driver.execute_script("return window.__log")
+				wrong += driver.execute_script("return document.getElementById('box').value") != text
+				backspaces += sum(1 for e in log if e["type"] == "keydown" and e["key"] == "Backspace")
+				row = rows_from(log)
+
+				if row:
+					rows.append(row)
+
+			return {"searches": count, "slipped": slipped_count, "ended_wrong": wrong, "backspaces": backspaces, "rows": rows}
+		finally:
+			driver.quit()
+
+
 def run() -> dict:
 	os.environ["REWARDS_FEATURES"] = "typing"
 
@@ -125,5 +209,9 @@ def run() -> dict:
 
 
 if __name__ == "__main__":
+	if len(sys.argv) > 1 and sys.argv[1] == "long":
+		print("ROWS " + json.dumps(run_long(int(sys.argv[2]) if len(sys.argv) > 2 else 40)))
+		sys.exit(0)
+
 	print(json.dumps(run(), indent=1, default=str))
 	sys.exit(0)
