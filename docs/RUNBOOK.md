@@ -110,3 +110,11 @@ recording's own check scored above 0.70 (0.5 = cannot be told from a person). Fi
 `python src/calibrate.py <account>` on a PC, copy `data-dir/behavior/<account>.json` (and `.raw.json`) to the NAS
 `data-dir/behavior/`. `python src/gate.py` lists which accounts run. Profiles recorded before 2026-10-08 carry no stored
 score and pass.
+
+## The control interface (`scripts/ctl.sh`)
+
+The `home` container serves a small JSON interface (`src/control_api.py`) on the NAS's own loopback, port 8787, behind
+`CONTROL_TOKEN` in `.env`. `scripts/ctl.sh status | runs | logs [name] | pause [account] | resume [account]` calls it
+through ssh (the token is read on the NAS and never leaves it). It can look at everything and set or clear the pause, and
+nothing else: no deploy, no commands, no settings, no browser. Deploys stay `scripts/deploy.sh`. Without a token of at
+least 24 characters it does not start. It sees only the home container's browsers (`browsers_running`), not the vpn one's.
