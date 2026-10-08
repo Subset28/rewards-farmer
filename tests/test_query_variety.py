@@ -296,6 +296,13 @@ class Batch:
 
 @mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
 class TestSearchBatchRemembersAndAsksForThisAccount(HistoryTestCase):
+	def setUp(self):
+		super().setUp()
+		# These are about the original one-search-per-page loop; tangents have their own tests.
+		patcher = mock.patch.dict(os.environ, {"REWARDS_FEATURES": "typing"})
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
 	def test_every_search_is_recorded_for_the_account_and_logged(self):
 		page = Batch()
 

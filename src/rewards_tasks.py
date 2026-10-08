@@ -9,6 +9,7 @@ from typing import Callable
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException, WebDriverException
@@ -26,7 +27,11 @@ import points_log
 import quests
 import journal
 import pacing
+import chains
+import features
+import memory_guard
 import query_history
+import reading
 import task_log
 
 from constants import REPO_ROOT
@@ -720,6 +725,9 @@ class RewardsTaskUtils:
 	RESULTS_SCROLL_RATE = 0.75
 
 	def run_search_batch(self, count: int):
+		if features.enabled("chains", self.account_name):
+			return self.run_chain_batch(count)
+
 		breaks = search_behavior.CoffeeBreaks()
 
 		for i, query in enumerate(
@@ -762,6 +770,191 @@ class RewardsTaskUtils:
 
 		self.driver.get(REWARDS_HOME_URL)
 		self.tab_utils.ensure_focus()
+
+	# ------------------------------------------------------------------
+	# Searching in tangents (chains.py). Each search after the first on a thread comes from what the
+	# results page just offered, and between searches the results are read, now and then with a result opened.
+	# ------------------------------------------------------------------
+
+	def run_chain_batch(self, count: int):
+		"""`count` searches, as a few tangents with reading between them, backing off if memory runs short."""
+		rng = random
+		speed = self.pace.factor() if self.pace.active() else 1.0
+		asked: set[str] = set()
+		done = 0
+		starts = queries.tangent_starts(max(2, count // 2 + 1), account=self.account_name)
+		spare: list[str] | None = None
+
+		while done < count:
+			if memory_guard.must_stop():
+				logger.warning("Memory is nearly full (%s): ending this run early, the next one carries on.", memory_guard.describe())
+
+				break
+
+			if done:
+				pause = chains.break_time(rng, speed)
+				logger.info("Between tangents: %.0fs.", pause)
+				time.sleep(pause)
+				self.relieve_memory()
+
+			first = starts.pop(0) if starts else None
+
+			if first is None:
+				if spare is None:
+					spare = queries.related_queries(count - done + 2, account=self.account_name)
+
+				first = spare.pop(0) if spare else None
+
+			if first is None:
+				break
+
+			length = chains.tangent_length(rng, longest=count - done)
+			logger.info("New tangent (up to %d): %r", length, first)
+			self._search_from_home(first)
+			asked.add(first.lower())
+			done += 1
+			current = first
+
+			for _ in range(length - 1):
+				if done >= count or memory_guard.must_stop():
+					break
+
+				self.read_results(speed)
+				action, text = chains.next_step(self.related_texts(), asked, current, rng)
+
+				if action == "stop" or not text:
+					break
+
+				logger.info("Search %d/%d (%s): %r", done + 1, count, "from the page" if action == "click" else "typed", text)
+
+				if not self._follow_up(action, text):
+					break
+
+				asked.add(text.lower())
+				query_history.record(self.account_name, text)
+				done += 1
+				current = text
+
+			self.read_results(speed)
+
+		self.driver.get(REWARDS_HOME_URL)
+		self.tab_utils.ensure_focus()
+
+	def _search_from_home(self, query: str):
+		"""Start a thread: the Bing homepage, the query typed, as a person starts a new search."""
+		self.driver.get("https://www.bing.com/")
+		self.tab_utils.ensure_focus()
+		self.wait_for_element(self.elements.get_bing_search_bar)
+		_wait(self, 2.5, 5.5)
+		self._type_query(query)
+		query_history.record(self.account_name, query)
+
+	def _type_query(self, query: str):
+		slip_rate, neighbor_share = self.keyboard.slip_settings(query)
+		self.keyboard.send_keys(
+			f"{search_behavior.with_typo(query, slip_rate, neighbor_share=neighbor_share, weights=self.keyboard.slip_weights(query))}{Keys.ENTER}",
+			intended=query,
+		)
+		_wait(self, 2, 4)
+
+	def related_texts(self) -> list[str]:
+		"""What the results page offers as a next search, as text. The links are kept for clicking."""
+		self._related = {}
+
+		try:
+			for link in self.elements.get_related_searches():
+				text = " ".join((link.text or "").split())
+
+				if text:
+					self._related.setdefault(text.lower(), link)
+		except WebDriverException as exc:
+			logger.debug("No related searches read: %s", log_utils.exception_summary(exc))
+
+		return [link.text.strip() for link in self._related.values()] if self._related else []
+
+	def _follow_up(self, action: str, text: str) -> bool:
+		"""Search `text` from the results page: click the related search, or type it in the page's own box."""
+		try:
+			if action == "click" and text.lower() in getattr(self, "_related", {}):
+				self.move_to_and_click(self._related[text.lower()])
+				_wait(self, 2, 4)
+
+				return True
+
+			box = self.elements.get_serp_search_box()
+			self.move_to_and_click(box)
+			ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
+			self._type_query(text)
+
+			return True
+		except WebDriverException as exc:
+			# The page did not offer what it did a moment ago; the thread ends here, which people's do.
+			logger.debug("Could not follow up with %r: %s", text, log_utils.exception_summary(exc))
+
+			return False
+
+	def read_results(self, speed: float = 1.0):
+		"""Spend a person's amount of time on the results page: scroll and stop to read, sometimes open a result."""
+		opens = chains.opens_a_result(random) and memory_guard.can_open_a_result()
+		budget = chains.read_time(random, speed) * (0.6 if opens else 1.0)
+
+		try:
+			self.mouse.read_page(reading.plan(budget, random, speed))
+
+			if opens:
+				self._open_a_result(speed)
+		except WebDriverException as exc:
+			logger.debug("Skipped reading the results: %s", log_utils.exception_summary(exc))
+
+	def _open_a_result(self, speed: float):
+		"""Open one of the top results, look at it for a while, and come back to the results."""
+		results = self.elements.get_organic_results()[:6]
+
+		if not results:
+			return
+
+		link = random.choices(results, weights=(6, 4, 3, 2, 1, 1)[:len(results)])[0]
+		main_tab = self.driver.current_window_handle
+		results_url = self.driver.current_url
+
+		try:
+			self.driver.set_page_load_timeout(30)
+			self.move_to_and_click(link)
+			_wait(self, 3, 6)
+
+			if len(self.driver.window_handles) > 1:
+				self.tab_utils.switch_to_other_tab()
+
+			self.mouse.read_page(reading.plan(chains.result_time(random, speed), random, speed))
+		finally:
+			try:
+				if len(self.driver.window_handles) > 1:
+					self.tab_utils.close_all_other_tabs(exceptions=[main_tab])
+
+				self.driver.switch_to.window(main_tab)
+
+				if self.driver.current_url != results_url:
+					self.driver.back()
+					_wait(self, 1.5, 3)
+			except WebDriverException as exc:
+				logger.debug("Could not return to the results cleanly: %s", log_utils.exception_summary(exc))
+			finally:
+				try:
+					self.driver.set_page_load_timeout(300)
+				except WebDriverException:
+					pass
+
+	def relieve_memory(self):
+		"""Give the browser's memory back between tangents when it has grown: a blank page lets the old renderer go."""
+		if not memory_guard.needs_relief():
+			return
+
+		logger.info("Memory is %s: clearing the page before the next tangent.", memory_guard.describe())
+
+		try:
+			self.driver.get("about:blank")
+		except WebDriverException as exc:
+			logger.debug("Could not blank the page: %s", log_utils.exception_summary(exc))
 
 	def browse_results(self):
 		"""Look at the results the way a person would: sometimes another tab, sometimes a scroll.
