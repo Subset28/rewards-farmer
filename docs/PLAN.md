@@ -27,7 +27,7 @@ One change at a time, one account at a time, a few days apart, `python src/statu
 | 10-23 | `habits` on for `second` | |
 | 10-26 | `habits` on for `default` | |
 | 10-29 | VPN for `second` | a real-provider test (`vpn_three_accounts.sh`) the same week |
-| 11-01 | read what each account's monthly level-up bonus paid | |
+| 11-01 | read what each account's monthly bonuses paid. This is also the first full month of bot activity, so the Bing Star score (an organic-use score; September's 5 of 3,500 covered only about five days of bot use) is the first real scoreboard for the behaviour work | |
 | 11-02 | VPN for `default` | |
 
 `third`'s own steps: `typing` and `mouse` only after its hands are recorded and its ramp is over (about 10-28), and only after the other accounts have shown a clean result.
