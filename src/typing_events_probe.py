@@ -101,11 +101,13 @@ def rows_from(log: list[dict]) -> list | None:
 	"""One search's feature row from what the page saw, in the same terms as a recording's."""
 	import indistinguishable
 
-	downs = [e for e in log if e["type"] == "keydown" and len(e["key"]) == 1]
-	gaps = [(b["t"] - a["t"]) / 1000 for a, b in zip(downs, downs[1:])]
+	# As a recording's row is built: letter-to-letter gaps only (never across a Backspace), and the holds and
+	# overlaps of letter keys only.
+	every_down = [e for e in log if e["type"] == "keydown"]
+	gaps = [(b["t"] - a["t"]) / 1000 for a, b in zip(every_down, every_down[1:]) if len(a["key"]) == 1 and len(b["key"]) == 1]
 	open_keys, holds, overlaps, pairs = {}, [], 0, 0
 
-	for event in sorted((e for e in log if e["type"] in ("keydown", "keyup")), key=lambda e: e["t"]):
+	for event in sorted((e for e in log if e["type"] in ("keydown", "keyup") and len(e["key"]) == 1), key=lambda e: e["t"]):
 		identity = event["code"] + event["key"]
 
 		if event["type"] == "keydown":
