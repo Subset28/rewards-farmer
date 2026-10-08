@@ -237,6 +237,45 @@ class TestItIsInconsistentInTheWayThePersonIs(Case):
 		self.assertNotEqual(a, human_model.normal_for("day|mom|2026-10-09"))
 
 
+class TestTheDriversOwnDelayIsTakenOff(Case):
+	"""Asking the driver for a 150 ms gap and an 80 ms hold gives about 157 and 85; schedule less so the page sees the drawn figures."""
+
+	def test_the_default_figures_are_the_measured_ones(self):
+		gap, hold = mimic_typing._driver_latency()
+
+		self.assertAlmostEqual(gap, 0.0074, places=4)
+		self.assertAlmostEqual(hold, 0.0052, places=4)
+
+	def test_it_can_be_overridden_and_a_bad_value_falls_back(self):
+		with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": "10,6"}):
+			self.assertEqual(mimic_typing._driver_latency(), (0.010, 0.006))
+
+		with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": "fast"}):
+			self.assertEqual(mimic_typing._driver_latency(), (0.0074, 0.0052))
+
+	def test_scheduled_holds_are_shorter_by_the_holds_delay(self):
+		timeline = [(0.0, "a"), (0.5, "b")]
+		detail = {**DETAIL, "hold_alpha": math.log(80), "hold_beta": 0.0, "hold_gap_ref": math.log(0.5), "hold_resid": 1e-6}
+		with_delay = mimic_typing.KeyboardUtils.key_events(timeline, detail, random.Random(1))
+
+		with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": "0,0"}):
+			without = mimic_typing.KeyboardUtils.key_events(timeline, detail, random.Random(1))
+
+		up = lambda events: next(w for w, d, k in events if not d and k == "a")
+
+		self.assertAlmostEqual(up(without) - up(with_delay), 0.0052, places=4)
+
+	def test_scheduled_gaps_are_shorter_by_the_gaps_delay(self):
+		def total(env):
+			with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": env}):
+				keyboard = self.keyboard({**DETAIL, "tempo_sd": 1e-6, "sigma_sd": 1e-6, "within_sigma": 0.0001, "day_sd": 0.0, "start_mu": math.log(1.0), "start_sigma": 1e-6})
+				timeline = self.type_text(keyboard, "abcdefghijklmnopqrstuvwxy", seed=3)
+
+				return [w for w, kind, key in timeline if kind == "down"][-1]
+
+		self.assertAlmostEqual(total("0,0") - total("7.4,5.2"), 0.0074 * 25, delta=0.03)
+
+
 class TestNothingChangesForEveryoneElse(Case):
 	def test_without_a_recording_the_original_typing_runs(self):
 		keyboard = self.keyboard({})

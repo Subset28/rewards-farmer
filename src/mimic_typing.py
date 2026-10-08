@@ -1,5 +1,6 @@
 """Types text the way a person does: the account's own rhythm, and, when switched on, slips that are noticed and fixed."""
 
+import os
 import random
 from typing import Iterable
 from selenium import webdriver
@@ -25,6 +26,20 @@ THIRD_INTERVAL_PROBABILITY = 1 - (FIRST_INTERVAL_PROBABILITY + SECOND_INTERVAL_P
 # in the middle of a word.
 CORRECTION_RATE = 0.7
 HESITATION_RATE = 0.02
+
+def _driver_latency() -> tuple[float, float]:
+	"""(seconds the driver adds to a gap, seconds it adds to a hold). Measured with typing_events_probe.py latency on the
+	NAS: asking for a 150 ms gap and an 80 ms hold gave 157 and 85, steadily (about 2 ms either way). Scheduling
+	that much less puts what the page sees on the person's own figures. REWARDS_DRIVER_LATENCY_MS="gap,hold" overrides it."""
+	raw = os.environ.get("REWARDS_DRIVER_LATENCY_MS", "7.4,5.2")
+
+	try:
+		gap, hold = (float(part) / 1000 for part in raw.split(","))
+	except ValueError:
+		gap, hold = 0.0074, 0.0052
+
+	return max(0.0, gap), max(0.0, hold)
+
 
 # Keys overlap only when the next one follows quickly, and no key is held longer than this.
 ROLLOVER_ONLY_BELOW = 0.30
@@ -186,7 +201,7 @@ class KeyboardUtils:
 			elif key == Keys.ENTER and "enter_gap_ms" in detail:
 				gap = detail["enter_gap_ms"] / 1000 * rng.uniform(0.8, 1.25)
 			else:
-				gap = rhythm.next_gap(previous, char)
+				gap = max(0.02, rhythm.next_gap(previous, char) - _driver_latency()[0])
 
 			if timeline and char and rng.random() < hesitation_rate:
 				gap += detail["hesitation_ms"] / 1000 * rng.uniform(0.7, 1.4) if "hesitation_ms" in detail else 0.5
@@ -255,6 +270,8 @@ class KeyboardUtils:
 				else:
 					hold = min(hold, gap * rng.uniform(0.5, 0.9))
 
+			# What the driver adds to a hold is taken off, so the page sees the hold that was drawn.
+			hold = max(0.015, hold - _driver_latency()[1])
 			events.append((when, True, key))
 			events.append((when + hold, False, key))
 
