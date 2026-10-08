@@ -517,7 +517,22 @@ def fit_rhythm(phrases: list[list[tuple[float, str, str]]]):
 	top = sum(a * b for r in residuals for a, b in zip(r, r[1:]))
 	bottom = sum(x * x for r in residuals for x in r)
 
+	# People are rarely symmetric: slow keys are usually bunched closer or stretched further than quick ones.
+	# How far each side reaches, as a share of the overall spread, shrunk towards 1 when there are few keys.
+	flat = [x for r in residuals for x in r]
+	above = [x for x in flat if x > 0]
+	below = [x for x in flat if x < 0]
+	weight = len(flat) / (len(flat) + 60)
+
+	def reach(side: list[float]) -> float:
+		if len(side) < 10 or sigma <= 0:
+			return 1.0
+
+		return max(0.6, min(1.4, 1 + weight * (math.sqrt(sum(x * x for x in side) / len(side)) / sigma - 1)))
+
 	return {
+		"upper_reach": reach(above),
+		"lower_reach": reach(below),
 		"log_gap_mu": _mean(tempos),
 		"within_sigma": sigma,
 		"sigma_sd": min(0.25, max(0.02, statistics.pstdev(per_search))),

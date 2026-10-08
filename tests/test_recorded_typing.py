@@ -243,15 +243,15 @@ class TestTheDriversOwnDelayIsTakenOff(Case):
 	def test_the_default_figures_are_the_measured_ones(self):
 		gap, hold = mimic_typing._driver_latency()
 
-		self.assertAlmostEqual(gap, 0.0074, places=4)
-		self.assertAlmostEqual(hold, 0.0052, places=4)
+		self.assertAlmostEqual(gap, 0.009, places=4)
+		self.assertAlmostEqual(hold, 0.013, places=4)
 
 	def test_it_can_be_overridden_and_a_bad_value_falls_back(self):
 		with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": "10,6"}):
 			self.assertEqual(mimic_typing._driver_latency(), (0.010, 0.006))
 
 		with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": "fast"}):
-			self.assertEqual(mimic_typing._driver_latency(), (0.0074, 0.0052))
+			self.assertEqual(mimic_typing._driver_latency(), (0.009, 0.013))
 
 	def test_scheduled_holds_are_shorter_by_the_holds_delay(self):
 		timeline = [(0.0, "a"), (0.5, "b")]
@@ -263,7 +263,7 @@ class TestTheDriversOwnDelayIsTakenOff(Case):
 
 		up = lambda events: next(w for w, d, k in events if not d and k == "a")
 
-		self.assertAlmostEqual(up(without) - up(with_delay), 0.0052, places=4)
+		self.assertAlmostEqual(up(without) - up(with_delay), 0.013, places=4)
 
 	def test_scheduled_gaps_are_shorter_by_the_gaps_delay(self):
 		def total(env):
@@ -273,7 +273,7 @@ class TestTheDriversOwnDelayIsTakenOff(Case):
 
 				return [w for w, kind, key in timeline if kind == "down"][-1]
 
-		self.assertAlmostEqual(total("0,0") - total("7.4,5.2"), 0.0074 * 25, delta=0.03)
+		self.assertAlmostEqual(total("0,0") - total("9,13"), 0.009 * 25, delta=0.03)
 
 
 class SamplingDriver:
@@ -322,6 +322,13 @@ import types
 
 
 class TestMeasuringTheDriversDelay(Case):
+	def setUp(self):
+		super().setUp()
+		patch = mock.patch.dict(os.environ, {"REWARDS_MEASURE_LATENCY": "1"})
+		patch.start()
+		self.addCleanup(patch.stop)
+		os.environ.pop("REWARDS_DRIVER_LATENCY_MS", None)
+
 	def keyboard_on(self, driver):
 		profile = behavior.Behavior("mom", "recorded", 0.4, 0.4, 0.2, 0.13, typing_detail={**DETAIL, "hold_alpha": math.log(85), "hold_beta": 0.0, "hold_gap_ref": math.log(0.15), "hold_resid": 0.2})
 
@@ -373,7 +380,7 @@ class TestMeasuringTheDriversDelay(Case):
 		driver = SamplingDriver(gap_extra=0.5, hold_extra=0.5)
 		keyboard = self.keyboard_on(driver)
 
-		self.assertEqual(keyboard.measured_latency(keyboard.recorded, random.Random(1)), (0.04, 0.04))
+		self.assertEqual(keyboard.measured_latency(keyboard.recorded, random.Random(1)), (0.015, 0.015))
 
 	def test_typing_uses_the_measured_delay(self):
 		keyboard = self.keyboard_on(SamplingDriver(gap_extra=0.0, hold_extra=0.0))
