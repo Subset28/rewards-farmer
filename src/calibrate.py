@@ -274,6 +274,8 @@ class App:
 			mouse_sittings = earlier_mouse + [self.trials]
 			typing = calibration.analyze_typing(typing_sittings)
 			mouse = calibration.analyze_mouse(mouse_sittings)
+			# Nudge the pointer settings until paths made from them match the recorded ones (about half a minute).
+			mouse["detail"] = indistinguishable.refine_mouse([t for sitting in mouse_sittings for t in sitting], mouse["detail"])
 			arguments = calibration.build(typing, mouse)
 			lines = calibration.describe(typing, mouse, calibration.rhythm_check(typing_sittings, typing["detail"], random.Random(1)))
 			told = indistinguishable.tell_apart([r for sitting in typing_sittings for r in sitting], typing["detail"], random.Random(1))
@@ -282,6 +284,13 @@ class App:
 				lines.append(
 					f"Test: a program trying to tell you from the bot built from your numbers scores {told['auc']:.2f} "
 					f"(0.5 = guessing, 1.0 = always right): {indistinguishable.verdict(told['auc'])}"
+				)
+
+			moved = indistinguishable.mouse_tell_apart([t for sitting in mouse_sittings for t in sitting], mouse["detail"], random.Random(1))
+
+			if moved:
+				lines.append(
+					f"Test: the same for your mouse paths scores {moved['auc']:.2f}: {indistinguishable.verdict(moved['auc'])}"
 				)
 
 			lines.append(f"Sittings so far: {len(typing_sittings)}" + ("" if len(typing_sittings) > 1 else " (record again on another day for a better profile)"))
@@ -447,6 +456,7 @@ def reanalyze(account: str) -> int:
 	try:
 		typed = calibration.analyze_typing(typing)
 		moved = calibration.analyze_mouse(mouse)
+		moved["detail"] = indistinguishable.refine_mouse([t for sitting in mouse for t in sitting], moved["detail"])
 		path = behavior.save(account, notes={"recorded_with": "calibrate.py --reanalyze", "sittings": len(typing)}, **calibration.build(typed, moved))
 	except (behavior.ProfileError, ValueError, OSError) as exc:
 		print(f"Could not rebuild the profile: {exc}")

@@ -32,6 +32,7 @@ import statistics
 
 import behavior
 import human_model
+import mouse_fit
 import search_behavior
 
 # A phrase typed the way a search is: lower case, no punctuation.
@@ -655,6 +656,7 @@ class Trial:
 		self.rect = rect                       # x, y, width, height
 		self.shown_at = shown_at
 		self.samples: list[tuple[float, float, float]] = []   # (time, x, y) from the first move
+		self.early: list[tuple[float, float, float]] = []     # the slower, smaller movements before that
 		self.presses: list[tuple[float, float, float]] = []   # (time, x, y)
 		self.release_at: float | None = None
 		self.done = False
@@ -667,6 +669,11 @@ class Trial:
 	def move(self, now: float, x: float, y: float) -> None:
 		if not self.samples:
 			if max(abs(x - self.start[0]), abs(y - self.start[1])) <= 3:
+				# Not yet 3 pixels away: the first moments of the hand leaving the spot. Kept, because
+				# the shape of the start of a move is part of what a person's moves look like.
+				if len(self.early) < 60:
+					self.early.append((now, x, y))
+
 				return
 
 		self.samples.append((now, x, y))
@@ -826,7 +833,9 @@ def analyze_mouse(sessions: list) -> dict:
 	hover = _log_spread([t["hover"] * 1000 for t in done], 20)
 	reaction = _log_spread([t["reaction"] * 1000 for t in done])
 	straight = [t["straightness"] for t in done if t["straightness"] is not None]
+	shape = mouse_fit.fit([mouse_fit.track(trial) for session in sessions for trial in session])
 	detail = {
+		**shape,
 		"move_rel_sd": min(0.8, max(0.02, statistics.pstdev(flat))) if len(flat) >= 5 else None,
 		"move_phi": move_phi,
 		"day_sd": day_sd,
@@ -931,6 +940,7 @@ def raw(records: list[PhraseRecord], trials: list[Trial], when: str = "") -> dic
 			{
 				"start": list(t.start), "rect": list(t.rect), "shown_at": t.shown_at,
 				"samples": [list(sample) for sample in t.samples],
+				"early": [list(sample) for sample in t.early],
 				"presses": [list(press) for press in t.presses], "release_at": t.release_at,
 			}
 			for t in trials
@@ -957,6 +967,7 @@ def trials_from_raw(rows: list[dict]) -> list[Trial]:
 	for row in rows:
 		trial = Trial(tuple(row["start"]), tuple(row["rect"]), row["shown_at"])
 		trial.samples = [tuple(sample) for sample in row.get("samples", [])]
+		trial.early = [tuple(sample) for sample in row.get("early", [])]
 		trial.presses = [tuple(press) for press in row.get("presses", [])]
 		trial.release_at = row.get("release_at")
 		trial.done = trial.release_at is not None

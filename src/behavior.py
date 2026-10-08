@@ -123,6 +123,17 @@ MOUSE_DETAIL_RANGES = {
 	"reaction_mu": (4.8, 7.4),
 	"reaction_sigma": (0.02, 1.2),
 	"straightness_sd": (0.0, 1.0),
+	# The shape of the pointer's path (pointer_path.py).
+	"path_a": (1.2, 8.0),
+	"path_b": (1.2, 8.0),
+	"path_lat_sd": (0.0, 0.25),
+	"path_lat_bias": (-0.15, 0.15),
+	"path_tremor": (0.0, 4.0),
+	"path_over_rate": (0.0, 0.7),
+	"path_trials": (0.0, 5000.0),
+	"path_lead_ms": (0.0, 400.0),
+	"end_sd_across": (0.02, 0.6),
+	"end_bias_along": (-0.4, 0.6),
 }
 NOTICED_KEYS = 4
 MAX_HOLD_PAIRS = 500

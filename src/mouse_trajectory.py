@@ -15,6 +15,7 @@ from browser import HEADLESS
 import clock
 import features
 import human_model
+import pointer_path
 
 Point = tuple[int, int]
 
@@ -477,12 +478,7 @@ class MouseUtils:
 			return {x: rect.left, y: rect.top, width: rect.width, height: rect.height};
 		""", element)
 
-		target_position = choose_target_in_element(
-			rect['x'],
-			rect['y'],
-			rect['height'],
-			rect['width']
-		)
+		target_position = self.choose_target(current_mouse_position, rect)
 
 		move_time = get_movement_time_from_fitts_law(
 			math.dist(current_mouse_position, target_position),
@@ -498,17 +494,39 @@ class MouseUtils:
 		if tempo is not None:
 			move_time = max(MIN_MOVE_TIME, move_time * tempo.next_factor())
 
-		path_fn = get_final_path_from_real_time(
-			movement_time=move_time,
-			start=current_mouse_position,
-			end=target_position
-		)
+		path_fn = self.path_for(current_mouse_position, target_position, move_time)
 
-		self.move_mouse(move_time, path_fn, visualize)
+		# A path made for this person has its own slow beginning; drive it for all of it.
+		self.move_mouse(getattr(path_fn, "total", move_time), path_fn, visualize)
 
 	def personal(self) -> dict:
 		"""The recorded measurements, once the mouse feature is on for this account; else nothing."""
 		return self.recorded if self.recorded and features.enabled("mouse", self.account) else {}
+
+	def choose_target(self, from_position, rect: dict) -> Point:
+		"""Where in the element to aim: clustered around its middle, the way this person's clicks land, once recorded."""
+		detail = self.personal()
+
+		if "end_sd_across" not in detail:
+			return choose_target_in_element(rect['x'], rect['y'], rect['height'], rect['width'])
+
+		centre = (rect['x'] + rect['width'] / 2, rect['y'] + rect['height'] / 2)
+		length = math.dist(from_position, centre) or 1.0
+		direction = ((centre[0] - from_position[0]) / length, (centre[1] - from_position[1]) / length)
+		x, y = pointer_path.endpoint(centre, (rect['width'], rect['height']), direction, detail)
+
+		return (int(round(x)), int(round(y)))
+
+	def path_for(self, start: Point, end: Point, duration: float) -> Callable[[float], Point]:
+		"""The pointer's path: shaped like this person's own movements once recorded, else the original."""
+		detail = self.personal()
+
+		if "path_a" in detail:
+			lead = detail.get("path_lead_ms", 0.0) / 1000 * math.exp(random.gauss(0, 0.2))
+
+			return pointer_path.build(start, end, duration, detail, random, lead)
+
+		return get_final_path_from_real_time(movement_time=duration, start=start, end=end)
 
 	def tempo(self):
 		"""How much longer or shorter than the Fitts line the next move runs, or None for an unrecorded person."""
