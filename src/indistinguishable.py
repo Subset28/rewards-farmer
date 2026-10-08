@@ -42,7 +42,8 @@ def _features(gaps: list[float], holds: list[float], overlaps: float | None) -> 
 	centre = statistics.mean(logs)
 	bottom = sum((x - centre) ** 2 for x in logs)
 	lag = sum((a - centre) * (b - centre) for a, b in zip(logs, logs[1:])) / bottom if bottom > 0 else 0.0
-	ordered = sorted(gaps)
+	# The tail of the steady typing; the rare thinking pause is measured on its own and differs between copying and composing.
+	ordered = sorted(g for g in gaps if 0 < g < calibration.TYPING_GAP_MAX)
 	tail = math.log(ordered[int(0.9 * (len(ordered) - 1))] / ordered[len(ordered) // 2])
 
 	return [centre, statistics.pstdev(logs), lag, tail, statistics.median(holds), overlaps]
