@@ -333,6 +333,15 @@ class TestLaunch(JournalTestCase):
 
 		self.alert.assert_not_called()
 
+	def test_a_run_the_gate_held_back_is_skipped_quietly_and_is_not_redone(self):
+		import gate
+
+		self.assertEqual(ss.launch("default", self.due(), run=FakeRun(gate.EXIT_CODE)), "skipped")
+
+		end = self.events()[-1][1]
+		self.assertEqual((end["outcome"], end["reason"]), ("skipped", "needs calibration"))
+		self.alert.assert_not_called()
+
 	def test_a_run_that_cannot_start_is_journaled_and_does_not_raise(self):
 		with self.assertLogs(ss.logger, level="ERROR"):
 			outcome = ss.launch("default", self.due(), run=FakeRun(error=OSError("no python")))
