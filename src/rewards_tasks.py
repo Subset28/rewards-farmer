@@ -32,6 +32,7 @@ import features
 import memory_guard
 import query_history
 import reading
+import snapshot
 import task_log
 
 from constants import REPO_ROOT
@@ -1113,6 +1114,9 @@ class RewardsTaskUtils:
 					"[%s] %s: %s", tag, name, reason,
 					exc_info=logger.isEnabledFor(logging.DEBUG)
 				)
+
+				# What the page offered, while it is still on screen (snapshot.py): the labels only, nothing personal.
+				snapshot.capture(self.driver, self.account_name, name, reason)
 
 				# A task that fails on a sign-in, verification or restriction
 				# page is not a missing control. Look before the next task makes

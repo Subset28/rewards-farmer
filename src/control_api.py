@@ -2,6 +2,10 @@
 
     GET  /status             every account: gate, pause, last points, today's runs, health findings; browsers running
     GET  /runs?days=2        the journal of runs
+    GET  /tasks?days=14      per account and task: how often it worked, its last outcomes, whether it is failing now
+    GET  /settings           what is switched on and how it is set (no secrets: only whether one is present)
+    GET  /snapshots          what the page offered when a task failed or was skipped: the list
+    GET  /snapshots/<name>   one of them: the page's button, link and heading labels
     GET  /logs               which log files there are
     GET  /logs/<name>?lines=80   the end of one of them (names from the list above, nothing else)
     POST /pause              {"reason": "...", "account": "second"}  stop runs (the account, or all when none is named)
@@ -23,15 +27,21 @@ import logging
 import os
 import re
 import sys
+from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import clock
+import features
 import gate
 import health
 import journal
+import pacing
 import points_log
 import safety
+import snapshot
 import status
+import task_log
 from constants import USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -113,6 +123,48 @@ def status_view() -> dict:
 	return out
 
 
+SECRET_PRESENCE = (
+	"CONTROL_TOKEN", "NOTIFY_URL", "NOTIFY_URL_DEFAULT", "NOTIFY_URL_SECOND", "NOTIFY_URL_THIRD", "OPENROUTER_API_KEY",
+	"BACKUP_REPO", "BACKUP_GITHUB_TOKEN", "TRAWL_URL", "OLLAMA_HOST",
+)
+PLAIN_SETTINGS = re.compile(r"^(REWARDS_[A-Z_]+|QUERY_SOURCE|OPENROUTER_DAILY_LIMIT|TZ)$")
+
+
+def tasks_view(days: int) -> dict:
+	"""Per account and task: runs, how many completed, the last outcomes, and whether it has failed every time lately."""
+	cutoff = (clock.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+	out: dict = {}
+
+	for row in task_log.history():
+		if row.get("t", "") < cutoff:
+			continue
+
+		task = out.setdefault(row.get("account", "?"), {}).setdefault(row["task"], {"runs": 0, "completed": 0, "last": []})
+		task["runs"] += 1
+		task["completed"] += 1 if row.get("completed") else 0
+		task["last"] = (task["last"] + [row.get("tag")])[-6:]
+		task["last_run"] = row["t"]
+
+	for tasks in out.values():
+		for task in tasks.values():
+			task["failing_now"] = len(task["last"]) >= 3 and "OK" not in task["last"][-3:]
+
+	return out
+
+
+def settings_view() -> dict:
+	names = account_names()
+
+	return {
+		"environment": {key: value for key, value in sorted(os.environ.items()) if PLAIN_SETTINGS.match(key)},
+		"present": {key: bool(os.environ.get(key)) for key in SECRET_PRESENCE},
+		"features": {feature: [n for n in names if features.enabled(feature, n)] for feature in features.KNOWN},
+		"pacing": {name: pacing.describe(name) for name in names},
+		"gate": {name: gate.reason(name) or "runs" for name in names},
+		"data_dir": USER_DATA_DIR,
+	}
+
+
 def log_files() -> list[str]:
 	try:
 		return sorted(name for name in os.listdir(LOG_DIR) if LOG_NAME.match(name))
@@ -168,6 +220,20 @@ def handle(method: str, path: str, body: dict | None = None) -> tuple[int, objec
 
 		if route == "/runs":
 			return 200, journal.events(days=max(1, min(14, _number(query, "days", 1))))
+
+		if route == "/tasks":
+			return 200, tasks_view(max(1, min(60, _number(query, "days", 14))))
+
+		if route == "/settings":
+			return 200, settings_view()
+
+		if route == "/snapshots":
+			return 200, snapshot.names()
+
+		if route.startswith("/snapshots/"):
+			found = snapshot.read(route[len("/snapshots/"):])
+
+			return (200, found) if found is not None else (404, {"error": "no such snapshot"})
 
 		if route == "/logs":
 			return 200, log_files()
