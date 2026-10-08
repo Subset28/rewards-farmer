@@ -55,4 +55,4 @@ One change at a time, one account at a time, a few days apart, `python src/statu
 
 - The unit tests prove the logic, not the live pages. A change on Microsoft's side shows up as a task earning nothing until item 3 is built.
 - Everything is on one disk on one NAS and one home connection.
-- The browser needs about 1.3 GB while a run is live, so the 1.5 GB container limit stays.
+- Container limit is 2 GB (raised from 1.5 GB on 2026-10-08). Measured in a 1.5 GB container with the real task code: searching in tangents and only reading the results peaks near 1.08 GB after 6 tangents (about +100 MB per tangent, the blank-page relief does not give it back); opening a third-party result page jumped from 555 MB to 1.3 GB in 90 s and froze the browser. So result-opening is off by default (`REWARDS_OPEN_RESULT_CHANCE`); measure again at 2 GB before turning it on.
