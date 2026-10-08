@@ -28,6 +28,11 @@ import pointer_path
 FEATURES = ("mean_log_gap", "sd_log_gap", "lag1", "tail", "hold_ms", "overlap")
 
 
+def phrase_row(gaps: list[float], holds: list[float], overlaps: float | None) -> list[float] | None:
+	"""The feature row of one phrase from its key-to-key gaps (seconds), key holds (ms) and share of keys that overlapped."""
+	return _features(gaps, holds, overlaps)
+
+
 def _features(gaps: list[float], holds: list[float], overlaps: float | None) -> list[float] | None:
 	logs = [math.log(g) for g in gaps if 0 < g < calibration.TYPING_GAP_MAX]
 

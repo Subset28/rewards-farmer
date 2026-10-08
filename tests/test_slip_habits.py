@@ -176,6 +176,60 @@ class TestMeasuring(unittest.TestCase):
 			self.assertIn(key, cleaned)
 
 
+class TestSlipsPerKey(unittest.TestCase):
+	def setUp(self):
+		patcher = mock.patch.dict(os.environ, {"REWARDS_FEATURES": "typing"})
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def keyboard(self, detail):
+		profile = behavior.Behavior("mom", "recorded", 0.4, 0.4, 0.2, 0.13, typing_detail=detail)
+
+		return mimic_typing.KeyboardUtils(mock.Mock(), profile, account="mom")
+
+	def test_a_longer_query_is_likelier_to_have_a_slip_than_a_short_one(self):
+		keyboard = self.keyboard({"slip_per_char": 0.03})
+		short, _ = keyboard.slip_settings("weather tomorrow")
+		long, _ = keyboard.slip_settings("easy weeknight dinner ideas for two people")
+
+		self.assertLess(short, long)
+		self.assertAlmostEqual(short, 1 - 0.97 ** 16, places=6)
+
+	def test_without_a_per_key_figure_the_old_per_search_rate_is_used(self):
+		self.assertEqual(self.keyboard({"slip_rate": 0.12}).slip_settings("weather tomorrow")[0], 0.12)
+
+	def test_with_no_text_it_falls_back_to_the_phrase_rate(self):
+		self.assertEqual(self.keyboard({"slip_per_char": 0.03, "slip_rate": 0.4}).slip_settings()[0], 0.4)
+
+	def test_a_high_rate_from_a_fast_typist_is_kept_by_the_profile_check(self):
+		cleaned = behavior.clean_detail({"slip_rate": 0.69, "slip_per_char": 0.031}, behavior.TYPING_DETAIL_RANGES)
+
+		self.assertEqual(cleaned["slip_rate"], 0.69)
+		self.assertEqual(cleaned["slip_per_char"], 0.031)
+
+	def test_measuring_turns_a_phrase_rate_into_a_per_key_rate(self):
+		detail = calibration.analyze_typing([recorded(RHYTHM, count=60, slip_share=0.6)])["detail"]
+		mean_length = sum(len(t) for t in calibration.PHRASES) / len(calibration.PHRASES)
+
+		self.assertAlmostEqual(1 - (1 - detail["slip_per_char"]) ** mean_length, detail["slip_rate"], delta=0.06)
+
+	def test_an_instruction_typed_out_is_not_a_made_up_search(self):
+		real = []
+
+		for _ in range(3):
+			record = calibration.PhraseRecord("", 0.0, True)
+			record.events = [(1.0 + 0.1 * i, "char", c) for i, c in enumerate("lebron highlights")]
+			record.final = "lebron highlights"
+			real.append(record)
+
+		copied = calibration.PhraseRecord("", 0.0, True)
+		copied.events = [(1.0 + 0.1 * i, "char", c) for i, c in enumerate("Think of a search you would really make about food")]
+		copied.final = "Think of a search you would really make about food"
+		detail = calibration.analyze_typing([recorded(RHYTHM, count=40, slip_share=0.3) + real + [copied]])["detail"]
+
+		self.assertEqual(detail["made_up"], 3)
+
+
 class TestTheKeyboardUsesIt(unittest.TestCase):
 	def setUp(self):
 		patcher = mock.patch.dict(os.environ, {"REWARDS_FEATURES": "typing"})

@@ -60,11 +60,11 @@ PRACTICE = "type this to warm up"
 # Searches typed from the person's own head rather than copied: how long they think before the first
 # key and how they pause while making one up is not something copying shows.
 COMPOSE_PROMPTS = (
-	"Type a search you might make about food or cooking",
-	"Type a search you might make about a trip or a place",
-	"Type a search you might make about sports or a game",
-	"Type a search you might make about something you want to buy",
-	"Type a search you might make about the news or the weather",
+	"Think of a search you would really make about food or cooking, and type that",
+	"Think of a search you would really make about a trip or a place, and type that",
+	"Think of a search you would really make about sports or a game, and type that",
+	"Think of a search you would really make about something you want to buy, and type that",
+	"Think of a search you would really make about the news or the weather, and type that",
 )
 
 # Keys that are not typing: modifiers, navigation and the like.
@@ -557,7 +557,8 @@ def analyze_typing(sessions: list) -> dict:
 
 	everything = [r for session in sessions for r in session]
 	copied = [r for r in everything if not r.compose]
-	made_up = [r for r in everything if r.compose]
+	# A made-up search that is the instruction typed out, not a search, says nothing about composing.
+	made_up = [r for r in everything if r.compose and not r.final.lower().startswith("type a search") and not r.final.lower().startswith("think of a search")]
 	phrases = [analyze_phrase(r) for r in copied]
 	pairs = [p for phrase in phrases for p in phrase["gaps"]]
 	rhythm = [g for g, _, _ in pairs if 0 <= g < TYPING_GAP_MAX]
@@ -611,8 +612,11 @@ def analyze_typing(sessions: list) -> dict:
 	after_space = [g for g, p, _ in pairs if p == " " and 0 <= g < TYPING_GAP_MAX]
 	inside_word = [g for g, p, _ in pairs if p != " " and 0 <= g < TYPING_GAP_MAX]
 	minutes = sum(rhythm) / 60
+	mean_length = _mean(len(r.target) for r in copied) or 30.0
+	slip_rate = slip_count / len(phrases)
 	detail = {
-		"slip_rate": slip_count / len(phrases),
+		"slip_rate": slip_rate,
+		"slip_per_char": 1 - (1 - min(0.97, slip_rate)) ** (1 / mean_length),
 		"neighbor_share": (sum(1 for p in slips if p["slip"] == "neighbor") / slip_count) if slip_count else None,
 		"swap_share": (sum(1 for p in slips if p["slip"] == "swap") / slip_count) if slip_count else None,
 		"correction_rate": (sum(1 for p in slips if p["fixed"]) / slip_count) if slip_count else None,

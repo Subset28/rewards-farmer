@@ -59,7 +59,8 @@ class ProfileError(ValueError):
 # a recording that says a person pauses for twenty seconds mid-word is a bad recording, and
 # keeping the default is safer than keeping a made-up edge.
 TYPING_DETAIL_RANGES = {
-	"slip_rate": (0.0, 0.35),           # share of searches with a first wrong key
+	"slip_rate": (0.0, 0.95),           # share of the recorded phrases with a first wrong key
+	"slip_per_char": (0.0, 0.15),       # the same as a chance per key typed, so a short query slips less than a long one
 	"neighbor_share": (0.0, 1.0),       # of slips, a neighbouring key (the rest: letters swapped)
 	"swap_share": (0.0, 1.0),
 	"correction_rate": (0.3, 1.0),      # share of slips fixed before Enter
