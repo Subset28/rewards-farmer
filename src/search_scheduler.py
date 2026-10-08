@@ -15,6 +15,7 @@ import accounts
 import features
 import footprint
 import health
+import gate
 import journal
 import log_utils
 import notify
@@ -295,6 +296,12 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 		logger.warning("The search run found the profile busy; it will be tried again.")
 
 		return "deferred"
+
+	if code == gate.EXIT_CODE:
+		# Every account in this run is waiting for its calibration, and its owner has been told (gate.py). Not a failure.
+		journal.record(owner, "search", "end", planned=planned, outcome="skipped", exit_code=code, reason="needs calibration", seconds=round(time.monotonic() - started))
+
+		return "skipped"
 
 	outcome = "ok" if code == 0 else "failed"
 

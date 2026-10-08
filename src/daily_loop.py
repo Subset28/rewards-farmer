@@ -12,6 +12,7 @@ import accounts
 import backup
 import footprint
 import health
+import gate
 import journal
 import log_utils
 import notify
@@ -130,10 +131,11 @@ def main() -> None:
 
 			continue
 
-		journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="ok" if code == 0 else "failed", exit_code=code, seconds=round(time.monotonic() - started))
+		held = code == gate.EXIT_CODE
+		journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="skipped" if held else ("ok" if code == 0 else "failed"), exit_code=code, seconds=round(time.monotonic() - started))
 
-		# Exit 3 is the brake, which has already said so when it tripped.
-		if code != 0 and code != 3:
+		# Exit 3 is the brake, which has already said so when it tripped; exit 5 is the gate, ditto.
+		if code not in (0, 3, gate.EXIT_CODE):
 			notify.send_each(account_names(), "Daily run failed", f"The scheduled daily run exited with code {code}. Look at data-dir/logs/ on the NAS.", priority="high")
 
 		mark_done(at, owner)

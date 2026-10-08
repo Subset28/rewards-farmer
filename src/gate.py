@@ -25,6 +25,9 @@ import notify
 logger = logging.getLogger(__name__)
 
 MAX_SCORE = 0.70
+
+# What a run exits with when the gate held every account back: not a failure (the owner has been told), and not retried.
+EXIT_CODE = 5
 ALERTS_FILE = os.path.join(USER_DATA_DIR, "gate_alerts.json")
 
 

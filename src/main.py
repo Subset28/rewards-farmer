@@ -106,6 +106,7 @@ def main() -> int:
 			logger.info("%s: light day, only the daily set and a small search.", account.name)
 
 	started = 0
+	gated = 0
 
 	for position, account in enumerate(configured):
 		if position:
@@ -123,6 +124,8 @@ def main() -> int:
 			continue
 
 		if gate.blocked(account.name):
+			gated += 1
+
 			continue
 
 		if len(configured) > 1:
@@ -159,6 +162,9 @@ def main() -> int:
 		input("Press Enter to exit...")
 
 	desktop_utils.cleanup_virtual_desktop()
+
+	if not started and gated:
+		return gate.EXIT_CODE
 
 	return 0 if started else 1
 
