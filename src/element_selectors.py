@@ -288,9 +288,18 @@ class ElementSelectionUtils:
 		try:
 			return self._button_containing(Labels.VISUAL_SEARCH_STREAK)
 		except NoSuchElementException:
-			# Not every layout ships this entry point. Where it does but the
-			# label differs, fall back to the original position in streaks.
-			return self._streaks_button(5)
+			pass
+
+		# The label can be worded differently ("Visual search" on its own); the streaks section is the
+		# place to look, so a button of that name there is the entry point.
+		try:
+			return self._button_containing("visual search", self.driver.find_element(By.ID, "streaks"))
+		except NoSuchElementException:
+			pass
+
+		# Not every layout ships this entry point. Where it does but the
+		# label differs, fall back to the original position in streaks.
+		return self._streaks_button(5)
 
 	def get_search_now_link_from_visual_search_sidebar(self):
 		sidebar = self.get_sidebar_section()
