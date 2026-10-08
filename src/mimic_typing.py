@@ -33,12 +33,12 @@ def _driver_latency() -> tuple[float, float]:
 	"""(seconds the driver adds to a gap, seconds it adds to a hold). Measured with typing_events_probe.py latency on the
 	NAS: asking for a 150 ms gap and an 80 ms hold gave 157 and 85, steadily (about 2 ms either way). Scheduling
 	that much less puts what the page sees on the person's own figures. REWARDS_DRIVER_LATENCY_MS="gap,hold" overrides it."""
-	raw = os.environ.get("REWARDS_DRIVER_LATENCY_MS", "7.4,5.2")
+	raw = os.environ.get("REWARDS_DRIVER_LATENCY_MS", "9,13")
 
 	try:
 		gap, hold = (float(part) / 1000 for part in raw.split(","))
 	except ValueError:
-		gap, hold = 0.0074, 0.0052
+		gap, hold = 0.009, 0.013
 
 	return max(0.0, gap), max(0.0, hold)
 
@@ -183,7 +183,9 @@ class KeyboardUtils:
 		if self._latency is not None:
 			return self._latency
 
-		if os.environ.get("REWARDS_DRIVER_LATENCY_MS"):
+		# A per-run measurement was tried and scored worse than fixed figures against a real recording (it moved
+		# from run to run by more than the delay itself), so it is off unless asked for.
+		if os.environ.get("REWARDS_DRIVER_LATENCY_MS") or not os.environ.get("REWARDS_MEASURE_LATENCY"):
 			self._latency = _driver_latency()
 
 			return self._latency
@@ -253,9 +255,11 @@ class KeyboardUtils:
 			used[key] = n + 1
 			hold_extra.append(((ups[key][n] - downs[index]) / 1000) - (scheduled_up[key][n] - when))
 
-		clamp = lambda value: min(0.04, max(0.0, value))
+		# The middle, not the mean: one slow key in a sample of forty should not move the whole run, and the
+		# delay is a few milliseconds, so a ceiling far above the figures measured on the NAS only catches errors.
+		clamp = lambda value: min(0.015, max(0.0, value))
 
-		return clamp(statistics.mean(gap_extra)), clamp(statistics.mean(hold_extra))
+		return clamp(statistics.median(gap_extra)), clamp(statistics.median(hold_extra))
 
 	def _type_as_recorded(self, sequence: list, detail: dict, rng, thinking: float | None):
 		"""Type `sequence` the way the recorded person does.

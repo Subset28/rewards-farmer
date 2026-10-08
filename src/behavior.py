@@ -80,6 +80,8 @@ TYPING_DETAIL_RANGES = {
 	"sigma_sd": (0.0, 0.4),             # how much that steadiness differs between searches
 	"tempo_sd": (0.0, 0.6),             # tempo from search to search
 	"tempo_phi": (0.0, 0.9),            # how long a tempo lasts
+	"upper_reach": (0.5, 1.5),          # how far slow keys stretch, against the overall spread
+	"lower_reach": (0.5, 1.5),          # how far quick keys do
 	"gap_phi": (0.0, 0.8),              # runs of quick or slow keys
 	"offset_alternate": (-1.0, 1.0),
 	"offset_same_hand": (-1.0, 1.0),

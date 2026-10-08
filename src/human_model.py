@@ -167,6 +167,8 @@ class TypingRhythm:
 		self.tempo = rng.gauss(0, self.tempo_sd)
 		self.wobble = 0.0
 		self.spread = self.sigma
+		self.upper = detail.get("upper_reach", 1.0)
+		self.lower = detail.get("lower_reach", 1.0)
 
 	def start_search(self) -> None:
 		"""A new search: the tempo has moved on a little, and this search has its own steadiness."""
@@ -179,7 +181,7 @@ class TypingRhythm:
 		self.wobble = _ar1(self.wobble, self.gap_phi, self.spread, self.rng)
 		kind = transition(previous, current)
 		pair = self.common if kind != "other" and common_pair(previous, current) else 0.0
-		log_gap = self.mu + self.offsets[kind] + pair + self.day + self.tempo + self.wobble
+		log_gap = self.mu + self.offsets[kind] + pair + self.day + self.tempo + self.wobble * (self.upper if self.wobble > 0 else self.lower)
 
 		return min(MAX_GAP, max(MIN_GAP, math.exp(log_gap)))
 

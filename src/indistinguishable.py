@@ -86,7 +86,7 @@ def simulated_features(texts: list[str], detail: dict, sittings: int, rng) -> li
 				now += rhythm.next_gap(previous, char)
 				timeline.append((now, char))
 
-			events = mimic_typing.KeyboardUtils.key_events(timeline, detail, rng) if "hold_mu" in detail else []
+			events = mimic_typing.KeyboardUtils.key_events(timeline, detail, rng, latency=(0.0, 0.0)) if "hold_mu" in detail else []
 			held = {}
 			holds, overlaps, pairs, open_keys = [], 0, 0, set()
 
