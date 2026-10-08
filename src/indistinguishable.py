@@ -173,6 +173,59 @@ def tell_apart(records: list, detail: dict, rng=None, sittings: int = 12) -> dic
 	return {"auc": auc(real, simulated), "real_phrases": len(real), "simulated_phrases": len(simulated)}
 
 
+def tune_slip_weights(texts: list[str], detail: dict, rounds: int = 6, draws: int = 200) -> dict:
+	"""`detail` with slip_pair_weight and slip_word_weight set so the slips the bot makes fall in everyday words and on
+	common letter pairs as often, against chance, as the person's did.
+
+	The typo inserter only slips where a person plausibly would (not a word's first letter, not a very short word),
+	which squeezes the weights further than they say, so the weights are nudged until what is produced matches."""
+	import human_model
+	import search_behavior
+
+	result = dict(detail)
+	per_char = detail.get("slip_per_char")
+	rng = random.Random(11)
+
+	for key, weight_key in (("slip_common_word_ratio", "slip_word_weight"), ("slip_common_pair_ratio", "slip_pair_weight")):
+		target = detail.get(key)
+
+		if target is None or per_char is None or not texts:
+			continue
+
+		weight = target
+
+		for _ in range(rounds):
+			result[weight_key] = weight
+			seen = chance = 0.0
+
+			for _ in range(draws):
+				for text in texts:
+					typed = search_behavior.with_typo(text, 1 - (1 - per_char) ** len(text), rng, neighbor_share=detail.get("neighbor_share", 0.5), weights=human_model.slip_weights(text, result))
+					changed = [i for i, (a, b) in enumerate(zip(text, typed)) if a != b]
+
+					if not changed:
+						continue
+
+					def hit(i: int) -> bool:
+						if key.endswith("word_ratio"):
+							return human_model.common_word(human_model.word_at(text, i))
+
+						return i > 0 and human_model.common_pair(text[i - 1], text[i])
+
+					letters = [i for i, c in enumerate(text) if c.isalpha()]
+					chance += sum(hit(i) for i in letters) / len(letters)
+					seen += hit(changed[0])
+
+			if chance <= 0 or seen <= 0:
+				break
+
+			weight = min(8.0, max(0.1, weight * (target / (seen / chance)) ** 0.9))
+
+		result[weight_key] = weight
+
+	return result
+
+
 def verdict(score: float) -> str:
 	if score < 0.62:
 		return "cannot be told apart"

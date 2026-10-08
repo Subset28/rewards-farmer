@@ -103,6 +103,8 @@ TYPING_DETAIL_RANGES = {
 	"slip_fast_slope": (-1.0, 1.5),     # slips lean towards the person's quicker keys
 	"slip_common_pair_ratio": (0.4, 3.0),
 	"slip_common_word_ratio": (0.4, 3.0),
+	"slip_pair_weight": (0.1, 8.0),     # the ratios above, adjusted for where the bot is allowed to slip
+	"slip_word_weight": (0.1, 8.0),
 }
 MOUSE_DETAIL_RANGES = {
 	"reaction_ms": (120.0, 1500.0),

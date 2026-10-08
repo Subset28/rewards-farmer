@@ -136,3 +136,20 @@ class TestTheBotBuiltFromAPersonsNumbers(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestTuningSlipWeights(unittest.TestCase):
+	TEXTS = ["the best way to learn about the weather", "how to make bread at home with flour", "what is the capital of australia today"]
+
+	def test_no_ratios_means_nothing_is_added(self):
+		detail = {"slip_per_char": 0.03}
+
+		self.assertEqual(indistinguishable.tune_slip_weights(self.TEXTS, detail), detail)
+
+	def test_the_weight_moves_so_the_slips_made_match_the_ratio_measured(self):
+		detail = {"slip_per_char": 0.05, "slip_common_word_ratio": 0.5, "slip_common_pair_ratio": 1.0}
+		tuned = indistinguishable.tune_slip_weights(self.TEXTS, detail, rounds=4, draws=60)
+
+		self.assertIn("slip_word_weight", tuned)
+		self.assertGreater(tuned["slip_word_weight"], 0.1)
+		self.assertLessEqual(tuned["slip_word_weight"], 8.0)
