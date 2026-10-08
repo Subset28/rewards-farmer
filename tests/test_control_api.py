@@ -111,3 +111,50 @@ class TestPause(unittest.TestCase):
 
 	def test_the_answers_are_json(self):
 		json.dumps(control_api.handle("POST", "/pause", {"reason": "x"})[1], default=str)
+
+
+class TestTasksAndSettings(unittest.TestCase):
+	def test_a_task_that_fails_three_runs_running_is_failing_now(self):
+		from datetime import datetime
+		rows = [
+			{"t": "2026-10-08 09:00:00", "account": "default", "task": "Visual search", "completed": False, "tag": "SKIP"},
+			{"t": "2026-10-07 09:00:00", "account": "default", "task": "Visual search", "completed": False, "tag": "SKIP"},
+			{"t": "2026-10-06 09:00:00", "account": "default", "task": "Visual search", "completed": False, "tag": "SKIP"},
+			{"t": "2026-10-08 09:00:00", "account": "default", "task": "Bing daily set", "completed": True, "tag": "OK"},
+		]
+
+		with mock.patch.object(control_api.task_log, "history", return_value=rows), mock.patch.object(control_api.clock, "now", return_value=datetime(2026, 10, 8, 12, 0, 0)):
+			view = control_api.tasks_view(14)["default"]
+
+		self.assertTrue(view["Visual search"]["failing_now"])
+		self.assertEqual(view["Visual search"]["completed"], 0)
+		self.assertFalse(view["Bing daily set"]["failing_now"])
+
+	def test_old_runs_are_left_out(self):
+		from datetime import datetime
+		rows = [{"t": "2026-01-01 09:00:00", "account": "default", "task": "Quests", "completed": True, "tag": "OK"}]
+
+		with mock.patch.object(control_api.task_log, "history", return_value=rows), mock.patch.object(control_api.clock, "now", return_value=datetime(2026, 10, 8, 12, 0, 0)):
+			self.assertEqual(control_api.tasks_view(14), {})
+
+	def test_settings_say_whether_a_secret_is_set_but_never_what_it_is(self):
+		env = {"CONTROL_TOKEN": "t" * 40, "NOTIFY_URL": "https://discord.com/api/webhooks/123/SECRETVALUE", "REWARDS_MIN_DAILY_FRACTION": "0.65", "BACKUP_GITHUB_TOKEN": "ghp_SECRET"}
+
+		with mock.patch.dict(os.environ, env), mock.patch.object(control_api, "account_names", return_value=["default"]):
+			view = control_api.settings_view()
+
+		dump = json.dumps(view, default=str)
+
+		self.assertTrue(view["present"]["CONTROL_TOKEN"])
+		self.assertTrue(view["present"]["NOTIFY_URL"])
+		self.assertEqual(view["environment"]["REWARDS_MIN_DAILY_FRACTION"], "0.65")
+		self.assertNotIn("SECRETVALUE", dump)
+		self.assertNotIn("ghp_SECRET", dump)
+		self.assertNotIn("t" * 40, dump)
+
+	def test_snapshots_are_listed_and_read_through_the_interface(self):
+		with mock.patch.object(control_api.snapshot, "names", return_value=["a.json"]), mock.patch.object(control_api.snapshot, "read", return_value={"buttons": ["x"]}):
+			self.assertEqual(control_api.handle("GET", "/snapshots"), (200, ["a.json"]))
+			self.assertEqual(control_api.handle("GET", "/snapshots/a.json")[1]["buttons"], ["x"])
+
+		self.assertEqual(control_api.handle("GET", "/snapshots/..%2f..%2fPAUSED")[0], 404)
