@@ -399,6 +399,35 @@ def key_holds(records: list[PhraseRecord]) -> dict:
 	if pairs >= 40:
 		result["rollover_rate"] = overlaps / pairs
 
+	# How a hold depends on how soon the next key goes down.
+	points = []
+
+	for record in records:
+		ordered = sorted(record.holds, key=lambda h: h[1])
+
+		for first, second in zip(ordered, ordered[1:]):
+			gap, hold = second[1] - first[1], (first[2] - first[1]) * 1000
+
+			if 0.01 < gap < TYPING_GAP_MAX and 5 < hold < 500:
+				points.append((math.log(gap), math.log(hold)))
+
+	if len(points) >= 60:
+		# The person's own (gap, hold) pairs, in ms, thinned evenly to a few hundred: what the bot draws from.
+		stride = max(1, len(points) // 400)
+		result["hold_pairs"] = [[round(math.exp(x) * 1000, 1), round(math.exp(y), 1)] for x, y in points[::stride]][:400]
+		xs, ys = [p[0] for p in points], [p[1] for p in points]
+		reference, centre = _mean(xs), _mean(ys)
+		spread_x = sum((x - reference) ** 2 for x in xs)
+
+		if spread_x > 0:
+			beta = sum((x - reference) * (y - centre) for x, y in points) / spread_x
+			beta = min(1.5, max(-0.5, beta))
+			residual = [y - (centre + beta * (x - reference)) for x, y in points]
+			result.update({
+				"hold_alpha": centre, "hold_beta": beta, "hold_gap_ref": reference,
+				"hold_resid": min(1.0, max(0.02, statistics.pstdev(residual))),
+			})
+
 	return result
 
 

@@ -34,6 +34,7 @@ from datetime import datetime
 
 import behavior
 import calibration
+import indistinguishable
 
 TYPING_PHRASES = 22
 MOUSE_TRIALS = 30
@@ -275,6 +276,14 @@ class App:
 			mouse = calibration.analyze_mouse(mouse_sittings)
 			arguments = calibration.build(typing, mouse)
 			lines = calibration.describe(typing, mouse, calibration.rhythm_check(typing_sittings, typing["detail"], random.Random(1)))
+			told = indistinguishable.tell_apart([r for sitting in typing_sittings for r in sitting], typing["detail"], random.Random(1))
+
+			if told:
+				lines.append(
+					f"Test: a program trying to tell you from the bot built from your numbers scores {told['auc']:.2f} "
+					f"(0.5 = guessing, 1.0 = always right): {indistinguishable.verdict(told['auc'])}"
+				)
+
 			lines.append(f"Sittings so far: {len(typing_sittings)}" + ("" if len(typing_sittings) > 1 else " (record again on another day for a better profile)"))
 			path = None
 
