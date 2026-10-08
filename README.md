@@ -368,7 +368,7 @@ An account that earns its full quota at the same rate, every day, from its first
 | Variable | Default | Meaning |
 |---|---|---|
 | `REWARDS_REST_DAY_CHANCE` | `0.10` | Chance a day is a light day. `0` turns light days off. |
-| `REWARDS_MIN_DAILY_FRACTION` | `0.8` | Least share of the search quota filled on a working day. `1` means always all of it. |
+| `REWARDS_MIN_DAILY_FRACTION` | `0.8` (the compose file sets `1.0`) | Least share of the search quota filled on a working day. `1` means always all of it. |
 | `REWARDS_RAMP_DAYS` | `7` | Days of an account's ramp. `0` turns it off. |
 | `REWARDS_KEEP_ORDER` | `0` | `1` keeps the accounts in the order listed. |
 | `REWARDS_APP_HEADERS` | unset | `1` sends the old Windows/`MSRewards` header override. Off by default: it made the request header disagree with the browser's own identity. Set it only if a rewards-only quest stops earning. |

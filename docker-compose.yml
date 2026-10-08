@@ -182,7 +182,7 @@ services:
       TZ: ${TZ:-America/New_York}
       # The least share of the day's search quota a normal day fills (pacing.py): a day lands somewhere from this to the
       # whole quota. Lower than the default 0.8 on purpose: a few points a day are worth less than not sitting at the cap.
-      REWARDS_MIN_DAILY_FRACTION: ${REWARDS_MIN_DAILY_FRACTION:-0.65}
+      REWARDS_MIN_DAILY_FRACTION: ${REWARDS_MIN_DAILY_FRACTION:-1.0}
       # Without it the control interface does not start. At least 24 characters, in .env, never here.
       CONTROL_TOKEN: ${CONTROL_TOKEN:-}
       # How many search runs a day, and the waking-hours window (in TZ) they are placed within.
