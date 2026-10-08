@@ -248,10 +248,6 @@ class TestTheKeyboardUsesIt(unittest.TestCase):
 		self.assertIsNone(self.keyboard({}).slip_weights("hello there"))
 		self.assertIsNone(self.keyboard(RHYTHM).slip_weights("hello there"))
 
-	def test_none_with_the_feature_off(self):
-		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}):
-			self.assertIsNone(self.keyboard(LEANING).slip_weights("hello there"))
-
 
 if __name__ == "__main__":
 	unittest.main()

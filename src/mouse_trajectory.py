@@ -13,7 +13,6 @@ import numpy as np
 from typing import Callable
 from browser import HEADLESS
 import clock
-import features
 import human_model
 import pointer_path
 
@@ -517,8 +516,8 @@ class MouseUtils:
 		self.move_mouse(getattr(path_fn, "total", move_time), path_fn, visualize)
 
 	def personal(self) -> dict:
-		"""The recorded measurements, once the mouse feature is on for this account; else nothing."""
-		return self.recorded if self.recorded and features.enabled("mouse", self.account) else {}
+		"""The account's recorded measurements; nothing for a profile that was not recorded."""
+		return self.recorded or {}
 
 	def choose_target(self, from_position, rect: dict) -> Point:
 		"""Where in the element to aim: clustered around its middle, the way this person's clicks land, once recorded."""

@@ -75,7 +75,18 @@ def run() -> dict:
 				handle.write(PAGE)
 
 			driver.get(("file:///" if os.name == "nt" else "file://") + page.replace(os.sep, "/"))
-			mouse = mouse_trajectory.MouseUtils(driver, behavior.Behavior("probe-mouse", "recorded", 0.4, 0.4, 0.4, 0.15))
+			profile_path = os.environ.get("PROBE_PROFILE")
+			personal = None
+
+			if profile_path:
+				# A real person's recorded mouse (PROBE_PROFILE names the json): the bot's own pointer path for it.
+				with open(profile_path, encoding="utf-8") as handle:
+					recorded = json.load(handle)["mouse"]
+
+				personal = behavior.clean_detail(recorded.get("detail"), behavior.MOUSE_DETAIL_RANGES)
+				os.environ["REWARDS_FEATURES"] = "mouse"
+
+			mouse = mouse_trajectory.MouseUtils(driver, behavior.Behavior("probe-mouse", "recorded", 0.4, 0.4, 0.4, 0.15, mouse_detail=personal or {}))
 			results = []
 
 			for start, end in MOVES:
@@ -83,7 +94,7 @@ def run() -> dict:
 				mouse.fallback_init_pos = start
 				distance = math.dist(start, end)
 				move_time = mouse_trajectory.get_movement_time_from_fitts_law(distance, 80, 0.4, 0.15)
-				path = mouse_trajectory.get_final_path_from_real_time(move_time, start, end)
+				path = mouse.path_for(start, end, move_time) if personal else mouse_trajectory.get_final_path_from_real_time(move_time, start, end)
 				mouse.move_mouse(move_time, path, False)
 				results.append({"from": start, "to": end, "distance": round(distance), "intended_ms": round(move_time * 1000), **shape(driver.execute_script("return window.__log"))})
 

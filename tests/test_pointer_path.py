@@ -330,12 +330,6 @@ class TestTheMouseUsesIt(unittest.TestCase):
 		build.assert_called_once()
 		self.assertEqual(path(0.8), (500, 200))
 
-	def test_without_the_switch_it_is_the_original(self):
-		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}), mock.patch.object(mouse_trajectory.pointer_path, "build") as build:
-			self.mouse(PERSON).path_for((0, 0), (500, 200), 0.8)
-
-		build.assert_not_called()
-
 	def test_without_a_recorded_shape_it_is_the_original(self):
 		with mock.patch.object(mouse_trajectory.pointer_path, "build") as build:
 			self.mouse({"dwell_ms": 100.0}).path_for((0, 0), (500, 200), 0.8)

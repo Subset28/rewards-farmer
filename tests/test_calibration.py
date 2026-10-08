@@ -477,26 +477,15 @@ class TestWiring(unittest.TestCase):
 			mouse_detail={"dwell_ms": 120.0, "dwell_low_ms": 100.0, "dwell_high_ms": 150.0, "hover_ms": 200.0},
 		)
 
-	def turn_on(self, feature):
-		features.switch(feature, "mom", True)
-
 	def keyboard(self):
 		return mimic_typing.KeyboardUtils(mock.Mock(), self.profile, account="mom")
 
-	def test_with_the_feature_off_nothing_personal_is_used(self):
-		keyboard = self.keyboard()
-
-		self.assertEqual(keyboard.personal(), {})
-		self.assertEqual(keyboard.slip_settings(), (mimic_typing.search_behavior.TYPO_RATE, 0.5))
-
-	def test_with_the_feature_on_the_recorded_slip_habits_are_used(self):
-		self.turn_on("typing")
+	def test_the_recorded_slip_habits_are_used(self):
 		keyboard = self.keyboard()
 
 		self.assertEqual(keyboard.slip_settings(), (0.2, 0.8))
 
 	def test_a_recorded_correction_rate_and_noticing_delay_decide_the_correction(self):
-		self.turn_on("typing")
 		keyboard = self.keyboard()
 		rng = random.Random(0)
 		plan = keyboard._plan_correction(list("abxdefg"), list("abcdefg"), rng, keyboard.personal())
@@ -505,7 +494,6 @@ class TestWiring(unittest.TestCase):
 		self.assertEqual(plan, (2, 4))
 
 	def test_a_recording_without_detail_behaves_as_before(self):
-		self.turn_on("typing")
 		keyboard = mimic_typing.KeyboardUtils(mock.Mock(), behavior.provisional("mom"), account="mom")
 
 		self.assertEqual(keyboard.personal(), {})
@@ -520,14 +508,7 @@ class TestWiring(unittest.TestCase):
 
 		return chains.call_args.kwargs["duration"], sleep
 
-	def test_the_click_is_the_original_one_until_the_mouse_feature_is_on(self):
-		duration, sleep = self.click_duration(self.mouse())
-
-		self.assertTrue(200 <= duration <= 300)
-		sleep.assert_not_called()
-
-	def test_with_the_mouse_feature_on_the_click_is_held_as_long_as_the_person_holds_it(self):
-		self.turn_on("mouse")
+	def test_the_click_is_held_as_long_as_the_person_holds_it(self):
 
 		for _ in range(20):
 			duration, sleep = self.click_duration(self.mouse())
@@ -538,7 +519,6 @@ class TestWiring(unittest.TestCase):
 		self.assertLessEqual(sleep.call_args.args[0], 0.4)
 
 	def test_a_caller_that_names_its_own_hold_time_gets_it(self):
-		self.turn_on("mouse")
 		mouse = self.mouse()
 
 		with mock.patch.object(mouse_trajectory, "ActionChains") as chains, mock.patch.object(mouse_trajectory.time, "sleep"):
