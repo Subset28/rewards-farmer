@@ -276,6 +276,120 @@ class TestTheDriversOwnDelayIsTakenOff(Case):
 		self.assertAlmostEqual(total("0,0") - total("7.4,5.2"), 0.0074 * 25, delta=0.03)
 
 
+class SamplingDriver:
+	"""A browser that carries out what it is asked, a little late: each gap runs GAP long and each hold HOLD long."""
+
+	def __init__(self, gap_extra=0.006, hold_extra=0.011, fail=False):
+		self.gap_extra, self.hold_extra, self.fail = gap_extra, hold_extra, fail
+		self.current_window_handle = "main"
+		self.closed = 0
+		self.restored = []
+		self.opened = []
+		self.switch_to = types.SimpleNamespace(
+			new_window=lambda kind: self.opened.append(kind),
+			window=lambda handle: self.restored.append(handle),
+		)
+
+	def get(self, url):
+		self.url = url
+
+	def find_element(self, *args):
+		return types.SimpleNamespace(click=lambda: None)
+
+	def close(self):
+		self.closed += 1
+
+	def execute_script(self, script):
+		if self.fail:
+			return []
+
+		timeline = FakeChains.last.timeline()
+		downs = [(w, k) for w, kind, k in timeline if kind == "down"]
+		ups = [(w, k) for w, kind, k in timeline if kind == "up"]
+		log = []
+
+		for index, (when, key) in enumerate(downs):
+			down_at = (when + index * self.gap_extra) * 1000
+			held = next(w for w, k in ups if k == key and w >= when) - when
+			log.append(["keydown", key, down_at])
+			log.append(["keyup", key, down_at + (held + self.hold_extra) * 1000])
+			ups.remove(next((w, k) for w, k in ups if k == key and w >= when))
+
+		return log
+
+
+import types
+
+
+class TestMeasuringTheDriversDelay(Case):
+	def keyboard_on(self, driver):
+		profile = behavior.Behavior("mom", "recorded", 0.4, 0.4, 0.2, 0.13, typing_detail={**DETAIL, "hold_alpha": math.log(85), "hold_beta": 0.0, "hold_gap_ref": math.log(0.15), "hold_resid": 0.2})
+
+		return mimic_typing.KeyboardUtils(driver, profile, account="mom")
+
+	def test_the_delay_the_page_saw_is_what_gets_measured(self):
+		driver = SamplingDriver(gap_extra=0.006, hold_extra=0.011)
+		keyboard = self.keyboard_on(driver)
+		gap, hold = keyboard.measured_latency(keyboard.recorded, random.Random(1))
+
+		self.assertAlmostEqual(gap, 0.006, delta=0.0015)
+		self.assertAlmostEqual(hold, 0.011, delta=0.0015)
+
+	def test_it_is_measured_in_a_scratch_tab_and_the_original_is_restored(self):
+		driver = SamplingDriver()
+		keyboard = self.keyboard_on(driver)
+		keyboard.measured_latency(keyboard.recorded, random.Random(1))
+
+		self.assertEqual(driver.opened, ["tab"])
+		self.assertEqual(driver.closed, 1)
+		self.assertEqual(driver.restored, ["main"])
+
+	def test_it_is_measured_once_per_run(self):
+		driver = SamplingDriver()
+		keyboard = self.keyboard_on(driver)
+		first = keyboard.measured_latency(keyboard.recorded, random.Random(1))
+		second = keyboard.measured_latency(keyboard.recorded, random.Random(2))
+
+		self.assertEqual(first, second)
+		self.assertEqual(driver.opened, ["tab"])
+
+	def test_if_the_page_shows_nothing_the_measured_figures_from_the_nas_are_used(self):
+		driver = SamplingDriver(fail=True)
+		keyboard = self.keyboard_on(driver)
+
+		self.assertEqual(keyboard.measured_latency(keyboard.recorded, random.Random(1)), mimic_typing._driver_latency())
+		self.assertEqual(driver.restored, ["main"])
+
+	def test_the_override_skips_the_measurement(self):
+		driver = SamplingDriver()
+		keyboard = self.keyboard_on(driver)
+
+		with mock.patch.dict(os.environ, {"REWARDS_DRIVER_LATENCY_MS": "3,4"}):
+			self.assertEqual(keyboard.measured_latency(keyboard.recorded, random.Random(1)), (0.003, 0.004))
+
+		self.assertEqual(driver.opened, [])
+
+	def test_a_huge_measurement_is_capped(self):
+		driver = SamplingDriver(gap_extra=0.5, hold_extra=0.5)
+		keyboard = self.keyboard_on(driver)
+
+		self.assertEqual(keyboard.measured_latency(keyboard.recorded, random.Random(1)), (0.04, 0.04))
+
+	def test_typing_uses_the_measured_delay(self):
+		keyboard = self.keyboard_on(SamplingDriver(gap_extra=0.0, hold_extra=0.0))
+		keyboard._latency = (0.020, 0.030)
+		timeline = self.type_text(keyboard, "hello")
+		holds = [u - d for (d, k1, key1), (u, k2, key2) in zip([t for t in timeline if t[1] == "down"], [t for t in timeline if t[1] == "up"]) if key1 == key2]
+
+		with mock.patch.object(mimic_typing.KeyboardUtils, "measured_latency", return_value=(0.0, 0.0)):
+			keyboard2 = self.keyboard_on(SamplingDriver())
+			timeline2 = self.type_text(keyboard2, "hello")
+			holds2 = [u - d for (d, k1, key1), (u, k2, key2) in zip([t for t in timeline2 if t[1] == "down"], [t for t in timeline2 if t[1] == "up"]) if key1 == key2]
+
+		self.assertTrue(holds and holds2)
+		self.assertLess(statistics.mean(holds), statistics.mean(holds2))
+
+
 class TestNothingChangesForEveryoneElse(Case):
 	def test_without_a_recording_the_original_typing_runs(self):
 		keyboard = self.keyboard({})

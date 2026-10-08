@@ -2,6 +2,8 @@
 
 import os
 import random
+import statistics
+import urllib.parse
 from typing import Iterable
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
@@ -41,6 +43,12 @@ def _driver_latency() -> tuple[float, float]:
 	return max(0.0, gap), max(0.0, hold)
 
 
+LATENCY_PAGE = (
+	"<!doctype html><title>t</title><input id=b autofocus><script>window.__log=[];"
+	"for(const t of ['keydown','keyup'])document.getElementById('b').addEventListener(t,e=>window.__log.push([t,e.key,performance.now()]));"
+	"</script>"
+)
+
 # Keys overlap only when the next one follows quickly, and no key is held longer than this.
 ROLLOVER_ONLY_BELOW = 0.30
 MAX_HOLD = 0.34
@@ -64,6 +72,7 @@ class KeyboardUtils:
 		self.recorded = dict(getattr(behavior, "typing_detail", None) or {})
 		self._rhythm = None
 		self._rhythm_detail = None
+		self._latency = None
 
 	def personal(self) -> dict:
 		"""The recorded measurements, once the typing feature is on for this account; else nothing."""
@@ -164,6 +173,90 @@ class KeyboardUtils:
 
 		return self._rhythm
 
+	def measured_latency(self, detail: dict, rng) -> tuple[float, float]:
+		"""(seconds the driver adds to a gap, seconds it adds to a hold) with THIS person's own timing, measured once per run.
+
+		The driver's delay is not a constant: with keys overlapping and presses close together it differs from a
+		slow fixed pattern. So a short sample of the person's own typing is sent to a scratch tab and compared with
+		what the page saw. REWARDS_DRIVER_LATENCY_MS="gap,hold" skips the measurement; if it cannot be made the
+		figures measured on the NAS are used."""
+		if self._latency is not None:
+			return self._latency
+
+		if os.environ.get("REWARDS_DRIVER_LATENCY_MS"):
+			self._latency = _driver_latency()
+
+			return self._latency
+
+		try:
+			self._latency = self._measure_latency(detail, rng)
+		except Exception:
+			self._latency = _driver_latency()
+
+		return self._latency
+
+	def _measure_latency(self, detail: dict, rng) -> tuple[float, float]:
+		main = self.driver.current_window_handle
+		sample = "the quick brown fox jumps over a lazy dog"
+		self.driver.switch_to.new_window("tab")
+
+		try:
+			self.driver.get("data:text/html;charset=utf-8," + urllib.parse.quote(LATENCY_PAGE))
+			self.driver.find_element("id", "b").click()
+			rhythm = human_model.TypingRhythm(detail, rng, 0.0)
+			rhythm.start_search()
+			now, timeline = 0.4, [(0.4, sample[0])]
+
+			for previous, char in zip(sample, sample[1:]):
+				now += rhythm.next_gap(previous, char)
+				timeline.append((now, char))
+
+			events = self.key_events(timeline, detail, rng, latency=(0.0, 0.0))
+			actions = ActionChains(self.driver, duration=0)
+			elapsed = 0.0
+
+			for when, down, key in events:
+				actions.pause(max(0.0, when - elapsed))
+				actions.key_down(key) if down else actions.key_up(key)
+				elapsed = when
+
+			actions.perform()
+			log = self.driver.execute_script("return window.__log")
+		finally:
+			try:
+				self.driver.close()
+			finally:
+				self.driver.switch_to.window(main)
+
+		downs = [e[2] for e in log if e[0] == "keydown"]
+		ups: dict[str, list[float]] = {}
+
+		for kind, key, moment in log:
+			if kind == "keyup":
+				ups.setdefault(key, []).append(moment)
+
+		if len(downs) < len(timeline):
+			raise ValueError("the page did not see every key")
+
+		scheduled_up = {}
+
+		for when, down, key in events:
+			if not down:
+				scheduled_up.setdefault(key, []).append(when)
+
+		gap_extra = [((b - a) / 1000) - (tb[0] - ta[0]) for a, b, ta, tb in zip(downs, downs[1:], timeline, timeline[1:])]
+		used: dict[str, int] = {}
+		hold_extra = []
+
+		for index, (when, key) in enumerate(timeline):
+			n = used.get(key, 0)
+			used[key] = n + 1
+			hold_extra.append(((ups[key][n] - downs[index]) / 1000) - (scheduled_up[key][n] - when))
+
+		clamp = lambda value: min(0.04, max(0.0, value))
+
+		return clamp(statistics.mean(gap_extra)), clamp(statistics.mean(hold_extra))
+
 	def _type_as_recorded(self, sequence: list, detail: dict, rng, thinking: float | None):
 		"""Type `sequence` the way the recorded person does.
 
@@ -175,6 +268,7 @@ class KeyboardUtils:
 		"""
 		rhythm = self.rhythm(detail, rng)
 		rhythm.start_search()
+		latency = self.measured_latency(detail, rng) if "hold_mu" in detail else _driver_latency()
 
 		if "start_mu" in detail:
 			thinking = human_model.lognormal_ms(detail["start_mu"], detail.get("start_sigma", 0.4), rng, 200, 6000) / 1000
@@ -201,7 +295,7 @@ class KeyboardUtils:
 			elif key == Keys.ENTER and "enter_gap_ms" in detail:
 				gap = detail["enter_gap_ms"] / 1000 * rng.uniform(0.8, 1.25)
 			else:
-				gap = max(0.02, rhythm.next_gap(previous, char) - _driver_latency()[0])
+				gap = max(0.02, rhythm.next_gap(previous, char) - latency[0])
 
 			if timeline and char and rng.random() < hesitation_rate:
 				gap += detail["hesitation_ms"] / 1000 * rng.uniform(0.7, 1.4) if "hesitation_ms" in detail else 0.5
@@ -225,7 +319,7 @@ class KeyboardUtils:
 
 			return
 
-		events = self.key_events(timeline, detail, rng)
+		events = self.key_events(timeline, detail, rng, latency=latency)
 		elapsed = 0.0
 
 		for when, down, key in events:
@@ -236,7 +330,7 @@ class KeyboardUtils:
 		actions.perform()
 
 	@staticmethod
-	def key_events(timeline: list, detail: dict, rng) -> list[tuple[float, bool, object]]:
+	def key_events(timeline: list, detail: dict, rng, latency: tuple[float, float] | None = None) -> list[tuple[float, bool, object]]:
 		"""(time, down?, key) for every press and release, in order, from when each key goes down.
 
 		How long a key is held is drawn from the person's own holds; whether the next key goes down before
@@ -271,7 +365,7 @@ class KeyboardUtils:
 					hold = min(hold, gap * rng.uniform(0.5, 0.9))
 
 			# What the driver adds to a hold is taken off, so the page sees the hold that was drawn.
-			hold = max(0.015, hold - _driver_latency()[1])
+			hold = max(0.015, hold - (latency if latency is not None else _driver_latency())[1])
 			events.append((when, True, key))
 			events.append((when + hold, False, key))
 

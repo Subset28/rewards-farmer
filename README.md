@@ -375,6 +375,23 @@ An account that earns its full quota at the same rate, every day, from its first
 
 None of this makes automation allowed or undetectable; it only avoids the most regular pattern.
 
+## Behaving like a particular person
+
+Four switches (per account, `python src/features.py on <switch> <account>`), each off until switched on, change what a website can see:
+
+| Switch | What it changes |
+|---|---|
+| `typing` | corrected typos; with a recorded profile, that person's own rhythm, key holds and overlaps, slips and pauses (`mimic_typing.py`, `human_model.py`) |
+| `mouse` | with a recorded profile, that person's own click hold, hover, scatter of move times, and the shape of their pointer paths (`pointer_path.py`) |
+| `chains` | searching in tangents: the next search comes from the results page's related searches, with reading between and the odd result opened (`chains.py`, `reading.py`) |
+| `query_sessions`, `habits` | topical query groups; each owner's own favoured times |
+
+**Recording a person** takes about eight minutes in one window: `python src/calibrate.py <account>`. Do it again on another day (each sitting is added to `data-dir/behavior/<account>.raw.json`) and the day-to-day spread is measured instead of assumed. `python src/calibrate.py <account> --reanalyze` rebuilds the profile from the recordings with the analysis as it is now.
+
+**The results page ends with scores** from `indistinguishable.py`: a classifier is trained to tell the person's real typing (and mouse paths) from the bot built out of their numbers, on features a page script can see. 0.5 means it is guessing, 1.0 means the bot is obvious. It is checked on phrases it was not fitted on, and each recorded mouse move is left out of its own comparison. It says how well the numbers it can see match; it cannot speak for signals it cannot see (the connection, the browser, what an account does over weeks).
+
+Real-browser checks (throwaway profile, never an account): `typing_events_probe.py`, `mouse_events_probe.py`, `serp_probe.py`, and `chain_probe.py` (memory). A long run keeps itself inside the container's memory with `memory_guard.py`.
+
 ## Alerts that say who has to act
 
 `src/health.py` runs at the start of each scheduler cycle and, when something is wrong, sends one message to that account's Discord channel, at most once a day while it lasts:
