@@ -665,3 +665,31 @@ class TestTheApp(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestOwnSearchScreens(unittest.TestCase):
+	def record(self, target, typed):
+		rec = calibration.PhraseRecord(target, 0.0, True)
+		rec.events = [(0.1 * i, "char", ch) for i, ch in enumerate(typed)]
+		rec.final = typed
+
+		return rec
+
+	def test_every_question_asks_and_does_not_instruct(self):
+		for prompt in calibration.COMPOSE_PROMPTS:
+			self.assertTrue(prompt.endswith("?"), prompt)
+			self.assertFalse(prompt.lower().startswith(("type", "think of")), prompt)
+
+	def test_typing_the_question_out_is_not_a_search_of_ones_own(self):
+		question = calibration.COMPOSE_PROMPTS[0]
+		rec = self.record(question, question)
+
+		self.assertTrue(calibration.copied_the_prompt(rec))
+
+	def test_the_older_instructions_still_count_as_copied(self):
+		for text in ("Think of a search you would really make about food", "Type a search you might make about a trip"):
+			self.assertTrue(calibration.copied_the_prompt(self.record("x", text)), text)
+
+	def test_a_real_search_is_kept_whatever_its_length(self):
+		for text in ("pizza", "weather tomorrow", "logitech superlight price"):
+			self.assertFalse(calibration.copied_the_prompt(self.record(calibration.COMPOSE_PROMPTS[0], text)), text)
