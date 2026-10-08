@@ -46,6 +46,7 @@ INK = "#111111"
 MUTED = "#555555"
 GOOD = "#1b7f3a"
 BAD = "#d32f2f"
+ACCENT = "#1565c0"
 
 
 class App:
@@ -141,11 +142,12 @@ class App:
 		self._label("Calibration", 30, pad=(120, 20))
 		self._label(f"This records how you type and move the mouse, for the account \"{self.account}\".", 18)
 		self._label(
-			"Part 1: type some short phrases the way you would into a search box, and think up a few searches of your own\n"
-			"(an actual search you might make, not the instruction on the screen).\n"
-			"Part 2: click a dot and then a blue rectangle, 30 times.\n\n"
-			"It takes about eight minutes. Type and click naturally; there is no right speed. Esc quits.\n"
-			"Doing it again on another day makes the profile better: people differ from one day to the next.",
+			"Part 1 is typing. There are two kinds of screen:\n"
+			"  - \"Copy this\": type exactly the words shown.\n"
+			"  - \"Your own search\" (a question in blue): do NOT copy it. Answer it by typing a search you might really make.\n"
+			"Part 2 is the mouse: click a dot, then a blue rectangle, 30 times.\n\n"
+			"It takes about eight minutes. Type and click the way you normally do; there is no right speed. Esc quits.\n"
+			"If you do it again on another day, the result gets better, because people differ a little from day to day.",
 			16, MUTED, (30, 40),
 		)
 		self._label("Press Enter to begin", 20, GOOD)
@@ -181,13 +183,18 @@ class App:
 		if self.root is None or session is None or session.finished:
 			return
 
-		header = f"Phrase {session.real_done + 1} of {session.real_total}" if session.counted else "Practice (not counted)"
-		self.widgets["header"].configure(text=header)
-		self.widgets["target"].configure(text=session.prompt)
+		count = f"{session.real_done + 1} of {session.real_total}" if session.counted else "practice, not counted"
+		own = session.compose
+		self.widgets["header"].configure(text=(f"Your own search ({count})" if own else f"Copy this ({count})"), foreground=(ACCENT if own else INK))
+		self.widgets["target"].configure(
+			text=session.prompt,
+			font=(("Segoe UI", 28) if own else ("Consolas", 32)),
+			foreground=(ACCENT if own else INK),
+		)
 		self.widgets["hint"].configure(text=(
-			"Make up a search about this and type it the way you would into Bing. Press Enter when you are done."
-			if session.compose else
-			"Type it the way you normally would into a search box. Fix mistakes however you like, or leave them.\nPress Enter when you are done."
+			"Do not copy the question. Type a search of your own, the way you would into Bing.\nIt can be short. Press Enter when you are done."
+			if own else
+			"Type exactly these words, the way you normally would into a search box. Fix mistakes however you like, or leave them.\nPress Enter when you are done."
 		))
 		box = self.widgets["box"]
 		right = session.matches

@@ -59,12 +59,14 @@ PRACTICE = "type this to warm up"
 
 # Searches typed from the person's own head rather than copied: how long they think before the first
 # key and how they pause while making one up is not something copying shows.
+# Questions, not instructions, and shown differently from the phrases to copy (calibrate.py), because an instruction in the
+# same big type as a phrase gets copied word for word.
 COMPOSE_PROMPTS = (
-	"Think of a search you would really make about food or cooking, and type that",
-	"Think of a search you would really make about a trip or a place, and type that",
-	"Think of a search you would really make about sports or a game, and type that",
-	"Think of a search you would really make about something you want to buy, and type that",
-	"Think of a search you would really make about the news or the weather, and type that",
+	"What is something you might search for about food or cooking?",
+	"What is something you might search for about a trip or a place?",
+	"What is something you might search for about sports or a game?",
+	"What is something you might want to buy, and would search for?",
+	"What is something you might look up about the news or the weather?",
 )
 
 # Keys that are not typing: modifiers, navigation and the like.
@@ -561,6 +563,16 @@ def _session_levels(sessions: list[list[dict]], adjust) -> list[float]:
 	return levels
 
 
+def copied_the_prompt(record) -> bool:
+	"""Whether an own-search item holds the on-screen question (or the older instruction) typed out, not a search of the person's own."""
+	typed = " ".join(str(record.final or "").lower().split())
+
+	if any(typed.startswith(old) for old in ("type a search", "think of a search")):
+		return True
+
+	return len(typed) >= 12 and " ".join(str(record.target or "").lower().split()).startswith(typed[:20])
+
+
 def analyze_typing(sessions: list) -> dict:
 	"""Rhythm, slips, pauses and how much each of those varies. Raises ProfileError if there is not enough.
 
@@ -573,7 +585,7 @@ def analyze_typing(sessions: list) -> dict:
 	everything = [r for session in sessions for r in session]
 	copied = [r for r in everything if not r.compose]
 	# A made-up search that is the instruction typed out, not a search, says nothing about composing.
-	made_up = [r for r in everything if r.compose and not r.final.lower().startswith("type a search") and not r.final.lower().startswith("think of a search")]
+	made_up = [r for r in everything if r.compose and not copied_the_prompt(r)]
 	phrases = [analyze_phrase(r) for r in copied]
 	pairs = [p for phrase in phrases for p in phrase["gaps"]]
 	rhythm = [g for g, _, _ in pairs if 0 <= g < TYPING_GAP_MAX]
