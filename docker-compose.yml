@@ -175,6 +175,9 @@ services:
       REWARDS_ANCHOR_HOUR: ${REWARDS_ANCHOR_HOUR:-9}
       REWARDS_JITTER_SECONDS: ${REWARDS_JITTER_SECONDS:-10800}
       TZ: ${TZ:-America/New_York}
+      # The least share of the day's search quota a normal day fills (pacing.py): a day lands somewhere from this to the
+      # whole quota. Lower than the default 0.8 on purpose: a few points a day are worth less than not sitting at the cap.
+      REWARDS_MIN_DAILY_FRACTION: ${REWARDS_MIN_DAILY_FRACTION:-0.65}
       # How many search runs a day, and the waking-hours window (in TZ) they are placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
       REWARDS_SEARCH_START_HOUR: ${REWARDS_SEARCH_START_HOUR:-8}
