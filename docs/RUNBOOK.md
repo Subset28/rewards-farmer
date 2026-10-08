@@ -6,7 +6,7 @@ How to look at the bot, move it forward, and pull it back. Everything here is a 
 
 ```sh
 cd /volume1/docker/rewards-farmer
-docker exec rewards-farmer-scheduler-1 python src/status.py
+docker exec rewards-farmer-home-1 python src/status.py
 ```
 
 For each account: what today holds (working day, light day, new-account ramp), which features are switched on, points and distance to the next level, what last month's bonuses paid, and how today's search quota stands. Then the brake (`running normally` or `PAUSED`) and today's runs.
@@ -16,9 +16,9 @@ Healthy looks like: brake normal, every run `ok` or `skipped (quota already comp
 More detail:
 
 ```sh
-docker exec rewards-farmer-scheduler-1 python src/journal.py 3     # the last 3 days of runs
-docker exec rewards-farmer-scheduler-1 python src/points_log.py    # points per account
-docker exec rewards-farmer-scheduler-1 python src/safety.py status # the brake
+docker exec rewards-farmer-home-1 python src/journal.py 3     # the last 3 days of runs
+docker exec rewards-farmer-home-1 python src/points_log.py    # points per account
+docker exec rewards-farmer-home-1 python src/safety.py status # the brake
 tail -50 data-dir/logs/search-scheduler.log                        # readable logs, one per service
 ```
 
@@ -41,7 +41,7 @@ A sign-in page, a human check or a restriction notice pauses the account and sen
 
 1. Open the sign-in page on your LAN: `REWARDS_ACCOUNTS=second docker compose run --rm --service-ports signin`, then `http://<the NAS address>:6080` (the address is `SIGNIN_BIND` in `.env`).
 2. Finish the verification yourself in that browser, close it, and let the container exit.
-3. `docker exec rewards-farmer-scheduler-1 python src/safety.py clear second` (or `clear` with no name for a pause that covers every account).
+3. `docker exec rewards-farmer-home-1 python src/safety.py clear second` (or `clear` with no name for a pause that covers every account).
 
 ## Deploying a change
 
@@ -55,8 +55,8 @@ The manual steps it replaces, for reference:
 
 ```sh
 git archive HEAD . | ssh synology 'cd /volume1/docker/rewards-farmer && tar -xf - && sed -i "s/\r$//" src/*.py && docker compose build rewards-farmer'
-ssh synology 'for c in $(docker ps --format "{{.Names}}" | grep "rewards-farmer-.*scheduler"); do docker exec $c sh -c "ps -eo args | grep -c \"[m]sedge .*--user-data-dir\""; done'   # all 0 means idle
-ssh synology 'cd /volume1/docker/rewards-farmer && docker compose --profile second up -d --force-recreate scheduler search-scheduler scheduler-second search-scheduler-second'
+ssh synology 'for c in $(docker ps --format "{{.Names}}" | grep "rewards-farmer-"); do docker exec $c sh -c "ps -eo args | grep -c \"[m]sedge .*--user-data-dir\""; done'   # all 0 means idle
+ssh synology 'cd /volume1/docker/rewards-farmer && docker compose up -d --force-recreate home'
 ```
 
 Deploy once a batch is finished and tested, not per fix. Secrets (webhooks, keys) live in the NAS `.env` and in `data-dir`, never in git.
@@ -70,11 +70,11 @@ Each account gets its own tunnel and kill switch in one container. Files per acc
 docker run --rm -i --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun --sysctl net.ipv4.ip_forward=1 \
   -v "$PWD/data-dir:/app/data-dir:ro" -v "$PWD/src:/app/src:ro" --entrypoint bash rewards-farmer:runtime -s < tests/integration/vpn_real_provider.sh
 # 2. only the second account on the VPN: in .env set VPN_ACCOUNTS=second, then
-docker compose stop scheduler-second search-scheduler-second
+docker compose stop home
 docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 ```
 
-Go back: `docker compose -f docker-compose.yml -f docker-compose.vpn.yml stop vpn`, then `docker compose --profile second up -d scheduler-second search-scheduler-second`.
+Go back: `docker compose -f docker-compose.yml -f docker-compose.vpn.yml stop vpn`, then `docker compose up -d home`.
 
 While it runs, a tunnel that drops is restarted by itself and that account is held until it is back; nothing leaves on the real connection. You get a Discord alert for each of down, restored, not up, and will not come back.
 
@@ -84,7 +84,7 @@ While it runs, a tunnel that drops is restarted by itself and that account is he
 
 ## Memory and idle cost
 
-Idle: each scheduler container is about 20-35 MB and ~0% CPU, with no display running. During a run Edge is the whole cost, at low priority. See what a container really uses with `docker stats --no-stream` (the cgroup figure includes reclaimable page cache, so "near the limit" is not itself a problem).
+Idle: the `home` container is about 40-70 MB (four small loops) and ~0% CPU, with no display running. During a run Edge is the whole cost, at low priority. See what a container really uses with `docker stats --no-stream` (the cgroup figure includes reclaimable page cache, so "near the limit" is not itself a problem).
 
 ## What lives where
 

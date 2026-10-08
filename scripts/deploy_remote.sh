@@ -38,13 +38,25 @@ fi
 # Which compose services those containers are, from the label compose puts on them.
 plain=""
 vpn=""
+legacy=""
 for c in $running; do
 	service=$($D inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$c")
 	case "$service" in
 		vpn) vpn="vpn" ;;
+		# The four containers `home` replaced (one daily and one search container per account). Removed once, here.
+		scheduler|search-scheduler|scheduler-second|search-scheduler-second|scheduler-third|search-scheduler-third)
+			legacy="$legacy $c"
+			case "$plain" in *" home"*) ;; *) plain="$plain home" ;; esac
+			;;
 		*) plain="$plain $service" ;;
 	esac
 done
+
+if [ -n "$legacy" ]; then
+	echo "removing the old per-account containers:$legacy"
+	$D stop $legacy >/dev/null 2>&1
+	$D rm $legacy >/dev/null 2>&1
+fi
 
 if [ -n "$plain" ]; then
 	echo "recreating:$plain"

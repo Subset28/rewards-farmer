@@ -2,10 +2,8 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 #
-# This replaces the four scheduler services, which would otherwise work the accounts
-# over the real connection. Stop them first (and `up` leaves them off):
-#
-#   docker compose stop scheduler search-scheduler scheduler-second search-scheduler-second
+# The accounts listed in VPN_ACCOUNTS run here and nowhere else. The accounts on the real connection run in the
+# `home` service (docker-compose.yml), which does not have this container's network rights.
 #
 # How it works is in src/vpn_config.py. In short: each account gets a network
 # namespace of its own with its own tun0 and its own default-drop firewall, the
@@ -39,7 +37,7 @@ services:
   vpn:
     extends:
       file: docker-compose.yml
-      service: scheduler
+      service: home
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
@@ -74,6 +72,7 @@ services:
       - --
       - env
       - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/scheduler.log
+      - REWARDS_SKIP_SEARCHES=1
       - python
       - src/daily_loop.py
       - --
@@ -81,14 +80,3 @@ services:
       - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler.log
       - python
       - src/search_scheduler.py
-
-  # The four per-account services work the accounts on the real connection, so
-  # with this file they only start if asked for by this profile.
-  scheduler:
-    profiles: ["no-vpn"]
-  search-scheduler:
-    profiles: ["no-vpn"]
-  scheduler-second:
-    profiles: ["no-vpn"]
-  search-scheduler-second:
-    profiles: ["no-vpn"]

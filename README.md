@@ -278,7 +278,7 @@ OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free
 ```
 
-Then `docker compose up -d --force-recreate scheduler search-scheduler`. The task cards (Explore on Bing and so on) keep using the public feeds, so the allowance goes to the daily searches.
+Then `docker compose up -d --force-recreate home`. The task cards (Explore on Bing and so on) keep using the public feeds, so the allowance goes to the daily searches.
 
 - **Sessions and a persona.** The queries come as sessions of two to four searches that narrow a topic, used back to back. An account without interests gets a persona invented once (one request) and kept in `data-dir/persona/<account>.json`, so it has the same interests every day. That makes its searching consistent; it does not make it the owner's own.
 - **Free models only.** `OPENROUTER_MODEL` must end in `:free` (or be `openrouter/free`); the paid model has the same name without the suffix, so anything else is replaced by the default with a warning unless `OPENROUTER_ALLOW_PAID=1`. A response that reports a cost stops all requests for a day.
@@ -308,10 +308,10 @@ Copy `data-dir/behavior/second.json` to the same place in the NAS's `data-dir`. 
 REWARDS_ACCOUNTS=second docker compose run --rm --service-ports signin
 ```
 
-**3. Start its schedulers.** They are behind a compose profile, so a plain `docker compose up -d` leaves them off:
+**3. Start its schedulers.** Every account on the home connection is worked by the one `home` container (a daily and a search loop each, see `docker-compose.yml`), so a new one is a pair of commands added there, then:
 
 ```
-docker compose --profile second up -d scheduler-second search-scheduler-second
+docker compose up -d --force-recreate home
 ```
 
 They run one at a time with the first account (the run lock makes an overlap wait), by default at 15:00 instead of 09:00 (`SECOND_ANCHOR_HOUR`) and on 3 search runs a day (`SECOND_SEARCH_RUNS_PER_DAY`). A run for a different account than the one that just finished also waits out a 15 minute cooldown (`REWARDS_ACCOUNT_COOLDOWN_MINUTES`, 0 turns it off), so the two are never used back to back.
@@ -322,7 +322,7 @@ A plain sign-out pauses only the account it happened on (`python src/safety.py c
 
 ## One command for the whole picture
 
-`python src/status.py` prints, for each account, what today holds (a working or light day, the ramp), its points and how far the next level is, what last month's bonuses paid, and how today's search quota stands, then the brake and today's runs. It is read-only: no browser, nothing changed. On the NAS: `docker exec rewards-farmer-scheduler-1 python src/status.py`.
+`python src/status.py` prints, for each account, what today holds (a working or light day, the ramp), its points and how far the next level is, what last month's bonuses paid, and how today's search quota stands, then the brake and today's runs. It is read-only: no browser, nothing changed. On the NAS: `docker exec rewards-farmer-home-1 python src/status.py`.
 
 ## Rolling changes out one at a time
 
@@ -436,7 +436,7 @@ Give every account a different server. The container checks each exit address an
 **Start it** (the four per-account services would work the accounts on the real connection, so stop them first):
 
 ```sh
-docker compose stop scheduler search-scheduler scheduler-second search-scheduler-second
+docker compose stop home
 docker compose -f docker-compose.yml -f docker-compose.vpn.yml up -d vpn
 ```
 
