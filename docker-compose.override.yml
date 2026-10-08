@@ -1,0 +1,11 @@
+# Loaded automatically by a plain `docker compose ...` (the home container) and NOT by the
+# `-f docker-compose.yml -f docker-compose.vpn.yml` command, which is how the vpn container, built from the
+# same base, is kept from also claiming this port.
+#
+# The control interface (src/control_api.py) is published on the NAS's own loopback only, never on the network.
+# From a computer, reach it through an SSH tunnel:  ssh -N -L 8787:127.0.0.1:8787 synology
+# Every request needs the CONTROL_TOKEN from .env.
+services:
+  home:
+    ports:
+      - "127.0.0.1:8787:8787"

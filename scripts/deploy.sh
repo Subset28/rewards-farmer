@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 
 ref="${1:-HEAD}"
 
-if [ "$ref" = "HEAD" ] && ! git diff --quiet HEAD -- src docker-compose.yml docker-compose.vpn.yml Dockerfile with-xvfb.sh; then
+if [ "$ref" = "HEAD" ] && ! git diff --quiet HEAD -- src docker-compose.yml docker-compose.vpn.yml docker-compose.override.yml Dockerfile with-xvfb.sh; then
 	echo "Uncommitted changes in the code. Commit them first; the NAS gets what is in git."
 	exit 1
 fi

@@ -214,6 +214,29 @@ def trip(risk: Risk, account_name: str) -> None:
 	)
 
 
+def pause(reason: str, account: str | None = None) -> dict:
+	"""Turn the brake on by hand, for every account or just `account`. Returns the record written (an existing pause is kept)."""
+	path = _file_for(account)
+	record = _read(path)
+
+	if record:
+		return record
+
+	record = {"kind": "manual", "reason": reason, "account": account or "all", "time": clock.stamp()}
+
+	try:
+		os.makedirs(os.path.dirname(path), exist_ok=True)
+
+		with open(path, "w", encoding="utf-8") as handle:
+			json.dump(record, handle)
+	except OSError as exc:
+		logger.error("Could not write the pause file: %s", exc)
+
+	logger.error("[BRAKE] manual pause (%s): %s", record["account"], reason)
+
+	return record
+
+
 def clear(account: str | None = None) -> bool:
 	"""Turn the brake off: the whole brake and every account's pause, or one account's. Returns whether any was on."""
 	if account is not None:
@@ -259,7 +282,12 @@ def main(argv: list[str]) -> int:
 
 		return 0
 
-	print("usage: safety.py [status | clear [account]]")
+	if command == "pause":
+		print(json.dumps(pause(" ".join(argv[3:]) or "paused by hand", account if account not in (None, "all") else None)))
+
+		return 0
+
+	print("usage: safety.py [status | pause [account|all] [reason...] | clear [account]]")
 
 	return 2
 

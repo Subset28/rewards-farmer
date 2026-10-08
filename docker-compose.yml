@@ -138,6 +138,11 @@ services:
       - REWARDS_SEARCH_RUNS_PER_DAY=${SECOND_SEARCH_RUNS_PER_DAY:-3}
       - python
       - src/search_scheduler.py
+      - "--"
+      # The control interface (src/control_api.py): looked after separately, so it can never take the loops down.
+      - optional
+      - python
+      - src/control_api.py
     # See the rewards-farmer service above for why cpus is left unset.
     deploy:
       resources:
@@ -178,6 +183,8 @@ services:
       # The least share of the day's search quota a normal day fills (pacing.py): a day lands somewhere from this to the
       # whole quota. Lower than the default 0.8 on purpose: a few points a day are worth less than not sitting at the cap.
       REWARDS_MIN_DAILY_FRACTION: ${REWARDS_MIN_DAILY_FRACTION:-0.65}
+      # Without it the control interface does not start. At least 24 characters, in .env, never here.
+      CONTROL_TOKEN: ${CONTROL_TOKEN:-}
       # How many search runs a day, and the waking-hours window (in TZ) they are placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
       REWARDS_SEARCH_START_HOUR: ${REWARDS_SEARCH_START_HOUR:-8}
