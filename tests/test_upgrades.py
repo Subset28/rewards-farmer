@@ -488,25 +488,47 @@ class TestNotify(unittest.TestCase):
 
 		post.assert_not_called()
 
-	def test_a_discord_webhook_gets_a_json_message(self):
+	def embed(self, post):
+		return json.loads(post.call_args.args[0].data)["embeds"][0]
+
+	def test_a_discord_webhook_gets_a_styled_embed(self):
 		with mock.patch.dict(os.environ, {"NOTIFY_URL": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
 			self.assertTrue(notify.send("Paused", "look at it", priority="high", account="default"))
 
 		request = post.call_args.args[0]
 		body = json.loads(request.data)
+		embed = body["embeds"][0]
 
 		self.assertEqual(request.full_url, self.HOOK)
 		self.assertEqual(request.get_header("Content-type"), "application/json")
 		self.assertEqual(request.get_header("User-agent"), notify.USER_AGENT)
-		self.assertIn("**Paused**", body["content"])
-		self.assertIn("look at it", body["content"])
+		self.assertIn("Paused", embed["title"])
+		self.assertEqual(embed["description"], "look at it")
+		self.assertIsInstance(embed["color"], int)
 		self.assertEqual(body["allowed_mentions"], {"parse": []})
 
 	def test_a_long_discord_message_is_cut_to_the_limit(self):
 		with mock.patch.dict(os.environ, {"NOTIFY_URL": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
-			notify.send("t", "x" * 5000, account="default")
+			notify.send("t" * 500, "x" * 9000, account="default")
 
-		self.assertEqual(len(json.loads(post.call_args.args[0].data)["content"]), notify.DISCORD_LIMIT)
+		embed = self.embed(post)
+
+		self.assertEqual(len(embed["description"]), notify.EMBED_DESCRIPTION_LIMIT)
+		self.assertLessEqual(len(embed["title"]), notify.EMBED_TITLE_LIMIT)
+
+	def test_the_look_follows_the_kind_of_message(self):
+		self.assertEqual(notify.style_for("[NEEDS CLAUDE] third: broken", "high")[1], 0xF59E0B)
+		self.assertEqual(notify.style_for("Daily points", "default")[1], 0x22C55E)
+		self.assertEqual(notify.style_for("Weekly note", "default")[1], 0x3B82F6)
+		self.assertEqual(notify.style_for("second: about 6,600 points", "default")[1], 0xFACC15)
+		self.assertEqual(notify.style_for("Something else", "high")[1], 0xEF4444)
+		self.assertEqual(notify.style_for("Something else", "default")[1], 0x64748B)
+
+	def test_the_points_line_and_the_weekly_note_show_account_names_in_bold(self):
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
+			notify.send("Daily points", "second: today 145, month 615, lifetime 625", account="second")
+
+		self.assertEqual(self.embed(post)["description"], "**second**: today 145 · month 615 · lifetime 625")
 
 	def test_only_real_discord_webhook_addresses_count_as_discord(self):
 		self.assertTrue(notify.is_discord(self.HOOK))
