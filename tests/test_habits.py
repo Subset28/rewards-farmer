@@ -250,7 +250,7 @@ class TestSpacing(HabitTestCase):
 			("daily", "second"): {"at": WEEKDAY.replace(hour=10, minute=20).isoformat()},
 			("search", "third"): {"day": "2000-01-01", "times": [WEEKDAY.replace(hour=15).isoformat()]}}
 
-		with mock.patch.object(search_scheduler, "account_names", return_value=["default", "second", "third"]), 			mock.patch.object(search_scheduler.schedule_plan, "read", side_effect=lambda kind, owner: plans.get((kind, owner), {})):
+		with mock.patch.object(search_scheduler, "account_names", return_value=["default"]), mock.patch.object(search_scheduler.schedule_plan, "owners", side_effect=lambda kind: ["second", "third"] if kind == "search" else ["second"]), 			mock.patch.object(search_scheduler.schedule_plan, "read", side_effect=lambda kind, owner: plans.get((kind, owner), {})):
 			found = search_scheduler.other_runs_today(WEEKDAY, "default")
 
 		self.assertEqual(sorted(found), [WEEKDAY.replace(hour=10, minute=20), WEEKDAY.replace(hour=13)])

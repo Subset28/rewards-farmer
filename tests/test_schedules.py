@@ -328,7 +328,7 @@ class TestPlanningTurns(unittest.TestCase):
 		results = {}
 
 		def plan(name):
-			with mock.patch.object(search_scheduler, "account_names", return_value=names):
+			with mock.patch.object(search_scheduler, "account_names", return_value=[name]):
 				results[name] = search_scheduler.day_plan(now, name)
 
 		threads = [threading.Thread(target=plan, args=(n,)) for n in names]
