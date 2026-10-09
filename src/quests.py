@@ -62,6 +62,30 @@ def is_task_link(href: str, text: str = "") -> bool:
 	return parsed.scheme in ("http", "https") and (parsed.netloc or "").lower() in BING_HOSTS
 
 
+# The one-off "Get started with Rewards" quest (new members, first 30 days, +1,320). Its tasks are visits to the
+# Rewards site's own pages, so they are named here one by one rather than allowed as a class: a link on a quest
+# page that leads into the site is otherwise left alone.
+ONBOARDING_QUEST = "onboarding_offer"
+ONBOARDING_ACTIONS = ("set a goal", "earn now", "learn more", "explore now")
+
+
+def is_onboarding(href: str) -> bool:
+	return ONBOARDING_QUEST in (href or "").lower()
+
+
+def pick_onboarding(candidates: list[tuple[str, str]], tried: set[str]) -> tuple[str, str] | None:
+	"""The first (href, text) of an onboarding task not yet done, else None.
+
+	A finished task shows no link, so a link that is there is a task still open."""
+	for href, text in candidates:
+		label = (text or "").strip().lower()
+
+		if label in ONBOARDING_ACTIONS and label not in tried and href.startswith("/"):
+			return href, label
+
+	return None
+
+
 def pick_task(candidates: list[tuple[str, str]], tried: set[str]) -> tuple[str, str] | None:
 	"""The first (href, text) not yet tried that is a task link, else None."""
 	for href, text in candidates:

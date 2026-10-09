@@ -494,6 +494,92 @@ class RewardsTaskUtils:
 
 			_wait(self, 2, 3)
 
+		if quests.is_onboarding(href):
+			self.work_onboarding(quest_url)
+
+	def work_onboarding(self, quest_url: str):
+		"""The "Get started with Rewards" visits (set a goal, browse Earn, learn the level, explore the dashboard)."""
+		tried: set[str] = set()
+
+		for _ in range(5):
+			links = [
+				(link.get_dom_attribute("href") or "", link.text or "")
+				for link in self.elements.get_quest_page_links()
+			]
+			task = quests.pick_onboarding(links, tried)
+
+			if task is None:
+				break
+
+			task_href, label = task
+			tried.add(label)
+			link = next(
+				(l for l in self.elements.get_quest_page_links() if (l.get_dom_attribute("href") or "") == task_href and (l.text or "").strip().lower() == label),
+				None,
+			)
+
+			if link is None:
+				continue
+
+			logger.info("Get-started task: %r (%s)", label, task_href)
+
+			try:
+				self.mouse.wheel_scroll_element_into_view(link)
+				self.move_to_and_click(link)
+				_wait(self, 4, 7)
+
+				if label == "explore now":
+					self.open_dashboard_sections()
+				elif label == "set a goal":
+					self.set_rewards_goal()
+				else:
+					self.mouse.wheel_scroll_read(max_steps=3)
+			except safety.AccountAtRisk:
+				raise
+			except Exception as exc:
+				logger.warning("Get-started task %r: %s", label, log_utils.exception_summary(exc))
+
+			self.driver.get(quest_url)
+			self.tab_utils.ensure_focus()
+			_wait(self, 3, 5)
+
+	def open_dashboard_sections(self):
+		"""Open each closed section of the dashboard, the way a person looks through it."""
+		for _ in range(8):
+			closed = self.driver.execute_script(
+				"return Array.from(document.querySelectorAll('[aria-expanded=\"false\"]')).filter("
+				"e => !e.closest('header, nav, footer, [role=navigation]'));"
+			)
+
+			if not closed:
+				break
+
+			self.mouse.wheel_scroll_element_into_view(closed[0])
+			self.move_to_and_click(closed[0])
+			_wait(self, 1, 3)
+
+	def set_rewards_goal(self):
+		"""On the redeem page: pick a reward and make it the goal. The page is logged first, so a wrong guess can be corrected."""
+		logger.info("Goal page offers: %s", self.driver.execute_script(
+			"return Array.from(document.querySelectorAll('a, button')).filter(e => !e.closest('header, nav, footer'))"
+			".map(e => (e.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).slice(0, 25);"
+		))
+		self.mouse.wheel_scroll_read(max_steps=3)
+
+		goal = self.driver.execute_script(
+			"return Array.from(document.querySelectorAll('button, a')).find("
+			"e => /set (as )?(my )?goal|track/i.test(e.innerText || '') && !e.closest('header, nav, footer')) || null;"
+		)
+
+		if goal is None:
+			logger.info("No goal button on the redeem page; leaving the goal for the next look.")
+
+			return
+
+		self.mouse.wheel_scroll_element_into_view(goal)
+		self.move_to_and_click(goal)
+		_wait(self, 2, 4)
+
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
 

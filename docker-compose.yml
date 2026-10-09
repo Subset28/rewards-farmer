@@ -156,6 +156,8 @@ services:
       - "--"
       # The control interface (src/control_api.py): looked after separately, so it can never take the loops down.
       - optional
+      - env
+      - REWARDS_ACCOUNTS=default,second,third
       - python
       - src/control_api.py
     # See the rewards-farmer service above for why cpus is left unset.
