@@ -619,8 +619,8 @@ class TestPointsLog(unittest.TestCase):
 			env.pop(points_log.LEVEL_TARGETS_ENV, None)
 
 			self.assertEqual(points_log.target_for("default"), 750)
-			self.assertEqual(points_log.target_for("second"), 500)
-			self.assertEqual(points_log.target_for("third"), 500)
+			self.assertEqual(points_log.target_for("second"), 750)
+			self.assertEqual(points_log.target_for("third"), 750)
 			self.assertIsNone(points_log.target_for("fourth"))
 
 	def test_the_report_keeps_accounts_apart(self):

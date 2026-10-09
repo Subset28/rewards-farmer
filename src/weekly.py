@@ -21,6 +21,7 @@ import clock
 import health
 import journal
 import notify
+import pacing
 import points_log
 import safety
 from constants import USER_DATA_DIR
@@ -151,7 +152,7 @@ def run_if_due(names: list[str] | None = None, now: datetime | None = None, send
 		if names is None:
 			import status
 
-			names = status.known_names()
+			names = sorted(set(status.known_names()) | set(pacing.known_accounts()))
 
 		state = _read_state()
 		sent = False

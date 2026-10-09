@@ -191,10 +191,8 @@ services:
       # The least share of the day's search quota a normal day fills (pacing.py): a day lands somewhere from this to the
       # whole quota. Lower than the default 0.8 on purpose: a few points a day are worth less than not sitting at the cap.
       REWARDS_MIN_DAILY_FRACTION: ${REWARDS_MIN_DAILY_FRACTION:-1.0}
-      # No ramp and no light days (decided 10-08): every account does every task, every day, from its first day. A new
-      # account that skips the easy cards looks stranger than one that clicks them, and the points are real. A Member
-      # account is held to a small daily search cap by Rewards itself.
-      REWARDS_RAMP_DAYS: ${REWARDS_RAMP_DAYS:-0}
+      # No light days (decided 10-08; lazy cards do that job). Every account does every task from its first day; a new
+      # account only searches less for its first week (pacing.py), as someone new to Rewards would.
       REWARDS_REST_DAY_CHANCE: ${REWARDS_REST_DAY_CHANCE:-0}
       # Without it the control interface does not start. At least 24 characters, in .env, never here.
       CONTROL_TOKEN: ${CONTROL_TOKEN:-}

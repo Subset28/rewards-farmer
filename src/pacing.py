@@ -14,8 +14,9 @@ on the same answer and nothing needs to be saved to stay consistent.
     activity at all would cost real points.
   * Variable totals: on a working day an account fills a share of its search quota,
     not always all of it.
-  * A ramp: for an account's first days it does less, rests never, and sticks to the
-    daily set and searches.
+  * A ramp: for an account's first days it searches less and works up to a full day, rests never, and claims
+    every reward from the start (a new member is taken with the points and does it all, searching only a little).
+  * Lazy cards: now and then an account leaves one or two search-to-claim cards alone (lazy_card_skipped).
   * Order: the accounts of one run are taken in a different order each time.
 
 Settings (environment):
@@ -52,15 +53,9 @@ STATE_FILE = os.path.join(USER_DATA_DIR, "pacing.json")
 # Quota share on the first day of a ramp, rising to a full day at its end.
 RAMP_START_FRACTION = 0.3
 
-# During the ramp an account does these tasks and no others.
-LIGHT_STEPS = ("Bing daily set", "Required searches", "Bonus points")
-
-# Quests too: a new member's first quest ("Get started with Rewards", +1,320, gone after 30 days) is what a new
-# member does first, and a 21-day ramp would otherwise leave it too late.
-RAMP_STEPS = LIGHT_STEPS + ("Quests",)
-
 # A light day keeps every streak alive and nothing more: the daily set, one small
-# round of searching, and the daily claim (LIGHT_STEPS, above).
+# round of searching, and the daily claim.
+LIGHT_STEPS = ("Bing daily set", "Required searches", "Bonus points")
 LIGHT_SEARCH_POINTS = 10
 
 
@@ -102,6 +97,11 @@ def _unit(account: str, day: date, salt: str) -> float:
 	digest = hashlib.sha256(f"{salt}|{account.lower()}|{day.isoformat()}".encode()).digest()
 
 	return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def known_accounts() -> list[str]:
+	"""Every account the pacing record has seen, including one that has not earned a point yet."""
+	return sorted(name for name in _read_state() if isinstance(name, str))
 
 
 def _read_state() -> dict:
@@ -227,10 +227,10 @@ def search_target(account: str, cap: int, today: date | None = None) -> int:
 
 
 def steps_allowed(account: str, today: date | None = None) -> tuple[str, ...] | None:
-	"""The only tasks to do today, or None for all of them."""
-	if in_ramp(account, today):
-		return RAMP_STEPS
+	"""The only tasks to do today, or None for all of them.
 
+	A new account (in its ramp) does every task from its first day: someone with a new Rewards account is taken
+	with the points and claims everything on offer. Only how much it searches grows over the ramp (fraction())."""
 	return LIGHT_STEPS if is_rest_day(account, today) else None
 
 
