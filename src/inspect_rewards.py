@@ -31,6 +31,10 @@ PAGES = (
 
 OUT_DIR = os.path.join(USER_DATA_DIR, "inspect")
 
+QUEST_LINKS = """
+return [...new Set([...document.querySelectorAll('a[href*="/earn/quest/"]')].map(a => a.href))];
+"""
+
 INTERESTING = re.compile(r"bonus|level|gold|silver|member|monthly|claim|streak|star|default search|activities", re.I)
 
 
@@ -55,6 +59,8 @@ def inspect(account: accounts.Account) -> None:
 
 		return
 
+	quest_links = []
+
 	try:
 		for name, url in PAGES:
 			driver.get(url)
@@ -70,6 +76,20 @@ def inspect(account: accounts.Account) -> None:
 			for line in text.splitlines():
 				if INTERESTING.search(line):
 					print("   ", line.strip()[:160])
+
+			if name == "earn":
+				quest_links = driver.execute_script(QUEST_LINKS) or []
+
+		# The quest pages, read the same way (a look, no clicks): what each quest asks for.
+		for index, href in enumerate(quest_links[:6]):
+			driver.get(href)
+			time.sleep(random.uniform(5, 8))
+			text = page_text(driver)
+
+			with open(os.path.join(OUT_DIR, f"{account.name}-quest{index}.txt"), "w", encoding="utf-8") as handle:
+				handle.write(f"{driver.current_url}\n\n{text}\n")
+
+			print(f"\n=== {account.name} / quest{index} ({driver.current_url.split('?')[0]}, {len(text)} characters)")
 	finally:
 		driver.quit()
 

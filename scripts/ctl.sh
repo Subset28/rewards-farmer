@@ -7,6 +7,7 @@
 #   scripts/ctl.sh tasks [days]           per account and task: how often it worked, and which are failing now
 #   scripts/ctl.sh settings               what is on and how it is set (no secrets)
 #   scripts/ctl.sh snapshots [name]       what the page offered when a task failed (list, or one)
+#   scripts/ctl.sh inspect [name]         the saved Rewards pages (list, or one)
 #   scripts/ctl.sh logs                   which logs there are
 #   scripts/ctl.sh logs scheduler.log [n] the last n lines of one
 #   scripts/ctl.sh pause [account] [why]  stop runs (all accounts when none is named)
@@ -25,6 +26,7 @@ case "${1:-status}" in
 	tasks) call GET "/tasks?days=${2:-14}" ;;
 	settings) call GET /settings ;;
 	snapshots) if [ -n "$2" ]; then call GET "/snapshots/$2"; else call GET /snapshots; fi ;;
+	inspect) if [ -n "$2" ]; then call GET "/inspect/$2"; else call GET /inspect; fi ;;
 	logs) if [ -n "$2" ]; then call GET "/logs/$2?lines=${3:-60}"; else call GET /logs; fi ;;
 	pause)
 		account="${2:-}"; why="${3:-paused by hand}"
@@ -33,6 +35,6 @@ case "${1:-status}" in
 	resume)
 		account="${2:-}"; [ "$account" = "all" ] && account=""
 		call POST /resume "{\"account\": \"$account\"}" ;;
-	*) echo "usage: scripts/ctl.sh status | runs [days] | tasks [days] | settings | snapshots [name] | logs [name [lines]] | pause [account] [why] | resume [account]"; exit 2 ;;
+	*) echo "usage: scripts/ctl.sh status | runs [days] | tasks [days] | settings | snapshots [name] | inspect [name] | logs [name [lines]] | pause [account] [why] | resume [account]"; exit 2 ;;
 esac
 echo

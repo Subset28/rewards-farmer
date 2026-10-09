@@ -6,6 +6,8 @@
     GET  /settings           what is switched on and how it is set (no secrets: only whether one is present)
     GET  /snapshots          what the page offered when a task failed or was skipped: the list
     GET  /snapshots/<name>   one of them: the page's button, link and heading labels
+    GET  /inspect            the saved Rewards pages (inspect_rewards.py): the list
+    GET  /inspect/<name>     one of them, as lines (emails and long numbers taken out)
     GET  /logs               which log files there are
     GET  /logs/<name>?lines=80   the end of one of them (names from the list above, nothing else)
     POST /pause              {"reason": "...", "account": "second"}  stop runs (the account, or all when none is named)
@@ -51,6 +53,8 @@ LOG_DIR = os.path.join(USER_DATA_DIR, "logs")
 MAX_BODY = 4096
 LOG_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.log$")
 MAX_LINES = 500
+INSPECT_DIR = os.path.join(USER_DATA_DIR, "inspect")
+INSPECT_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.txt$")
 
 
 def token() -> str:
@@ -172,6 +176,27 @@ def log_files() -> list[str]:
 		return []
 
 
+def inspect_files() -> list[str]:
+	try:
+		return sorted(name for name in os.listdir(INSPECT_DIR) if INSPECT_NAME.match(name))
+	except OSError:
+		return []
+
+
+def inspect_text(name: str) -> list[str] | None:
+	"""The lines of one saved Rewards page (see inspect_rewards.py), with emails and long numbers taken out."""
+	if not INSPECT_NAME.match(name) or name not in inspect_files():
+		return None
+
+	try:
+		with open(os.path.join(INSPECT_DIR, name), encoding="utf-8", errors="replace") as handle:
+			text = handle.read()
+	except OSError:
+		return None
+
+	return [snapshot.EMAIL.sub("[email]", snapshot.LONG_NUMBER.sub("[number]", line))[:200] for line in text.splitlines()][:MAX_LINES * 2]
+
+
 def tail(name: str, lines: int) -> list[str] | None:
 	"""The last `lines` lines of one log, or None when `name` is not one of the log files."""
 	if not LOG_NAME.match(name) or name not in log_files():
@@ -234,6 +259,14 @@ def handle(method: str, path: str, body: dict | None = None) -> tuple[int, objec
 			found = snapshot.read(route[len("/snapshots/"):])
 
 			return (200, found) if found is not None else (404, {"error": "no such snapshot"})
+
+		if route == "/inspect":
+			return 200, inspect_files()
+
+		if route.startswith("/inspect/"):
+			lines = inspect_text(route[len("/inspect/"):])
+
+			return (200, lines) if lines is not None else (404, {"error": "no such page"})
 
 		if route == "/logs":
 			return 200, log_files()
