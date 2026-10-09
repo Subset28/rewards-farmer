@@ -73,7 +73,7 @@ class TestTheRamp(PacingTestCase):
 	def test_during_the_ramp_only_the_daily_set_and_searches_are_done(self):
 		self.assertEqual(pacing.steps_allowed("fresh"), pacing.RAMP_STEPS)
 		self.assertIn("Required searches", pacing.RAMP_STEPS)
-		self.assertNotIn("Quests", pacing.RAMP_STEPS)
+		self.assertIn("Quests", pacing.RAMP_STEPS)  # the new-member quest, see pacing.py
 
 		self.seasoned("old")
 		self.assertIsNone(pacing.steps_allowed("old"))
