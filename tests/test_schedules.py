@@ -7,6 +7,7 @@ import os
 import random
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta
 from unittest import mock
@@ -276,3 +277,72 @@ class TestDailyPlan(PlanFileTestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestPlanningTurns(unittest.TestCase):
+	def setUp(self):
+		directory = tempfile.TemporaryDirectory()
+		self.addCleanup(directory.cleanup)
+		patcher = mock.patch.object(schedule_plan, "PLAN_FILE", os.path.join(directory.name, "schedule_plan.json"))
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		self.lock = schedule_plan.PLAN_FILE + ".lock"
+
+	def test_the_lock_is_taken_and_released(self):
+		with schedule_plan.planning():
+			self.assertTrue(os.path.exists(self.lock))
+
+		self.assertFalse(os.path.exists(self.lock))
+
+	def test_a_crashed_schedulers_old_lock_is_cleared(self):
+		with open(self.lock, "w"):
+			pass
+
+		old = time.time() - schedule_plan.LOCK_STALE_SECONDS - 5
+		os.utime(self.lock, (old, old))
+
+		with schedule_plan.planning(timeout=1):
+			self.assertTrue(os.path.exists(self.lock))
+
+		self.assertFalse(os.path.exists(self.lock))
+
+	def test_it_goes_ahead_after_the_timeout_when_the_lock_is_held(self):
+		with open(self.lock, "w"):
+			pass
+
+		started = time.monotonic()
+
+		with schedule_plan.planning(timeout=0.3):
+			pass
+
+		self.assertLess(time.monotonic() - started, 2)
+		self.assertTrue(os.path.exists(self.lock))  # someone else's, left alone
+
+	def test_planners_starting_together_take_turns_and_end_up_apart(self):
+		import threading
+		from datetime import datetime, timedelta
+		import search_scheduler
+
+		now = datetime(2026, 10, 9, 0, 0, 42)
+		names = ["default", "second", "third"]
+		results = {}
+
+		def plan(name):
+			with mock.patch.object(search_scheduler, "account_names", return_value=names):
+				results[name] = search_scheduler.day_plan(now, name)
+
+		threads = [threading.Thread(target=plan, args=(n,)) for n in names]
+
+		for t in threads:
+			t.start()
+
+		for t in threads:
+			t.join()
+
+		self.assertEqual(sorted(results), sorted(names))
+
+		# Whichever planned first could not see the others; every later one kept 15 minutes or more from all before it.
+		everyone = sorted((t, n) for n, times in results.items() for t in times)
+		cross = [(b[0] - a[0]) for a, b in zip(everyone, everyone[1:]) if a[1] != b[1]]
+
+		self.assertTrue(all(gap >= timedelta(minutes=15) for gap in cross), cross)

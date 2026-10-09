@@ -10,9 +10,11 @@ Reading never raises: a missing or damaged file is no plan, and the caller draws
 a fresh one. Writing never raises either.
 """
 
+import contextlib
 import json
 import logging
 import os
+import time
 
 from constants import USER_DATA_DIR
 
@@ -37,6 +39,54 @@ def read(kind: str, owner: str) -> dict:
 	plan = section.get(owner) if isinstance(section, dict) else None
 
 	return plan if isinstance(plan, dict) else {}
+
+
+LOCK_STALE_SECONDS = 30.0
+
+
+@contextlib.contextmanager
+def planning(timeout: float = 15.0):
+	"""One scheduler at a time reads the others' plans, draws its own and saves it.
+
+	All the loops of one container start a new day at the same instant, so without taking turns none of them
+	can see the others' plans yet, and the runs they draw land close together (10:13 and 10:19 happened). A lock
+	older than LOCK_STALE_SECONDS is a crashed scheduler's and is cleared; after `timeout` it goes ahead anyway,
+	because a plan drawn without the others in view is better than no plan."""
+	lock = PLAN_FILE + ".lock"
+	deadline = time.monotonic() + timeout
+	held = False
+
+	while True:
+		try:
+			os.makedirs(os.path.dirname(lock), exist_ok=True)
+			os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+			held = True
+
+			break
+		except FileExistsError:
+			try:
+				if time.time() - os.path.getmtime(lock) > LOCK_STALE_SECONDS:
+					os.remove(lock)
+
+					continue
+			except OSError:
+				pass
+
+			if time.monotonic() > deadline:
+				break
+
+			time.sleep(0.05)
+		except OSError:
+			break
+
+	try:
+		yield
+	finally:
+		if held:
+			try:
+				os.remove(lock)
+			except OSError:
+				pass
 
 
 def write(kind: str, owner: str, plan: dict) -> None:
