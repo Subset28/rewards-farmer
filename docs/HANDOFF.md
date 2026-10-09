@@ -12,7 +12,10 @@ Where the project stands, what to do next, and how to operate it. No secrets her
 - **Switches left** (all off): `chains` (searching in tangents; opening result pages is off because it exhausted memory),
   `query_sessions`. Each is to be deleted once it has run cleanly on a real account.
 - **Run times:** each account searches in its own favoured times of the day (always on), and no two accounts start within 45 minutes of each other.
-- **Pacing:** a normal day fills at least 65% of the search quota; new accounts ramp (second 7 days, third 21 days).
+- **Pacing:** a working day fills the whole search quota (minimum fraction 1.0, since 10-08); about one day in ten is a light
+  day; new accounts ramp (second 7 days, third 21 days).
+- **No snapshots, no backups** (the owner's decision, 10-08): the brake and git history cover mistakes. Details of a failure
+  or a quest go to the log.
 - **Memory limit:** 2 GB per container.
 
 ## Operating it
@@ -36,8 +39,20 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 3. Third's calibration scored typing 0.64 / mouse 0.68 from one short sitting. Have her record again on another day
    (`python src/calibrate.py third`, with the clearer screens), re-score, and copy the profile over only if it is at least as
    good. Until a bot run of hers succeeds, her daily set and search are done by hand.
-4. Build the weekly Discord summary and the redemption reminder (6,500 points).
-5. Housekeeping: stale rollback copies on the NAS, the upstream page fixes, GitHub Actions on the fork, third's Discord webhook.
+4. **The one-time "Get started with Rewards" quest (+1,320 points, new accounts, first 30 days)** is the way to lift the
+   owner's and the mother's accounts to Silver, then toward Gold (750 points a month plus two streak activities). The bot
+   opens quests but takes only Bing-link tasks; each quest page now logs what it lists (`Quest ... lists:`). After the next
+   daily runs, read that line with `ctl.sh logs` and automate the safe in-site tasks.
+5. Read the level targets from the dashboard ("Progress towards Silver, points to go") instead of `REWARDS_LEVEL_TARGETS`.
+6. Build the weekly Discord summary and the redemption reminder (6,500 points).
+7. Housekeeping: stale rollback copies on the NAS, the old `snapshots` and `backups` folders and the BACKUP_* lines in the
+   NAS `.env`, the private `rewards-backups` GitHub repository (the owner to confirm deleting it), the upstream page fixes,
+   GitHub Actions on the fork, third's Discord webhook.
+
+## Longer term (the owner's goals)
+
+Reach Gold on every account; keep perfecting how natural the behavior is; keep the home IP clean; scale to more accounts
+(each with its own clean connection, accounts created by the owner) only after the three have run cleanly for about a month.
 
 ## Decisions waiting for the owner
 
@@ -48,6 +63,7 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 
 ## Rules that came out of the work
 
-- Never chain tests, commit and push with `;`. Never kill containers by a filter with `-q --format`.
+- Never chain tests, commit and push with `;`, and never pipe the test run into `tail` (it hides a failure): write the
+  output to a file, check the exit code, then commit. Never kill containers by a filter with `-q --format`.
 - Personalization is the only path: no generic fallback, no toggle that can be wrong.
 - Stop on any sign of trouble (`safety.py`); recommend, then wait for the owner on anything about an account.
