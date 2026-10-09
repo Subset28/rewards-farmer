@@ -253,6 +253,13 @@ class TestOnboarding(unittest.TestCase):
 
 		self.assertEqual(order, ["set a goal", "earn now", "learn more", "explore now"])
 
+	def test_only_the_named_dashboard_sections_are_opened(self):
+		for label in ("Your progress +5", "Daily set +5", "Level benefits", "Featured redemptions +5"):
+			self.assertTrue(quests.is_dashboard_section(label), label)
+
+		for label in ("Ready to claim 5 Claim", "Somebody Silver Member Learn more Progress towards Gold", "", "Order history"):
+			self.assertFalse(quests.is_dashboard_section(label), label)
+
 	def test_a_finished_task_has_no_link_so_nothing_is_picked(self):
 		self.assertIsNone(quests.pick_onboarding([("/earn", "More activities"), ("https://www.bing.com/", "Search now")], set()))
 
