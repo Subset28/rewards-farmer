@@ -545,40 +545,56 @@ class RewardsTaskUtils:
 
 	def open_dashboard_sections(self):
 		"""Open each closed section of the dashboard, the way a person looks through it."""
-		for _ in range(8):
+		opened: list[str] = []
+
+		for _ in range(10):
 			closed = self.driver.execute_script(
-				"return Array.from(document.querySelectorAll('[aria-expanded=\"false\"]')).filter("
+				"return Array.from(document.querySelectorAll('button[aria-expanded=\"false\"]')).filter("
 				"e => !e.closest('header, nav, footer, [role=navigation]'));"
 			)
+			# Each section once, by its name: a button that does not open must not be clicked again and again.
+			fresh = [(e, " ".join((e.text or "").split())) for e in closed]
+			fresh = [(e, label) for e, label in fresh if label and label not in opened]
 
-			if not closed:
+			if not fresh:
 				break
 
-			self.mouse.wheel_scroll_element_into_view(closed[0])
-			self.move_to_and_click(closed[0])
-			_wait(self, 1, 3)
+			element, label = fresh[0]
+			opened.append(label)
+			self.mouse.wheel_scroll_element_into_view(element)
+			self.move_to_and_click(element)
+			_wait(self, 2, 4)
+
+		logger.info("Dashboard sections opened: %s", opened)
 
 	def set_rewards_goal(self):
-		"""On the redeem page: pick a reward and make it the goal. The page is logged first, so a wrong guess can be corrected."""
-		logger.info("Goal page offers: %s", self.driver.execute_script(
-			"return Array.from(document.querySelectorAll('a, button')).filter(e => !e.closest('header, nav, footer'))"
-			".map(e => (e.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).slice(0, 25);"
-		))
+		"""On the redeem page: open the Amazon gift card and make it the Rewards goal (the control on each card's page)."""
 		self.mouse.wheel_scroll_read(max_steps=3)
 
-		goal = self.driver.execute_script(
-			"return Array.from(document.querySelectorAll('button, a')).find("
-			"e => /set (as )?(my )?goal|track/i.test(e.innerText || '') && !e.closest('header, nav, footer')) || null;"
+		cards = self.driver.find_elements(
+			By.XPATH, "//a[contains(@href, '/redeem/sku/')][contains(., 'Amazon.com Gift Card')]"
 		)
 
-		if goal is None:
-			logger.info("No goal button on the redeem page; leaving the goal for the next look.")
+		if not cards:
+			logger.info("No Amazon gift card on the redeem page; leaving the goal for the next look.")
 
 			return
 
-		self.mouse.wheel_scroll_element_into_view(goal)
-		self.move_to_and_click(goal)
+		self.mouse.wheel_scroll_element_into_view(cards[0])
+		self.move_to_and_click(cards[0])
+		_wait(self, 4, 7)
+
+		goal = self.driver.find_elements(By.XPATH, "//*[normalize-space(text())='Set as your Rewards goal']")
+
+		if not goal:
+			logger.info("No goal control on the gift card page; leaving the goal for the next look.")
+
+			return
+
+		self.mouse.wheel_scroll_element_into_view(goal[0])
+		self.move_to_and_click(goal[0])
 		_wait(self, 2, 4)
+		logger.info("Set the Amazon gift card as the Rewards goal.")
 
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
