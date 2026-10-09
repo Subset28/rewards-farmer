@@ -89,7 +89,8 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 			# A virtual display has no GPU, and without these Edge exposes no
 			# WebGL context at all, which almost no real browser lacks. Software
 			# WebGL is present but reports SwiftShader as the renderer.
-			options.add_argument("--use-gl=angle")
+			# (Not --use-gl=angle as well: tested on throwaway profiles against deviceandbrowserinfo.com, it
+			# alone made the browser's timer look inconsistent, and WebGL is exactly as present without it.)
 			options.add_argument("--use-angle=swiftshader")
 			options.add_argument("--enable-unsafe-swiftshader")
 			options.add_argument("--ignore-gpu-blocklist")

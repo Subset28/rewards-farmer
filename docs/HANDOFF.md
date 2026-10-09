@@ -60,6 +60,22 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 Reach Gold on every account; keep perfecting how natural the behavior is; keep the home IP clean; scale to more accounts
 (each with its own clean connection, accounts created by the owner) only after the three have run cleanly for about a month.
 
+## External validation (10-09, public pages, throwaway profiles, the real browser and the real mouse/typing code)
+
+- **Behavior: clean for all three recorded profiles.** deviceandbrowserinfo.com's interactions test (a demo login form that
+  says to use random values): `suspiciousClientSideBehavior`, `superHumanSpeed`, `hasCDPMouseLeak`,
+  `hasAutomationFrameworkStackTrace` all false for default, second and third. Our own 0.53 score is a separate, in-house
+  check; this is the outside one. (incolumitas.com's behavioral score could not be used: its scoring backend returned 502.)
+- **Browser: two tells found.** (1) `hasInconsistentTimingResolution`: caused by `--use-gl=angle`; removed on 10-09
+  (WebGL still present, same SwiftShader renderer). (2) `isAutomatedWithCDP` (and sometimes `...InWebWorker`): the browser
+  is driven through the DevTools protocol; it stayed under every launch variant tried (no BiDi, console patch). A console
+  patch hid the check page's verdict entirely, which proves nothing, and was not shipped. Real fixes need a different driver
+  or a patched msedgedriver; not done, and whether Microsoft acts on it is unknown (the brother's account has run since 09-01).
+- Also seen: WebGL renderer is SwiftShader (no GPU on the NAS); `performance.memory` and a couple of properties differ from
+  a desktop Chrome (incolumitas `CHR_MEMORY`). Faking a GPU name would add inconsistencies, so it is left alone.
+- Re-run any time: the probe scripts were throwaway; the pattern is `browser.build_options` with a temp profile, a page, and
+  reading its JSON. `src/fingerprint_probe.py` is the in-repo version for identity checks.
+
 ## Decisions waiting for the owner
 
 - Third lives in the same home as the others, so the Ashburn VPN exit is the odd one out. Moving her to the home connection
