@@ -617,6 +617,31 @@ class RewardsTaskUtils:
 
 		logger.info("Rewards goal ticked on the gift card page: %s", self.driver.find_element(By.XPATH, box_path).is_selected())
 
+	def open_streaks_section(self):
+		"""Open the page's Streaks section if it is folded shut.
+
+		The Visual Search entry sits inside it, and a folded section hides its buttons from the browser (found on
+		the page 10-09: the button was there, not displayed, with aria-hidden panels above it)."""
+		try:
+			wrappers = self.driver.find_elements(
+				By.XPATH,
+				"//div[contains(@class, 'react-aria-Disclosure')][.//button[contains(., 'Visual Search')]]",
+			)
+
+			if not wrappers:
+				return
+
+			trigger = wrappers[-1].find_element(By.XPATH, "(.//button)[1]")
+
+			if trigger.get_attribute("aria-expanded") == "false":
+				self.mouse.wheel_scroll_element_into_view(trigger)
+				self.move_to_and_click(trigger)
+				_wait(self, 1, 3)
+		except safety.AccountAtRisk:
+			raise
+		except Exception as exc:
+			logger.info("Could not open the streaks section: %s", log_utils.exception_summary(exc))
+
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
 
@@ -624,6 +649,8 @@ class RewardsTaskUtils:
 			logger.info("visual_search.jpg not found. Generating visual search image...")
 			import random_image_for_visual_search
 			random_image_for_visual_search.get_random_image()
+
+		self.open_streaks_section()
 
 		try:
 			self.wait_for_then_click(self.elements.get_open_visual_search_sidebar)
