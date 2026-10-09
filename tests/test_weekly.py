@@ -107,6 +107,14 @@ class TestRedemptionReminder(WeeklyCase):
 		self.send.assert_not_called()
 
 
+class TestWhichAccounts(WeeklyCase):
+	def test_an_account_with_no_points_yet_is_included_from_the_pacing_record(self):
+		with mock.patch.object(weekly.pacing, "known_accounts", return_value=["default", "third"]), 			mock.patch("status.known_names", return_value=["default"]):
+			weekly.run_if_due(None, SUNDAY_EVENING, self.send)
+
+		self.assertIn("third: no points on record yet", self.send.call_args.args[1])
+
+
 class TestNeverRaises(WeeklyCase):
 	def test_a_failing_sender_does_not_raise(self):
 		self.send.side_effect = RuntimeError("discord down")

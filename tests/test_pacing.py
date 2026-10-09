@@ -70,10 +70,9 @@ class TestTheRamp(PacingTestCase):
 		with mock.patch.object(pacing, "_today", return_value=TODAY + timedelta(days=7)):
 			self.assertFalse(pacing.in_ramp("fresh"))
 
-	def test_during_the_ramp_only_the_daily_set_and_searches_are_done(self):
-		self.assertEqual(pacing.steps_allowed("fresh"), pacing.RAMP_STEPS)
-		self.assertIn("Required searches", pacing.RAMP_STEPS)
-		self.assertIn("Quests", pacing.RAMP_STEPS)  # the new-member quest, see pacing.py
+	def test_during_the_ramp_every_task_is_done_and_only_the_searching_is_less(self):
+		self.assertIsNone(pacing.steps_allowed("fresh"))
+		self.assertLess(pacing.fraction("fresh"), 1.0)
 
 		self.seasoned("old")
 		self.assertIsNone(pacing.steps_allowed("old"))

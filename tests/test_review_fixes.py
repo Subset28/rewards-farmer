@@ -201,7 +201,7 @@ class TestStepNames(unittest.TestCase):
 		"""A renamed step would leave the filter matching nothing, and the account would do no tasks."""
 		source = inspect.getsource(rewards_tasks.RewardsTaskUtils.complete_all_tasks)
 
-		for name in set(pacing.RAMP_STEPS) | set(pacing.LIGHT_STEPS):
+		for name in set(pacing.LIGHT_STEPS):
 			self.assertIn(f'"{name}"', source, name)
 
 

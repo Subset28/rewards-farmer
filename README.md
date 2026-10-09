@@ -236,7 +236,7 @@ Swapping a build mid-day is therefore safe, but not while a run is live: recreat
 | `NOTIFY_URL` | unset | The one alert address (Discord webhook or ntfy topic) for every account and message. |
 | `REWARDS_SEARCHES_PER_RUN` | `5-8` | Searches one scheduled search run makes before stopping, so the quota fills across the day. |
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
-| `REWARDS_LEVEL_TARGETS` | `default=750,second=500,third=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
+| `REWARDS_LEVEL_TARGETS` | `default=750,second=750,third=750` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
 
 ## Browser identity
 
