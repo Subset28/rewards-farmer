@@ -235,6 +235,31 @@ class TestCompleteQuests(unittest.TestCase):
 
 
 @mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
+class TestOnboarding(unittest.TestCase):
+	QUEST = "/earn/quest/WW_pcparent_redesign_newuser_onboarding_offer_punchcard"
+
+	def test_only_the_get_started_quest_is_the_onboarding_one(self):
+		self.assertTrue(quests.is_onboarding(self.QUEST))
+		self.assertFalse(quests.is_onboarding("/earn/quest/WW_evergreen_pcparent_Spotify_punchcard"))
+
+	def test_the_open_tasks_are_taken_one_at_a_time_by_name(self):
+		links = [("/earn", "More activities"), ("/redeem/", "Set a Goal"), ("/earn", "Earn now"), ("/about", "Learn more"), ("/dashboard/", "Explore now")]
+		tried = set()
+		order = []
+
+		while (task := quests.pick_onboarding(links, tried)) is not None:
+			order.append(task[1])
+			tried.add(task[1])
+
+		self.assertEqual(order, ["set a goal", "earn now", "learn more", "explore now"])
+
+	def test_a_finished_task_has_no_link_so_nothing_is_picked(self):
+		self.assertIsNone(quests.pick_onboarding([("/earn", "More activities"), ("https://www.bing.com/", "Search now")], set()))
+
+	def test_a_link_off_the_site_is_never_an_onboarding_task(self):
+		self.assertIsNone(quests.pick_onboarding([("https://example.com/", "Learn more")], set()))
+
+
 class TestWorkQuest(unittest.TestCase):
 	def _quest(self, page_links, **kwargs):
 		page = QuestPage([Anchor("/earn/quest/q1", "0/5 tasks")], page_links=page_links, **kwargs)
