@@ -25,6 +25,10 @@ def neutral_pacing(tmp_path, monkeypatch):
 
 	monkeypatch.setattr(health, "STATE_FILE", str(tmp_path / "health.json"))
 
+	import schedule_plan
+
+	monkeypatch.setattr(schedule_plan, "PLAN_FILE", str(tmp_path / "schedule_plan.json"))
+
 	import task_log
 
 	monkeypatch.setattr(task_log, "LOG_FILE", str(tmp_path / "task_log.jsonl"))

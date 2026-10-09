@@ -240,8 +240,10 @@ def day_plan(now: datetime, owner: str) -> list[datetime]:
 	times = _parse(saved.get("times")) if saved.get("day") == day else []
 
 	if not times:
-		times = draw_times(now, owner, other_runs_today(now, owner))
-		schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in times]})
+		# Taking turns with the other accounts' schedulers, who are drawing at the same moment (schedule_plan.planning).
+		with schedule_plan.planning():
+			times = draw_times(now, owner, other_runs_today(now, owner))
+			schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in times]})
 
 	return times
 
