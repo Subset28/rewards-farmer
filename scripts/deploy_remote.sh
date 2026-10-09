@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs on the NAS (sent there by scripts/deploy.sh). Builds the image, and only if nothing is
-# mid-run, recreates every rewards-farmer container that is running, the VPN one included,
+# mid-run, recreates every rewards-farmer container that is running,
 # then checks that each of them really is on the new image.
 #
 # Plain POSIX sh: the NAS shell has no bash extras.
@@ -37,14 +37,13 @@ fi
 
 # Which compose services those containers are, from the label compose puts on them.
 plain=""
-vpn=""
 legacy=""
 for c in $running; do
 	service=$($D inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$c")
 	case "$service" in
-		vpn) vpn="vpn" ;;
-		# The four containers `home` replaced (one daily and one search container per account). Removed once, here.
-		scheduler|search-scheduler|scheduler-second|search-scheduler-second|scheduler-third|search-scheduler-third)
+		# The containers `home` replaced: one daily and one search container per account, and the VPN container
+		# (every account now runs on the home connection, whose address is the cleaner one). Removed once, here.
+		vpn|scheduler|search-scheduler|scheduler-second|search-scheduler-second|scheduler-third|search-scheduler-third)
 			legacy="$legacy $c"
 			case "$plain" in *" home"*) ;; *) plain="$plain home" ;; esac
 			;;
@@ -61,11 +60,6 @@ fi
 if [ -n "$plain" ]; then
 	echo "recreating:$plain"
 	$D compose --profile second --profile third up -d --force-recreate --no-deps $plain 2>&1 | tail -8
-fi
-
-if [ -n "$vpn" ]; then
-	echo "recreating: vpn (the VPN container, which the plain command does not touch)"
-	$D compose -f docker-compose.yml -f docker-compose.vpn.yml up -d --force-recreate --no-deps vpn 2>&1 | tail -4
 fi
 
 sleep 20

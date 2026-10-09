@@ -36,6 +36,16 @@ QUEST_LINKS = """
 return [...new Set([...document.querySelectorAll('a[href*="/earn/quest/"]')].map(a => a.href))];
 """
 
+# The links and buttons of a quest page with where they lead (an address is only what the page itself says).
+ACTIONS = """
+const out = [];
+for (const e of document.querySelectorAll('a, button, [role=button]')) {
+  const label = (e.innerText || e.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().slice(0, 60);
+  if (label) out.push([e.tagName.toLowerCase(), label, (e.getAttribute('href') || '').split('?')[0].slice(0, 120)]);
+}
+return out.slice(0, 80);
+"""
+
 INTERESTING = re.compile(r"bonus|level|gold|silver|member|monthly|claim|streak|star|default search|activities", re.I)
 
 
@@ -86,9 +96,11 @@ def inspect(account: accounts.Account) -> None:
 			driver.get(href)
 			time.sleep(random.uniform(5, 8))
 			text = page_text(driver)
+			actions = driver.execute_script(ACTIONS) or []
+			listing = "\n".join(f"{kind}\t{label}\t{target}" for kind, label, target in actions)
 
 			with open(os.path.join(OUT_DIR, f"{account.name}-quest{index}.txt"), "w", encoding="utf-8") as handle:
-				handle.write(f"{driver.current_url}\n\n{text}\n")
+				handle.write(f"{driver.current_url}\n\n{text}\n\nACTIONS (kind, label, address)\n{listing}\n")
 
 			print(f"\n=== {account.name} / quest{index} ({driver.current_url.split('?')[0]}, {len(text)} characters)")
 	finally:

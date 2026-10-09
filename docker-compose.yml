@@ -96,9 +96,9 @@ services:
   # searches (REWARDS_SKIP_SEARCHES): the search loops already spread them across the day.
   #
   # Adding an account on the home connection: a daily and a search command below with REWARDS_ACCOUNTS=<name>,
-  # after signing it in (see the README). The account behind the VPN is NOT here: it lives in the vpn container
-  # (docker-compose.vpn.yml), which has the extra network rights and the firewall that account needs, so that a
-  # VPN outage cannot stop these accounts.
+  # after signing it in (see the README). All three accounts share the home connection, which is a household's
+  # one residential address; a VPN exit was a data-centre address, flagged as a proxy (docker-compose.vpn.yml and
+  # src/vpn_config.py are kept for giving an account its own exit later, and are not used now).
   home:
     build:
       context: .
@@ -136,6 +136,21 @@ services:
       - REWARDS_ACCOUNTS=second
       - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-second.log
       - REWARDS_SEARCH_RUNS_PER_DAY=${SECOND_SEARCH_RUNS_PER_DAY:-3}
+      - python
+      - src/search_scheduler.py
+      - "--"
+      - env
+      - REWARDS_ACCOUNTS=third
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/scheduler-third.log
+      - REWARDS_SKIP_SEARCHES=1
+      - REWARDS_ANCHOR_HOUR=${THIRD_ANCHOR_HOUR:-11}
+      - python
+      - src/daily_loop.py
+      - "--"
+      - env
+      - REWARDS_ACCOUNTS=third
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-third.log
+      - REWARDS_SEARCH_RUNS_PER_DAY=${THIRD_SEARCH_RUNS_PER_DAY:-2}
       - python
       - src/search_scheduler.py
       - "--"
