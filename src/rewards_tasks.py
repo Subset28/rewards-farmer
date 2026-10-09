@@ -442,6 +442,9 @@ class RewardsTaskUtils:
 		quest_url = self.driver.current_url
 		tried: set[str] = set()
 
+		# What this quest asks for, kept so a task the bot cannot do yet can be added from the record.
+		snapshot.capture(self.driver, self.account_name, f"Quest {href.rsplit('/', 1)[-1][:30]}", "quest page")
+
 		for _ in range(self.MAX_QUEST_TASKS):
 			links = [
 				(link.get_dom_attribute("href") or "", link.text or "")
