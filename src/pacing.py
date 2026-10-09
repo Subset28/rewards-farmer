@@ -234,6 +234,26 @@ def steps_allowed(account: str, today: date | None = None) -> tuple[str, ...] | 
 	return LIGHT_STEPS if is_rest_day(account, today) else None
 
 
+def lazy_skips(account: str, today: date | None = None) -> int:
+	"""How many search-to-claim cards this account leaves alone today: usually none, now and then one or two.
+
+	A person skips the cards that need a search before they credit; skipping them all the time, or never, is the pattern.
+	Worked out from the account and the date, so a restart gives the same answer."""
+	today = today or _today()
+	draw = _unit(account, today, "lazy")
+
+	return 0 if draw < 0.5 else 1 if draw < 0.85 else 2
+
+
+def lazy_card_skipped(account: str, index: int, total: int, today: date | None = None) -> bool:
+	"""Whether card number `index` of `total` is one of today's skipped ones. Never all of them."""
+	today = today or _today()
+	count = min(lazy_skips(account, today), max(0, total - 1))
+	ranked = sorted(range(total), key=lambda i: _unit(account, today, f"lazy-card-{i}"))
+
+	return index in ranked[:count]
+
+
 def ordered(items: list, rng=random) -> list:
 	"""The accounts of a run in a fresh order each time, unless REWARDS_KEEP_ORDER=1."""
 	items = list(items)

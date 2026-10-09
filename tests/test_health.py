@@ -268,6 +268,16 @@ class TestSendingOnce(HealthCase):
 
 		self.assertEqual(self.send.call_count, 2)
 
+	def test_another_loop_that_does_not_look_at_the_account_does_not_make_it_sendable_again(self):
+		rows = [event("third", 5, outcome="failed", exit_code=1), event("third", 2, outcome="failed", exit_code=1)]
+
+		with mock.patch.object(health.journal, "events", return_value=rows):
+			health.check(["third"], NOW, self.send)
+			health.check(["default", "second"], NOW + timedelta(hours=1), self.send)
+			health.check(["third"], NOW + timedelta(hours=2), self.send)
+
+		self.assertEqual(self.send.call_count, 1)
+
 	def test_a_damaged_state_file_does_not_stop_a_message(self):
 		with open(health.STATE_FILE, "w") as handle:
 			handle.write("{broken")

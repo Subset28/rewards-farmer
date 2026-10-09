@@ -37,7 +37,7 @@ One change at a time, one account at a time, a few days apart, `python src/statu
 3. **See a task stop paying.** The health check catches a failed run or a stalled account, not one task that quietly earns 0. Record each task's payout and alert when one that used to pay pays nothing for three days.
 4. **No backups, on purpose** (decision 2026-10-08): the brake and the git history cover mistakes; the behavior recordings are also kept on the PC.
 5. **Know when the NAS itself is off.** The Discord alerts come from the schedulers, so a dead NAS is silent. Needs an outside "heartbeat" service (a decision for the owner).
-6. **Third account's Discord webhook** (`NOTIFY_URL_THIRD` in the NAS `.env`) and the owner's confirmation that mom agrees to the terms risk.
+6. **Third account's consent** (the owner to confirm mom agrees to the terms risk). Alerts all go to the one `NOTIFY_URL` channel.
 7. **Housekeeping on the NAS.** `src_prev`, `Dockerfile.prev` and `docker-compose.yml.prev` are old hand-made rollback copies. Rollback is now `scripts/deploy.sh <tag>`; delete them once that has been used once.
 
 ## Rules that stay

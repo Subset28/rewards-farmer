@@ -1,15 +1,11 @@
 """Push notifications for things that need a human.
 
-Each account can have its own destination, so one account's alerts do not land
-in another's channel:
+Everything goes to one destination, NOTIFY_URL (decided 10-08: one channel, not one per account or per kind of
+message). Each message names its account, so a single channel stays readable:
 
-    NOTIFY_URL_DEFAULT=https://discord.com/api/webhooks/...   # the "default" account
-    NOTIFY_URL_SECOND=https://discord.com/api/webhooks/...    # the "second" account
-    NOTIFY_URL=https://ntfy.sh/your-topic                      # anything without its own
+    NOTIFY_URL=https://discord.com/api/webhooks/...
 
-The name is the account's profile name, upper-cased, with anything that is not a
-letter or digit turned into an underscore. A Discord webhook address is sent as a
-Discord message; any other address is treated as an ntfy topic. With nothing set,
+A Discord webhook address is sent as a Discord message; any other address is treated as an ntfy topic. With nothing set,
 send() only logs, so nothing about a run depends on it. It never raises: an alert
 that fails must not be the reason a run does.
 
@@ -37,19 +33,8 @@ USER_AGENT = "rewards-farmer-notify"
 DISCORD_HOSTS = ("discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com")
 
 
-def env_name(account: str) -> str:
-	"""The environment variable that holds this account's destination."""
-	return "NOTIFY_URL_" + re.sub(r"[^A-Za-z0-9]", "_", account).upper()
-
-
 def url_for(account: str | None = None) -> str:
-	"""This account's own destination, else the shared one, else an empty string."""
-	if account:
-		own = os.environ.get(env_name(account), "").strip()
-
-		if own:
-			return own
-
+	"""The one destination, or an empty string. (`account` is kept so callers need not change; it no longer routes.)"""
 	return os.environ.get("NOTIFY_URL", "").strip()
 
 
@@ -91,9 +76,8 @@ def _ntfy_request(url: str, title: str, message: str, priority: str) -> urllib.r
 
 
 def send_each(accounts: list[str] | None, title: str, message: str, priority: str = "default") -> None:
-	"""Send to every one of these accounts' destinations, or once to the shared one when there are none."""
-	for account in accounts or [None]:
-		send(title, message, priority=priority, account=account)
+	"""Send once, naming the accounts it is about in the title."""
+	send(f"{', '.join(accounts)}: {title}" if accounts else title, message, priority=priority)
 
 
 def send(title: str, message: str, priority: str = "default", account: str | None = None) -> bool:

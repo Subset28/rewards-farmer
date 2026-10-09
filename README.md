@@ -215,7 +215,7 @@ python src/safety.py status
 python src/safety.py clear
 ```
 
-Alerts go to a Discord webhook or an [ntfy](https://ntfy.sh) topic, and each account can have its own: set `NOTIFY_URL_DEFAULT` and `NOTIFY_URL_SECOND` (the account's name, upper-cased) in `.env`. `NOTIFY_URL` is the fallback for an account with none of its own. A webhook address is a secret, so keep it in `.env`, which is not committed. Unset, alerts only log.
+Alerts go to one Discord webhook or [ntfy](https://ntfy.sh) topic, set as `NOTIFY_URL` in `.env`; each message names its account. A webhook address is a secret, so keep it in `.env`, which is not committed. Unset, alerts only log.
 
 What is sent: the brake tripping (including an account signed out), a round of searches that earns nothing, a scheduled search or daily run that fails (any exit code but the brake's own 3, which has already alerted), and once per account after each daily run a line with today, month and lifetime points and how far the next level is.
 
@@ -233,8 +233,7 @@ Swapping a build mid-day is therefore safe, but not while a run is live: recreat
 | Variable | Default | Meaning |
 |---|---|---|
 | `TRAWL_URL` | unset | Address of a trawl service, used as a fallback for public feeds that refuse a plain request. Never used for account pages. |
-| `NOTIFY_URL` | unset | Shared alert address (Discord webhook or ntfy topic) for any account without its own. |
-| `NOTIFY_URL_<ACCOUNT>` | unset | One account's own alert address, e.g. `NOTIFY_URL_SECOND`. |
+| `NOTIFY_URL` | unset | The one alert address (Discord webhook or ntfy topic) for every account and message. |
 | `REWARDS_SEARCHES_PER_RUN` | `5-8` | Searches one scheduled search run makes before stopping, so the quota fills across the day. |
 | `REWARDS_ACCOUNT_GAP_MINUTES` | `20-60` | Wait between one account and the next. Accounts are always worked one at a time. |
 | `REWARDS_LEVEL_TARGETS` | `default=750,second=500,third=500` | Monthly points that reach each account's next level, as `name=points,name=points`, for the progress line. An account not listed gets no progress line. |
