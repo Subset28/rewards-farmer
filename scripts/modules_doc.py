@@ -16,7 +16,7 @@ GROUPS = (
 	("Runs the accounts", ("main", "daily_loop", "search_scheduler", "search_only", "rewards_tasks", "browser", "tab_utils", "quests", "element_selectors", "desktop_utils", "signin")),
 	("What it searches for", ("queries", "query_sources", "query_history", "openrouter_queries", "llm_utils", "search_behavior", "trawl_client", "chains", "reading")),
 	("Behaves like a person", ("behavior", "mimic_typing", "mouse_trajectory", "pointer_path", "human_model", "pace", "pacing", "schedule_plan", "features", "footprint", "memory_guard")),
-	("Keeps itself safe and visible", ("safety", "notify", "health", "task_log", "journal", "run_lock", "points_log", "status", "backup", "clock", "accounts", "constants", "log_utils")),
+	("Keeps itself safe and visible", ("safety", "notify", "health", "task_log", "journal", "run_lock", "points_log", "status", "clock", "accounts", "constants", "log_utils")),
 	("One VPN per account", ("vpn_config", "isolation")),
 	("Recording a person's hands, and checking the result", ("calibrate", "calibration", "mouse_fit", "indistinguishable", "make_behavior_profile", "typing_test", "fitts_law", "recordpress", "analyze_keypresses")),
 	("Diagnostics and one-off tools", ("check_selectors", "fingerprint_probe", "typing_events_probe", "mouse_events_probe", "serp_probe", "chain_probe", "inspect_rewards", "vpn_browser_check", "visualize_trajectory", "visualize_bezier_distortions", "random_image_for_visual_search")),

@@ -4,8 +4,6 @@
     GET  /runs?days=2        the journal of runs
     GET  /tasks?days=14      per account and task: how often it worked, its last outcomes, whether it is failing now
     GET  /settings           what is switched on and how it is set (no secrets: only whether one is present)
-    GET  /snapshots          what the page offered when a task failed or was skipped: the list
-    GET  /snapshots/<name>   one of them: the page's button, link and heading labels
     GET  /inspect            the saved Rewards pages (inspect_rewards.py): the list
     GET  /inspect/<name>     one of them, as lines (emails and long numbers taken out)
     GET  /logs               which log files there are
@@ -41,7 +39,6 @@ import journal
 import pacing
 import points_log
 import safety
-import snapshot
 import status
 import task_log
 from constants import USER_DATA_DIR
@@ -53,7 +50,9 @@ LOG_DIR = os.path.join(USER_DATA_DIR, "logs")
 MAX_BODY = 4096
 LOG_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.log$")
 MAX_LINES = 500
-INSPECT_DIR = os.path.join(USER_DATA_DIR, "inspect")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
+LONG_NUMBER = re.compile(r"\d[\d\s().-]{7,}\d")
+INSPECT_DIR =os.path.join(USER_DATA_DIR, "inspect")
 INSPECT_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.txt$")
 
 
@@ -194,7 +193,7 @@ def inspect_text(name: str) -> list[str] | None:
 	except OSError:
 		return None
 
-	return [snapshot.EMAIL.sub("[email]", snapshot.LONG_NUMBER.sub("[number]", line))[:200] for line in text.splitlines()][:MAX_LINES * 2]
+	return [EMAIL.sub("[email]", LONG_NUMBER.sub("[number]", line))[:200] for line in text.splitlines()][:MAX_LINES * 2]
 
 
 def tail(name: str, lines: int) -> list[str] | None:
@@ -251,14 +250,6 @@ def handle(method: str, path: str, body: dict | None = None) -> tuple[int, objec
 
 		if route == "/settings":
 			return 200, settings_view()
-
-		if route == "/snapshots":
-			return 200, snapshot.names()
-
-		if route.startswith("/snapshots/"):
-			found = snapshot.read(route[len("/snapshots/"):])
-
-			return (200, found) if found is not None else (404, {"error": "no such snapshot"})
 
 		if route == "/inspect":
 			return 200, inspect_files()

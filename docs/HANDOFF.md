@@ -19,7 +19,6 @@ Where the project stands, what to do next, and how to operate it. No secrets her
 ```
 bash scripts/ctl.sh status            accounts, brake, browsers running, today's runs, health
 bash scripts/ctl.sh tasks [days]      which tasks work, which are failing now
-bash scripts/ctl.sh snapshots [name]  what the Rewards page offered when a task failed or was skipped
 bash scripts/ctl.sh settings          what is on and how it is set (no secrets)
 bash scripts/ctl.sh runs [days] | logs [name [lines]]
 bash scripts/ctl.sh pause [account] [why] | resume [account]
@@ -31,8 +30,8 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 1. Check the first runs on the new setup: searches for default and second, second's daily run, and the first bot run for
    third. `ctl.sh status` and `ctl.sh tasks`.
 2. **Visual search is skipped on the brother's account every day.** (The owner's account is on its ramp and does not try it
-   until about 10-11.) The first snapshot comes from the brother's daily run (about 10:42 on 10-09): read it with
-   `ctl.sh snapshots` and fix `element_selectors.get_open_visual_search_sidebar`.
+   until about 10-11.) The brother's daily run (about 10:42 on 10-09) logs the streak labels the page offered: read them with
+   `ctl.sh logs scheduler.log 200` and fix `element_selectors.get_open_visual_search_sidebar`.
 3. Third's calibration scored typing 0.64 / mouse 0.68 from one short sitting. Have her record again on another day
    (`python src/calibrate.py third`, with the clearer screens), re-score, and copy the profile over only if it is at least as
    good. Until a bot run of hers succeeds, her daily set and search are done by hand.

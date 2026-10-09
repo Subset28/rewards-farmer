@@ -32,7 +32,6 @@ import features
 import memory_guard
 import query_history
 import reading
-import snapshot
 import task_log
 
 from constants import REPO_ROOT
@@ -442,8 +441,10 @@ class RewardsTaskUtils:
 		quest_url = self.driver.current_url
 		tried: set[str] = set()
 
-		# What this quest asks for, kept so a task the bot cannot do yet can be added from the record.
-		snapshot.capture(self.driver, self.account_name, f"Quest {href.rsplit('/', 1)[-1][:30]}", "quest page")
+		# What the quest offers, in the log, so a task the bot cannot do yet can be added from facts.
+		logger.info("Quest %s lists: %s", href.rsplit("/", 1)[-1][:30], [
+			(link.text or "").strip()[:40] for link in self.elements.get_quest_page_links()
+		][:12])
 
 		for _ in range(self.MAX_QUEST_TASKS):
 			links = [
@@ -1117,9 +1118,6 @@ class RewardsTaskUtils:
 					"[%s] %s: %s", tag, name, reason,
 					exc_info=logger.isEnabledFor(logging.DEBUG)
 				)
-
-				# What the page offered, while it is still on screen (snapshot.py): the labels only, nothing personal.
-				snapshot.capture(self.driver, self.account_name, name, reason)
 
 				# A task that fails on a sign-in, verification or restriction
 				# page is not a missing control. Look before the next task makes
