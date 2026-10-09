@@ -17,6 +17,7 @@ import time
 
 import accounts
 import browser
+import footprint
 import log_utils
 import run_lock
 from constants import USER_DATA_DIR
