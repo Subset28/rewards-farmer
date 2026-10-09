@@ -13,6 +13,7 @@ Messages carry an account's profile name and a reason, never a credential, and a
 webhook address is never logged, because anyone holding it can post to the channel.
 """
 
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -27,7 +28,7 @@ TIMEOUT_SECONDS = 10
 
 # Discord rejects a message longer than this, and rejects the default Python
 # user agent outright, so both are handled here.
-DISCORD_LIMIT = 2000
+DISCORD_LIMIT = 2000  # a plain message; an embed's description may be longer (EMBED_DESCRIPTION_LIMIT)
 USER_AGENT = "rewards-farmer-notify"
 
 DISCORD_HOSTS = ("discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com")
@@ -44,13 +45,53 @@ def is_discord(url: str) -> bool:
 	return (parts.hostname or "").lower() in DISCORD_HOSTS and parts.path.startswith("/api/webhooks/")
 
 
+# How a Discord message looks: a colour and a sign by kind, so a glance says what sort it is.
+STYLES = (
+	("NEEDS CLAUDE", "🛠", 0xF59E0B),
+	("NEEDS YOU", "✋", 0xF97316),
+	("failed", "⚠", 0xEF4444),
+	("paused", "🛑", 0xEF4444),
+	("Daily points", "💰", 0x22C55E),
+	("Weekly note", "📊", 0x3B82F6),
+	("points", "🎁", 0xFACC15),
+	("Calibration", "🎙", 0xA855F7),
+)
+EMBED_TITLE_LIMIT = 256
+EMBED_DESCRIPTION_LIMIT = 4000
+
+
+def style_for(title: str, priority: str) -> tuple[str, int]:
+	"""(sign, colour) for a message, by what its title says, else by how urgent it is."""
+	lowered = title.lower()
+
+	for word, sign, colour in STYLES:
+		if word.lower() in lowered:
+			return sign, colour
+
+	return ("⚠", 0xEF4444) if priority in ("high", "urgent") else ("🔔", 0x64748B)
+
+
+def _tidy(title: str, message: str) -> str:
+	"""Account names in bold, and the points line laid out with dots, for the two messages that are lists of facts."""
+	if title.lower().startswith("daily points"):
+		message = message.replace(", ", " · ")
+
+	if title.lower().startswith(("daily points", "weekly note")):
+		message = re.sub(r"(?m)^([A-Za-z0-9_.-]+):", r"**\1**:", message)
+
+	return message
+
+
 def _discord_request(url: str, title: str, message: str, priority: str) -> urllib.request.Request:
-	text = f"**{title}**\n{message}"
-
-	if priority in ("high", "urgent"):
-		text = "\N{WARNING SIGN} " + text
-
-	body = {"content": text[:DISCORD_LIMIT], "allowed_mentions": {"parse": []}}
+	sign, colour = style_for(title, priority)
+	embed = {
+		"title": f"{sign} {title}"[:EMBED_TITLE_LIMIT],
+		"description": _tidy(title, message)[:EMBED_DESCRIPTION_LIMIT],
+		"color": colour,
+		"footer": {"text": "rewards-farmer"},
+		"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+	}
+	body = {"embeds": [embed], "allowed_mentions": {"parse": []}}
 
 	return urllib.request.Request(
 		url,
