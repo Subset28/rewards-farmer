@@ -158,3 +158,18 @@ class TestTasksAndSettings(unittest.TestCase):
 			self.assertEqual(control_api.handle("GET", "/snapshots/a.json")[1]["buttons"], ["x"])
 
 		self.assertEqual(control_api.handle("GET", "/snapshots/..%2f..%2fPAUSED")[0], 404)
+
+	def test_saved_pages_are_read_with_emails_and_numbers_taken_out(self):
+		with tempfile.TemporaryDirectory() as folder:
+			with open(os.path.join(folder, "second-quest0.txt"), "w", encoding="utf-8") as handle:
+				handle.write("Earn 1320 points\nwrite to someone@example.com\ncard 4111 1111 1111 1111\n")
+
+			with mock.patch.object(control_api, "INSPECT_DIR", folder):
+				self.assertEqual(control_api.handle("GET", "/inspect"), (200, ["second-quest0.txt"]))
+				status, lines = control_api.handle("GET", "/inspect/second-quest0.txt")
+				self.assertEqual(status, 200)
+				self.assertEqual(lines[0], "Earn 1320 points")
+				self.assertEqual(lines[1], "write to [email]")
+				self.assertEqual(lines[2], "card [number]")
+				self.assertEqual(control_api.handle("GET", "/inspect/..%2fsecret.txt")[0], 404)
+				self.assertEqual(control_api.handle("GET", "/inspect/missing.txt")[0], 404)
