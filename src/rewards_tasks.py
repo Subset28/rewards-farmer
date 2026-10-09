@@ -235,7 +235,34 @@ class RewardsTaskUtils:
 
 		return points_log.parse_bonuses(self.driver.find_element(By.TAG_NAME, "body").text)
 
+	def close_celebration(self):
+		"""Close the "Nice work, you've completed the quest" pop-up the dashboard shows over everything until it is closed.
+
+		Seen 10-09 on the brother's account: with it up, nothing behind it can be clicked. Only that pop-up (by its wording)
+		is closed here; a sign-in or verification dialog is never touched."""
+		try:
+			dialogs = self.driver.find_elements(
+				By.XPATH,
+				"//*[@role='dialog'][contains(., 'Nice work') or contains(., 'earned bonus points')]",
+			)
+
+			for dialog in dialogs:
+				if not dialog.is_displayed():
+					continue
+
+				close = dialog.find_element(By.XPATH, ".//button[normalize-space(.)='Close']")
+				self.move_to_and_click(close)
+				_wait(self, 1, 2)
+				logger.info("Closed the quest-completed pop-up.")
+
+				return
+		except safety.AccountAtRisk:
+			raise
+		except Exception as exc:
+			logger.debug("No pop-up to close: %s", log_utils.exception_summary(exc))
+
 	def switch_to_earn_page(self):
+		self.close_celebration()
 		self.move_to_and_click(self.elements.get_earn_tab())
 
 	def switch_to_dashboard(self):
@@ -651,6 +678,19 @@ class RewardsTaskUtils:
 			random_image_for_visual_search.get_random_image()
 
 		self.open_streaks_section()
+
+		# A padlocked tile ("How to activate") is a streak Microsoft has not unlocked for this account: nothing to do
+		# there, and clicking it only opens an explanation (seen 10-09 on a Gold account).
+		try:
+			entry = self.elements.get_open_visual_search_sidebar()
+
+			if "how to activate" in (entry.text or "").lower():
+				raise NoSuchElementException("the Visual Search Streak is locked on this account (\"How to activate\")")
+		except NoSuchElementException as exc:
+			if "locked" in str(exc):
+				raise
+		except StaleElementReferenceException:
+			pass
 
 		try:
 			self.wait_for_then_click(self.elements.get_open_visual_search_sidebar)
