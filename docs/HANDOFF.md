@@ -12,9 +12,18 @@ Where the project stands, what to do next, and how to operate it. No secrets her
   has no recorded profile (or whose stored score is above 0.70) and tells its owner once a day.
 - **Switches left** (all off): `chains` (searching in tangents; opening result pages is off because it exhausted memory),
   `query_sessions`. Each is to be deleted once it has run cleanly on a real account.
-- **Run times:** each account searches in its own favoured times of the day (always on), and no two accounts start within 45 minutes of each other.
-- **Pacing:** a working day fills the whole search quota (minimum fraction 1.0, since 10-08); about one day in ten is a light
-  day; new accounts ramp (second 7 days, third 21 days).
+- **Run times:** each account searches in its own favoured times of the day (always on). The planner keeps one account's
+  runs 45 minutes (relaxing to 30, 15, 0 only if the day is full) from every other account's planned runs, read from the
+  whole plan file; the loops take turns drawing (`schedule_plan.planning`) because they all start a new day at the same
+  instant. (Two bugs there were found and fixed on 10-09: loops drawing simultaneously, and each loop only knowing its
+  own account.) The daily runs are planned separately and can still land fairly close to each other.
+- **Pacing:** a working day fills the whole search quota (minimum fraction 1.0, since 10-08). No light days
+  (`REWARDS_REST_DAY_CHANCE=0`). A new account claims every reward from day one (daily set, Explore, misc cards, quests,
+  bonus) and only its searching ramps up over 7 days (30% rising to a full day). On some days an account leaves one or two
+  Explore cards alone (a "lazy day", `pacing.lazy_card_skipped`), as a person skips the ones that need a search to credit.
+- **Notifications:** ONE Discord channel (`NOTIFY_URL`, the owner's). Messages are coloured embeds with a sign per kind and
+  the account named in the title. A weekly note (Sundays after 18:00) and a "redeem now" reminder at every 6,500 lifetime
+  points come from `src/weekly.py`. The brother's old separate webhook is unused.
 - **No snapshots, no backups** (the owner's decision, 10-08): the brake and git history cover mistakes. Details of a failure
   or a quest go to the log.
 - **Memory limit:** 2 GB per container.
