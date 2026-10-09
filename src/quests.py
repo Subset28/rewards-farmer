@@ -73,6 +73,18 @@ def is_onboarding(href: str) -> bool:
 	return ONBOARDING_QUEST in (href or "").lower()
 
 
+DASHBOARD_SECTIONS = ("your progress", "daily set", "your activity", "featured redemptions", "achievements", "level benefits")
+
+
+def is_dashboard_section(label: str) -> bool:
+	"""Whether a button's text is one of the dashboard's named sections (they carry a "+5" until opened).
+
+	Only these are opened: the account's own header card and the claim button are expandable too and are left alone."""
+	text = " ".join((label or "").lower().split())
+
+	return any(text == name or text == f"{name} +5" for name in DASHBOARD_SECTIONS)
+
+
 def pick_onboarding(candidates: list[tuple[str, str]], tried: set[str]) -> tuple[str, str] | None:
 	"""The first (href, text) of an onboarding task not yet done, else None.
 

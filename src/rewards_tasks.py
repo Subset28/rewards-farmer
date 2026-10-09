@@ -554,7 +554,7 @@ class RewardsTaskUtils:
 			)
 			# Each section once, by its name: a button that does not open must not be clicked again and again.
 			fresh = [(e, " ".join((e.text or "").split())) for e in closed]
-			fresh = [(e, label) for e, label in fresh if label and label not in opened]
+			fresh = [(e, label) for e, label in fresh if quests.is_dashboard_section(label) and label not in opened]
 
 			if not fresh:
 				break
