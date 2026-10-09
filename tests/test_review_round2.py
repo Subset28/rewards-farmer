@@ -42,9 +42,9 @@ class TestCaseInsensitiveNames(FeatureFileTestCase):
 		self.assertFalse(features.enabled("chains", "default"))
 
 	def test_a_scheduler_owner_is_matched_whatever_the_case(self):
-		self.write({"habits": ["second"]})
+		self.write({"query_sessions": ["second"]})
 
-		self.assertTrue(features.enabled("habits", "Default,SECOND"))
+		self.assertTrue(features.enabled("query_sessions", "Default,SECOND"))
 
 	def test_switching_off_with_a_different_case_really_turns_it_off(self):
 		features.switch("chains", "Second", True)
@@ -105,7 +105,7 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 			features.switch("chains", f"a{n}", True)
 
 		threads = [threading.Thread(target=features.switch, args=("chains", f"a{n}", False)) for n in range(6)]
-		threads += [threading.Thread(target=features.switch, args=("habits", "x", True))]
+		threads += [threading.Thread(target=features.switch, args=("query_sessions", "x", True))]
 
 		for t in threads:
 			t.start()
@@ -116,7 +116,7 @@ class TestSwitchingIsSafeToRace(FeatureFileTestCase):
 		data = json.loads(self.file.read_text())
 
 		self.assertEqual(data["chains"], [])
-		self.assertEqual(data["habits"], ["x"])
+		self.assertEqual(data["query_sessions"], ["x"])
 
 	def test_the_lock_is_released_afterwards(self):
 		features.switch("chains", "second", True)
@@ -235,7 +235,7 @@ class TestTypingCorrectionOnlyForSameLengthSlips(unittest.TestCase):
 
 class TestHabitTimesAreDistinctAndInRange(unittest.TestCase):
 	def setUp(self):
-		patcher = mock.patch.dict(os.environ, {"REWARDS_FEATURES": "habits"})
+		patcher = mock.patch.dict(os.environ, {"REWARDS_FEATURES": "query_sessions"})
 		patcher.start()
 		self.addCleanup(patcher.stop)
 

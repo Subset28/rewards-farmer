@@ -6,7 +6,7 @@ behaviour reads as natural. Turned on together, an account that gets flagged can
 to the change that did it, and a ban costs the account. So each is off until it is switched on,
 for one account first (the one that matters least), a few days apart.
 
-    data-dir/features.json    {"chains": ["second"], "query_sessions": [], "habits": []}
+    data-dir/features.json    {"chains": ["second"], "query_sessions": []}
 
 A feature is on for an account that is listed under it, and for every account if "*" is. Nothing
 is on by default, and a missing or unreadable file means everything is off: the old behaviour,
@@ -16,9 +16,9 @@ restart.
     python src/features.py                      what is on, per feature
     python src/features.py on typing second     switch typing on for the "second" account
     python src/features.py off typing second    and off again
-    python src/features.py on habits '*'        on for every account
+    python src/features.py on chains '*'        on for every account
 
-REWARDS_FEATURES=typing,habits turns those on for every account regardless of the file (for
+REWARDS_FEATURES=chains turns those on for every account regardless of the file (for
 tests and one-off runs).
 
 Features:
@@ -29,7 +29,6 @@ Features:
     chains           searches in tangents: the next search comes from the results page's own related searches,
                      typed or clicked, with reading and the odd opened result between (chains.py, reading.py)
     query_sessions   queries grouped into topical sessions with follow-ups (query_sources.py)
-    habits           each owner's own favoured times of day for search runs (search_scheduler.py)
 """
 
 import contextlib
@@ -45,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 FEATURES_FILE = os.path.join(USER_DATA_DIR, "features.json")
 
-KNOWN = ("chains", "query_sessions", "habits")
+KNOWN = ("chains", "query_sessions")
 
 ENV = "REWARDS_FEATURES"
 EVERY_ACCOUNT = "*"

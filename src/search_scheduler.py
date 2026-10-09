@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import accounts
-import features
 import footprint
 import health
 import gate
@@ -42,6 +41,10 @@ MIN_WINDOW = timedelta(minutes=30)
 # late and the window is still open. A run reads the real points first, so doing
 # one again only does what is left.
 CATCH_UP = timedelta(hours=3)
+
+# The least minutes between the starts of any two planned runs on this connection, tried in order.
+SPACING_MINUTES = (45, 30, 15, 0)
+OWN_SPACING_MINUTES = 20
 
 
 @dataclass(frozen=True)
@@ -85,12 +88,21 @@ _WEEKEND_SHIFT_MINUTES = (60, 90)
 _WEEKEND_WIDEN = 1.5
 
 
-def habits_enabled(owner: str | None = None) -> bool:
-	"""Whether this owner's runs follow its own favoured times of day.
+def other_runs_today(now: datetime, owner: str) -> list[datetime]:
+	"""Every run already planned today by the other accounts (searches, and the daily run), to keep apart from."""
+	day = now.strftime("%Y-%m-%d")
+	found: list[datetime] = []
 
-	That changes what Microsoft sees, so it goes live one account at a time (features.py);
-	until the "habits" feature is on for the owner, run times are drawn uniformly as before."""
-	return features.enabled("habits", owner)
+	for name in account_names() or []:
+		if name == owner:
+			continue
+
+		saved = schedule_plan.read("search", name)
+		found += _parse(saved.get("times")) if saved.get("day") == day else []
+		daily = _parse([schedule_plan.read("daily", name).get("at")])
+		found += [t for t in daily if t.strftime("%Y-%m-%d") == day]
+
+	return found
 
 
 def _unit(owner: str, salt: str) -> float:
@@ -157,7 +169,7 @@ def _habit_time(owner: str, begin: datetime, end: datetime, start: datetime) -> 
 	return midnight + timedelta(minutes=min(minute, hi - 1 / 60))
 
 
-def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
+def draw_times(now: datetime, owner: str | None = None, avoid: list[datetime] | None = None) -> list[datetime]:
 	"""Random run times in what is left of today's [START_HOUR, END_HOUR) window, sorted.
 
 	A full day's RUNS_PER_DAY when the day has not started, proportionally fewer
@@ -165,8 +177,7 @@ def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
 	and none when the window is nearly over.
 
 	With an owner, most times fall in that owner's habitual windows (see
-	habit_windows) instead of uniformly, once the "habits" feature is on for it (features.py); otherwise,
-	they are uniform.
+	habit_windows) and keep their distance from `avoid`; with none, they are uniform.
 	"""
 	start = now.replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
 	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
@@ -179,18 +190,29 @@ def draw_times(now: datetime, owner: str | None = None) -> list[datetime]:
 	count = RUNS_PER_DAY if fraction >= 1 else max(1, math.ceil(RUNS_PER_DAY * fraction))
 	span = (end - begin).total_seconds()
 
-	if owner is None or not habits_enabled(owner):
+	if owner is None:
 		return sorted(begin + timedelta(seconds=random.uniform(0, span)) for _ in range(count))
 
-	times: set[datetime] = set()
+	times: list[datetime] = []
+	taken = list(avoid or [])
 
-	# Distinct times: the journal tells runs apart by their planned time, so two the same would be
-	# marked done together and the day would get fewer runs than planned.
-	for _ in range(count * 20):
-		if len(times) >= count:
-			break
+	# Distinct, and apart from every other run planned today (this owner's and the other accounts', which
+	# share a connection): two accounts starting minutes apart is a pattern, and the journal tells runs apart
+	# by their planned time. The gap is relaxed only when the day is too full to keep it, never dropped
+	# before the last pass.
+	for gap in SPACING_MINUTES:
+		for _ in range(count * 30):
+			if len(times) >= count:
+				break
 
-		times.add(_habit_time(owner, begin, end, start))
+			candidate = _habit_time(owner, begin, end, start)
+
+			# One account's own runs may sit closer (a person searches twice in an hour); another account's
+			# run, on the same connection, is kept at the full gap.
+			if all(abs((candidate - other).total_seconds()) >= gap * 60 for other in taken) and all(
+				abs((candidate - other).total_seconds()) >= min(gap, OWN_SPACING_MINUTES) * 60 for other in times
+			):
+				times.append(candidate)
 
 	return sorted(times)
 
@@ -218,7 +240,7 @@ def day_plan(now: datetime, owner: str) -> list[datetime]:
 	times = _parse(saved.get("times")) if saved.get("day") == day else []
 
 	if not times:
-		times = draw_times(now, owner)
+		times = draw_times(now, owner, other_runs_today(now, owner))
 		schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in times]})
 
 	return times

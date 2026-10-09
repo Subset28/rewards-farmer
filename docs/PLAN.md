@@ -24,8 +24,6 @@ One change at a time, one account at a time, a few days apart, `python src/statu
 | 10-14 | `mouse` on for `default` | `default`'s hands recorded |
 | 10-17 | `query_sessions` on for `second` | |
 | 10-20 | `query_sessions` on for `default` | |
-| 10-23 | `habits` on for `second` | |
-| 10-26 | `habits` on for `default` | |
 | 10-29 | VPN for `second` | a real-provider test (`vpn_three_accounts.sh`) the same week |
 | 11-01 | read what each account's monthly bonuses paid. This is also the first full month of bot activity, so the Bing Star score (an organic-use score; September's 5 of 3,500 covered only about five days of bot use) is the first real scoreboard for the behaviour work | |
 | 11-02 | VPN for `default` | |
@@ -62,7 +60,7 @@ One change at a time, one account at a time, a few days apart, `python src/statu
 The gate (`src/gate.py`) lets an account run only with its own recording, so the recording is always used: no
 `typing` or `mouse` switch exists any more, and the original generic typing code is deleted. Mouse was checked in a
 real browser first (`mouse_events_probe.py` with `PROBE_PROFILE`: events trusted, speed profile plausible). The staged
-dates above for typing and mouse no longer apply; `chains`, `query_sessions` and `habits` are still switches, and each is
+dates above for typing and mouse no longer apply; `chains` and `query_sessions` are still switches (per-owner habits are now always on, with accounts kept 45 minutes apart), and each is
 to be deleted the same way once it has run cleanly on a real account.
 
 ## 2026-10-08: two containers

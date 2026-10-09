@@ -24,7 +24,7 @@ tail -50 data-dir/logs/search-scheduler.log                        # readable lo
 
 ## Rolling a behaviour change out (and back)
 
-Typing, mouse, query sessions and per-owner habits change what Microsoft sees, so each is **off until you switch it on, one account at a time**. Order: `typing`, then `mouse`, then `query_sessions`, then `habits`, then the VPN. Start with the account that matters least ("second"), give each step a few days, and check `status.py` between steps.
+Query sessions and chains change what Microsoft sees, so each is **off until you switch it on, one account at a time**. Order: `typing`, then `mouse`, then `query_sessions`, then the VPN. Start with the account that matters least ("second"), give each step a few days, and check `status.py` between steps.
 
 ```sh
 F='docker run --rm -v /volume1/docker/rewards-farmer/data-dir:/app/data-dir --entrypoint python rewards-farmer:runtime src/features.py'
