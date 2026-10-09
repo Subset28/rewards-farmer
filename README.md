@@ -332,7 +332,6 @@ Each of the behaviour changes below changes what Microsoft sees from a real acco
 |---|---|
 | `typing` | Typing in the search box: typos are mostly noticed and corrected (backspace and retype), pauses at word boundaries, a short pause before the first key (`src/mimic_typing.py`). |
 | `query_sessions` | Queries come in short topical sessions with follow-ups ("x", then "x review") instead of unrelated topics; follow-ups come from Bing's suggestions or from templates (`src/query_sources.py`). |
-| `habits` | Each owner has its own favoured times of day for search runs, different on weekends, instead of uniformly random ones (`src/search_scheduler.py`). |
 
 `data-dir/features.json` lists the accounts each feature is on for (`"*"` means every account). Nothing is on by default, and a missing or damaged file means everything is off: the original behaviour, exactly. The file is read on every use, so a change takes effect on the next search without restarting anything.
 
@@ -348,8 +347,7 @@ On the NAS, from `/volume1/docker/rewards-farmer`: `docker run --rm -v "$PWD/dat
 
 1. `typing` on for the second account. Watch `status.py`, points per day, and any verification prompt or brake alert for a few days. Then the same for the first account.
 2. `query_sessions`, the same way.
-3. `habits`, the same way.
-4. The VPN (see below), the same way.
+3. The VPN (see below), the same way.
 
 Turn a feature off again the moment something looks wrong, and tell the changes apart before turning the next one on. The pacing changes (light days, variable totals, the new-account ramp) and the header change were already live before this switch existed.
 
@@ -384,7 +382,7 @@ Four switches (per account, `python src/features.py on <switch> <account>`), eac
 | `typing` | corrected typos; with a recorded profile, that person's own rhythm, key holds and overlaps, slips and pauses (`mimic_typing.py`, `human_model.py`) |
 | `mouse` | with a recorded profile, that person's own click hold, hover, scatter of move times, and the shape of their pointer paths (`pointer_path.py`) |
 | `chains` | searching in tangents: the next search comes from the results page's related searches, with reading between and the odd result opened (`chains.py`, `reading.py`) |
-| `query_sessions`, `habits` | topical query groups; each owner's own favoured times |
+| `query_sessions` | topical query groups |
 
 **Recording a person** takes about eight minutes in one window: `python src/calibrate.py <account>`. Do it again on another day (each sitting is added to `data-dir/behavior/<account>.raw.json`) and the day-to-day spread is measured instead of assumed. `python src/calibrate.py <account> --reanalyze` rebuilds the profile from the recordings with the analysis as it is now.
 

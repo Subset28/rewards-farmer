@@ -10,7 +10,8 @@ Where the project stands, what to do next, and how to operate it. No secrets her
 - **Typing and mouse personalization are always on.** There are no switches for them. `src/gate.py` stops an account that
   has no recorded profile (or whose stored score is above 0.70) and tells its owner once a day.
 - **Switches left** (all off): `chains` (searching in tangents; opening result pages is off because it exhausted memory),
-  `query_sessions`, `habits`. Each is to be deleted once it has run cleanly on a real account.
+  `query_sessions`. Each is to be deleted once it has run cleanly on a real account.
+- **Run times:** each account searches in its own favoured times of the day (always on), and no two accounts start within 45 minutes of each other.
 - **Pacing:** a normal day fills at least 65% of the search quota; new accounts ramp (second 7 days, third 21 days).
 - **Memory limit:** 2 GB per container.
 

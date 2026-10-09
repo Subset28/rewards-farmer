@@ -30,7 +30,7 @@ class HabitTestCase(unittest.TestCase):
 		patcher = mock.patch.dict(os.environ)
 		patcher.start()
 		self.addCleanup(patcher.stop)
-		os.environ.pop("REWARDS_SEARCH_HABITS", None)  # no longer read; the "habits" feature is the switch
+		os.environ.pop("REWARDS_SEARCH_HABITS", None)  # no longer read
 
 
 class TestHabitWindows(HabitTestCase):
@@ -202,7 +202,7 @@ class TestHabitDraws(HabitTestCase):
 		self.assertEqual(first, search_scheduler.draw_times(WEEKDAY.replace(hour=0, minute=5), "someone"))
 
 
-class TestHabitsOff(HabitTestCase):
+class TestDrawing(HabitTestCase):
 	def test_no_owner_is_uniform_and_matches_the_old_draw(self):
 		now = WEEKDAY.replace(hour=0, minute=5)
 		start = now.replace(hour=search_scheduler.START_HOUR, minute=0)
@@ -213,28 +213,48 @@ class TestHabitsOff(HabitTestCase):
 
 		self.assertEqual(search_scheduler.draw_times(now), expected)
 
-	def test_the_switch_turns_habits_off(self):
-		now = WEEKDAY.replace(hour=0, minute=5)
-
-		# The "habits" feature (features.py) is the switch; the suite turns it on for everyone.
-		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}):
-			random.seed(11)
-			with_owner = search_scheduler.draw_times(now, "someone")
-			random.seed(11)
-
-			self.assertEqual(with_owner, search_scheduler.draw_times(now))
-
-	def test_the_switch_is_the_features_file_not_a_default(self):
-		self.assertTrue(search_scheduler.habits_enabled("someone"))
-
-		with mock.patch.dict(os.environ, {"REWARDS_FEATURES": ""}):
-			self.assertFalse(search_scheduler.habits_enabled("someone"))
-
 	def test_day_plan_passes_the_owner_through(self):
 		with mock.patch.object(search_scheduler.schedule_plan, "read", return_value={}), mock.patch.object(search_scheduler.schedule_plan, "write"), mock.patch.object(search_scheduler, "draw_times", return_value=[]) as draw:
 			search_scheduler.day_plan(WEEKDAY, "someone")
 
-		draw.assert_called_once_with(WEEKDAY, "someone")
+		draw.assert_called_once_with(WEEKDAY, "someone", [])
+
+
+class TestSpacing(HabitTestCase):
+	def test_runs_keep_their_distance_from_the_other_accounts_runs(self):
+		now = WEEKDAY.replace(hour=0, minute=5)
+		others = [WEEKDAY.replace(hour=12, minute=40), WEEKDAY.replace(hour=20, minute=5)]
+
+		for seed in range(200):
+			random.seed(seed)
+			mine = search_scheduler.draw_times(now, "default", others)
+
+			self.assertEqual(len(mine), search_scheduler.RUNS_PER_DAY)
+
+			for run in mine:
+				for other in others:
+					self.assertGreaterEqual(abs((run - other).total_seconds()), 45 * 60, seed)
+
+			for first, second in zip(mine, mine[1:]):
+				self.assertGreaterEqual((second - first).total_seconds(), 20 * 60, seed)
+
+	def test_a_crowded_day_still_gets_every_run(self):
+		now = WEEKDAY.replace(hour=0, minute=5)
+		others = [WEEKDAY.replace(hour=8, minute=0) + timedelta(minutes=40 * i) for i in range(22)]
+		random.seed(3)
+
+		self.assertEqual(len(search_scheduler.draw_times(now, "default", others)), search_scheduler.RUNS_PER_DAY)
+
+	def test_other_accounts_plans_for_today_are_collected(self):
+		plans = {("search", "second"): {"day": WEEKDAY.strftime("%Y-%m-%d"), "times": [WEEKDAY.replace(hour=13).isoformat()]},
+			("daily", "second"): {"at": WEEKDAY.replace(hour=10, minute=20).isoformat()},
+			("search", "third"): {"day": "2000-01-01", "times": [WEEKDAY.replace(hour=15).isoformat()]}}
+
+		with mock.patch.object(search_scheduler, "account_names", return_value=["default", "second", "third"]), 			mock.patch.object(search_scheduler.schedule_plan, "read", side_effect=lambda kind, owner: plans.get((kind, owner), {})):
+			found = search_scheduler.other_runs_today(WEEKDAY, "default")
+
+		self.assertEqual(sorted(found), [WEEKDAY.replace(hour=10, minute=20), WEEKDAY.replace(hour=13)])
+
 
 
 if __name__ == "__main__":

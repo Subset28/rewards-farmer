@@ -41,21 +41,21 @@ class TestEnabled(FeatureTestCase):
 
 		self.assertTrue(features.enabled("chains", "second"))
 		self.assertFalse(features.enabled("chains", "default"))
-		self.assertFalse(features.enabled("habits", "second"))
+		self.assertFalse(features.enabled("query_sessions", "second"))
 
 	def test_a_star_means_every_account_and_the_no_account_case(self):
-		self.write({"habits": ["*"]})
+		self.write({"query_sessions": ["*"]})
 
-		self.assertTrue(features.enabled("habits", "default"))
-		self.assertTrue(features.enabled("habits", "second"))
-		self.assertTrue(features.enabled("habits"))
+		self.assertTrue(features.enabled("query_sessions", "default"))
+		self.assertTrue(features.enabled("query_sessions", "second"))
+		self.assertTrue(features.enabled("query_sessions"))
 
 	def test_a_scheduler_owner_that_works_several_accounts_has_it_if_any_of_them_does(self):
-		self.write({"habits": ["second"]})
+		self.write({"query_sessions": ["second"]})
 
-		self.assertTrue(features.enabled("habits", "default,second"))
-		self.assertTrue(features.enabled("habits", "default, second"))
-		self.assertFalse(features.enabled("habits", "default,third"))
+		self.assertTrue(features.enabled("query_sessions", "default,second"))
+		self.assertTrue(features.enabled("query_sessions", "default, second"))
+		self.assertFalse(features.enabled("query_sessions", "default,third"))
 
 	def test_with_no_account_only_a_star_or_the_environment_turns_it_on(self):
 		self.write({"chains": ["second"]})
@@ -65,7 +65,7 @@ class TestEnabled(FeatureTestCase):
 		with mock.patch.dict(os.environ, {features.ENV: "chains"}):
 			self.assertTrue(features.enabled("chains"))
 			self.assertTrue(features.enabled("chains", "default"))
-			self.assertFalse(features.enabled("habits", "default"))
+			self.assertFalse(features.enabled("query_sessions", "default"))
 
 	def test_an_unknown_feature_is_never_on(self):
 		self.write({"made_up": ["*"]})
@@ -93,11 +93,11 @@ class TestEnabled(FeatureTestCase):
 class TestSwitching(FeatureTestCase):
 	def test_on_and_off_round_trip_and_keep_everything_else(self):
 		features.switch("chains", "second", True)
-		features.switch("habits", "default", True)
+		features.switch("query_sessions", "default", True)
 		features.switch("chains", "default", True)
 		features.switch("chains", "second", False)
 
-		self.assertEqual(json.loads(self.file.read_text()), {"chains": ["default"], "query_sessions": [], "habits": ["default"]})
+		self.assertEqual(json.loads(self.file.read_text()), {"chains": ["default"], "query_sessions": ["default"]})
 
 	def test_switching_on_twice_does_not_list_an_account_twice(self):
 		features.switch("chains", "second", True)
@@ -125,9 +125,9 @@ class TestSwitching(FeatureTestCase):
 
 	def test_active_for_lists_an_accounts_features(self):
 		features.switch("chains", "second", True)
-		features.switch("habits", "second", True)
+		features.switch("query_sessions", "second", True)
 
-		self.assertEqual(features.active_for("second"), ["chains", "habits"])
+		self.assertEqual(features.active_for("second"), ["chains", "query_sessions"])
 		self.assertEqual(features.active_for("default"), [])
 
 
@@ -161,24 +161,6 @@ class TestTheOldBehaviourRunsUntilSwitchedOn(FeatureTestCase):
 				queries.related_queries(1, account=account)
 
 			self.assertEqual(draw.call_args.kwargs["sessions"], expected, account)
-
-	def test_run_times_are_uniform_until_habits_is_on_for_the_owner(self):
-		now = datetime(2026, 10, 5, 7, 0)
-
-		with mock.patch.object(ss, "_habit_time", side_effect=AssertionError("habits used while off")):
-			self.assertTrue(ss.draw_times(now, "second"))
-
-	def test_run_times_follow_the_habit_once_it_is_on_for_the_owner(self):
-		features.switch("habits", "second", True)
-		now = datetime(2026, 10, 5, 7, 0)
-
-		distinct = (datetime(2026, 10, 5, 12, minute) for minute in range(0, 59))
-
-		with mock.patch.object(ss, "_habit_time", side_effect=lambda *args: next(distinct)) as habit:
-			ss.draw_times(now, "second")
-
-		self.assertEqual(habit.call_count, ss.RUNS_PER_DAY)
-
 
 class TestStatusShowsIt(FeatureTestCase):
 	def test_status_lists_each_accounts_features(self):
