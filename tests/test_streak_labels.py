@@ -50,3 +50,11 @@ class TestVisualSearchEntry(unittest.TestCase):
 		section.find_element.return_value = "fifth"
 
 		self.assertEqual(selectors.get_open_visual_search_sidebar(), "fifth")
+
+	def test_a_button_outside_the_streaks_container_is_found_by_its_text(self):
+		# 10-09 on the real page: "Visual Search  How to activate" was on the page but not inside #streaks.
+		selectors, section = self.selectors(["Daily streak 14 days"])
+		selectors.driver.find_elements.return_value = [button("Daily streak 14 days"), button("Visual Search\n How to activate")]
+		section.find_element.return_value = "fifth"
+
+		self.assertEqual(selectors.get_open_visual_search_sidebar().text, "Visual Search\n How to activate")

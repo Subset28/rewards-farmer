@@ -297,6 +297,13 @@ class ElementSelectionUtils:
 		except NoSuchElementException:
 			pass
 
+		# The button now reads "Visual Search  How to activate" and is not inside #streaks (seen on the page 10-09,
+		# where streak_labels() was empty although the page had it): look anywhere on the page.
+		try:
+			return self._button_containing("visual search")
+		except NoSuchElementException:
+			pass
+
 		# Not every layout ships this entry point. Where it does but the
 		# label differs, fall back to the original position in streaks.
 		return self._streaks_button(5)
