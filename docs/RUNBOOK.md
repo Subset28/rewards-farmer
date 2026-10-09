@@ -119,7 +119,5 @@ through ssh (the token is read on the NAS and never leaves it). It can look at e
 nothing else: no deploy, no commands, no settings, no browser. Deploys stay `scripts/deploy.sh`. Without a token of at
 least 24 characters it does not start. It sees only the home container's browsers (`browsers_running`), not the vpn one's.
 
-`ctl.sh tasks` shows which tasks have been failing; `ctl.sh snapshots` lists, and `ctl.sh snapshots <name>` shows, what the
-Rewards page offered at the moment a task failed or was skipped (`src/snapshot.py`: button, link and heading labels only,
-with emails, numbers, greetings and address queries removed; the newest few per task; not part of the off-NAS backup).
+`ctl.sh tasks` shows which tasks have been failing; the log line for the task says why. Saved Rewards pages (`inspect_rewards.py`) are read with `ctl.sh inspect`.
 `ctl.sh settings` shows what is on and how it is set, and whether each secret is present, never its value.

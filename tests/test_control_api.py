@@ -152,13 +152,6 @@ class TestTasksAndSettings(unittest.TestCase):
 		self.assertNotIn("ghp_SECRET", dump)
 		self.assertNotIn("t" * 40, dump)
 
-	def test_snapshots_are_listed_and_read_through_the_interface(self):
-		with mock.patch.object(control_api.snapshot, "names", return_value=["a.json"]), mock.patch.object(control_api.snapshot, "read", return_value={"buttons": ["x"]}):
-			self.assertEqual(control_api.handle("GET", "/snapshots"), (200, ["a.json"]))
-			self.assertEqual(control_api.handle("GET", "/snapshots/a.json")[1]["buttons"], ["x"])
-
-		self.assertEqual(control_api.handle("GET", "/snapshots/..%2f..%2fPAUSED")[0], 404)
-
 	def test_saved_pages_are_read_with_emails_and_numbers_taken_out(self):
 		with tempfile.TemporaryDirectory() as folder:
 			with open(os.path.join(folder, "second-quest0.txt"), "w", encoding="utf-8") as handle:

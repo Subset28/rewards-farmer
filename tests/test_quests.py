@@ -236,17 +236,6 @@ class TestCompleteQuests(unittest.TestCase):
 
 @mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
 class TestWorkQuest(unittest.TestCase):
-	def setUp(self):
-		patcher = mock.patch.object(rewards_tasks, "snapshot")
-		self.snapshot = patcher.start()
-		self.addCleanup(patcher.stop)
-
-	def test_the_quest_page_is_recorded_when_opened(self):
-		self._quest([])
-
-		self.snapshot.capture.assert_called_once()
-		self.assertEqual(self.snapshot.capture.call_args.args[2], "Quest q1")
-
 	def _quest(self, page_links, **kwargs):
 		page = QuestPage([Anchor("/earn/quest/q1", "0/5 tasks")], page_links=page_links, **kwargs)
 
