@@ -101,7 +101,8 @@ def main() -> int:
 		if position:
 			time.sleep(random.uniform(60, 180))
 
-		inspect(account)
+		with footprint.virtual_display():
+			inspect(account)
 
 	return 0
 
