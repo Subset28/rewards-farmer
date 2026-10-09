@@ -53,11 +53,14 @@ STATE_FILE = os.path.join(USER_DATA_DIR, "pacing.json")
 RAMP_START_FRACTION = 0.3
 
 # During the ramp an account does these tasks and no others.
-RAMP_STEPS = ("Bing daily set", "Required searches", "Bonus points")
+LIGHT_STEPS = ("Bing daily set", "Required searches", "Bonus points")
+
+# Quests too: a new member's first quest ("Get started with Rewards", +1,320, gone after 30 days) is what a new
+# member does first, and a 21-day ramp would otherwise leave it too late.
+RAMP_STEPS = LIGHT_STEPS + ("Quests",)
 
 # A light day keeps every streak alive and nothing more: the daily set, one small
-# round of searching, and the daily claim.
-LIGHT_STEPS = RAMP_STEPS
+# round of searching, and the daily claim (LIGHT_STEPS, above).
 LIGHT_SEARCH_POINTS = 10
 
 
