@@ -5,8 +5,9 @@ Where the project stands, what to do next, and how to operate it. No secrets her
 
 ## Live state
 
-- **Two containers** on the NAS: `rewards-farmer-home-1` (default = the brother, second = the owner; each has a daily loop and
-  a search loop, plus the control interface) and `rewards-farmer-vpn-1` (third = the owner's mother, behind her own VPN exit).
+- **One container** on the NAS, `rewards-farmer-home-1`: default (the brother), second (the owner) and third (the owner's
+  mother), each with a daily loop and a search loop, plus the control interface. All on the home connection (a clean
+  Verizon residential address); the old VPN exit was a flagged data-centre address, so the `vpn` container was removed on 10-08.
 - **Typing and mouse personalization are always on.** There are no switches for them. `src/gate.py` stops an account that
   has no recorded profile (or whose stored score is above 0.70) and tells its owner once a day.
 - **Switches left** (all off): `chains` (searching in tangents; opening result pages is off because it exhausted memory),
@@ -39,10 +40,15 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 3. Third's calibration scored typing 0.64 / mouse 0.68 from one short sitting. Have her record again on another day
    (`python src/calibrate.py third`, with the clearer screens), re-score, and copy the profile over only if it is at least as
    good. Until a bot run of hers succeeds, her daily set and search are done by hand.
-4. **The one-time "Get started with Rewards" quest (+1,320 points, new accounts, first 30 days)** is the way to lift the
-   owner's and the mother's accounts to Silver, then toward Gold (750 points a month plus two streak activities). The bot
-   opens quests but takes only Bing-link tasks; each quest page now logs what it lists (`Quest ... lists:`). After the next
-   daily runs, read that line with `ctl.sh logs` and automate the safe in-site tasks.
+4. **The one-time "Get started with Rewards" quest (+1,320 points, new accounts, first 30 days).** Seven tasks. Done by
+   the bot now (`rewards_tasks.work_onboarding`, allowed during the ramp): browse Earn, learn the level, explore the
+   dashboard (opens the six "+5" sections), plus the plain search and daily set. On 10-08 the owner's account went 2/7 to
+   5/7. **Open:** "Set a Rewards goal": the control is a react-aria switch ("Set as your Rewards goal") on a gift card's
+   page (`/redeem/sku/000800000064`, Amazon); clicking it (Selenium, ActionChains, JS, keyboard) changes nothing and fires
+   no network call, so the bot cannot tick it. The owner can tick it by hand in ten seconds (Redeem, Amazon gift card,
+   switch on), which finishes that task; the last task, "Search for 7 days", then completes by itself and pays +1,320.
+   The mother's account has the same quest: she needs the same one-off tick. `REWARDS_ONLY_STEPS=Quests` runs just that
+   step by hand (wrap `src/main.py` in `footprint.virtual_display()`; see the log lines `Get-started task`).
 5. Read the level targets from the dashboard ("Progress towards Silver, points to go") instead of `REWARDS_LEVEL_TARGETS`.
 6. Build the weekly Discord summary and the redemption reminder (6,500 points).
 7. Housekeeping: stale rollback copies on the NAS, the old `snapshots` and `backups` folders and the BACKUP_* lines in the
