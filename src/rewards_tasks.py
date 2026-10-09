@@ -584,17 +584,29 @@ class RewardsTaskUtils:
 		self.move_to_and_click(cards[0])
 		_wait(self, 4, 7)
 
-		goal = self.driver.find_elements(By.XPATH, "//*[normalize-space(text())='Set as your Rewards goal']")
+		label_path = "//label[.//span[normalize-space(.)='Set as your Rewards goal']]"
+		box_path = label_path + "//input[@type='checkbox']"
 
-		if not goal:
+		# The card page draws its controls a moment after it loads: wait for the box, as a person would.
+		try:
+			WebDriverWait(self.driver, 25).until(lambda d: d.find_elements(By.XPATH, box_path))
+		except TimeoutException:
 			logger.info("No goal control on the gift card page; leaving the goal for the next look.")
 
 			return
 
-		self.mouse.wheel_scroll_element_into_view(goal[0])
-		self.move_to_and_click(goal[0])
-		_wait(self, 2, 4)
-		logger.info("Set the Amazon gift card as the Rewards goal.")
+		for attempt in range(2):
+			box = self.driver.find_element(By.XPATH, box_path)
+
+			if box.is_selected():
+				break
+
+			label = self.driver.find_element(By.XPATH, label_path)
+			self.mouse.wheel_scroll_element_into_view(label)
+			self.move_to_and_click(label)
+			_wait(self, 2, 4)
+
+		logger.info("Rewards goal ticked on the gift card page: %s", self.driver.find_element(By.XPATH, box_path).is_selected())
 
 	def complete_visual_search(self):
 		self.switch_to_earn_page()
