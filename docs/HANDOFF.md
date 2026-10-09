@@ -41,11 +41,14 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 
 ## Do next, in order
 
-1. Check the first runs on the new setup: searches for default and second, second's daily run, and the first bot run for
-   third. `ctl.sh status` and `ctl.sh tasks`.
-2. **Visual search is skipped on the brother's account every day.** (The owner's account is on its ramp and does not try it
-   until about 10-11.) The brother's daily run (about 10:42 on 10-09) logs the streak labels the page offered: read them with
-   `ctl.sh logs scheduler.log 200` and fix `element_selectors.get_open_visual_search_sidebar`.
+1. Check the day's runs: `ctl.sh status`, `ctl.sh tasks`, `ctl.sh runs`. (10-09: all three accounts' daily runs worked, including
+   the mother's first bot run. Quest "Get started": the owner's and the mother's are 6/7, only "Search for 7 days" is left;
+   the owner's daily-set streak is 6/7, so Gold's two level-up activities should finish about 10-10/10-11.)
+2. ~~Visual search~~ **Resolved 10-09:** the Visual Search Streak tile is padlocked ("How to activate") even on the brother's Gold
+   account, so it cannot be earned for now; the bot skips it quietly (`complete_visual_search`). Two real bugs were fixed on
+   the way: the Streaks section is folded shut on some pages, hiding its buttons (`open_streaks_section`), and a "Nice work,
+   you've completed the quest" pop-up covers the dashboard and blocks clicks (`close_celebration`, called from
+   `switch_to_earn_page`). If Microsoft unlocks the tile its label will lose "How to activate" and the task will run.
 3. Third's calibration scored typing 0.64 / mouse 0.68 from one short sitting. Have her record again on another day
    (`python src/calibrate.py third`, with the clearer screens), re-score, and copy the profile over only if it is at least as
    good. Until a bot run of hers succeeds, her daily set and search are done by hand.
