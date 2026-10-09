@@ -93,7 +93,9 @@ def other_runs_today(now: datetime, owner: str) -> list[datetime]:
 	day = now.strftime("%Y-%m-%d")
 	found: list[datetime] = []
 
-	for name in account_names() or []:
+	# Every owner with a plan in the file, not just this scheduler's own accounts: each loop is started with only its
+	# own account configured, so its own list never contains the others.
+	for name in sorted(set(account_names() or []) | set(schedule_plan.owners("search")) | set(schedule_plan.owners("daily"))):
 		if name == owner:
 			continue
 

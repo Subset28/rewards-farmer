@@ -33,6 +33,13 @@ def _load() -> dict:
 		return {}
 
 
+def owners(kind: str) -> list[str]:
+	"""Every owner that has a saved plan of this kind (any scheduler in the container wrote it)."""
+	section = _load().get(kind)
+
+	return sorted(section) if isinstance(section, dict) else []
+
+
 def read(kind: str, owner: str) -> dict:
 	"""The saved plan of this kind for this scheduler, or {}."""
 	section = _load().get(kind)
