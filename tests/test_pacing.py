@@ -338,3 +338,34 @@ class TestQueryOverlap(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestLazyCards(unittest.TestCase):
+	def test_most_days_skip_none_and_never_more_than_two(self):
+		counts = [pacing.lazy_skips("someone", date(2026, 10, 1) + timedelta(days=n)) for n in range(400)]
+
+		self.assertTrue(set(counts) <= {0, 1, 2})
+		self.assertTrue(0.40 < counts.count(0) / 400 < 0.60)
+		self.assertGreater(counts.count(1), 60)
+		self.assertGreater(counts.count(2), 20)
+
+	def test_a_day_always_gives_the_same_answer(self):
+		day = date(2026, 10, 9)
+
+		self.assertEqual(
+			[pacing.lazy_card_skipped("someone", i, 5, day) for i in range(5)],
+			[pacing.lazy_card_skipped("someone", i, 5, day) for i in range(5)],
+		)
+
+	def test_not_every_card_is_ever_skipped(self):
+		for n in range(200):
+			day = date(2026, 10, 1) + timedelta(days=n)
+
+			self.assertLess(sum(pacing.lazy_card_skipped("someone", i, 2, day) for i in range(2)), 2)
+			self.assertFalse(pacing.lazy_card_skipped("someone", 0, 1, day))
+
+	def test_the_number_skipped_is_the_days_count(self):
+		for n in range(100):
+			day = date(2026, 10, 1) + timedelta(days=n)
+
+			self.assertEqual(sum(pacing.lazy_card_skipped("someone", i, 6, day) for i in range(6)), pacing.lazy_skips("someone", day))

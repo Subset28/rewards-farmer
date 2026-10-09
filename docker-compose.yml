@@ -61,12 +61,9 @@ services:
       # profile in data-dir, which is the existing behaviour.
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
-      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # The one alert destination (src/notify.py), for every account and every kind of message. A Discord webhook
       # address is a secret: put these in .env next to this file, never here.
       NOTIFY_URL: ${NOTIFY_URL:-}
-      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
-      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
-      NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
       # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
       # plain request. Unset, nothing uses it. Never used for account pages.
       TRAWL_URL: ${TRAWL_URL:-}
@@ -180,12 +177,9 @@ services:
       REWARDS_LAZY_DISPLAY: "1"
       REWARDS_ACCOUNTS: ${REWARDS_ACCOUNTS:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-}
-      # Alert destinations, one per account (src/notify.py). A Discord webhook
+      # The one alert destination (src/notify.py), for every account and every kind of message. A Discord webhook
       # address is a secret: put these in .env next to this file, never here.
       NOTIFY_URL: ${NOTIFY_URL:-}
-      NOTIFY_URL_DEFAULT: ${NOTIFY_URL_DEFAULT:-}
-      NOTIFY_URL_SECOND: ${NOTIFY_URL_SECOND:-}
-      NOTIFY_URL_THIRD: ${NOTIFY_URL_THIRD:-}
       # A trawl (FlareSolverr-compatible) service for public feeds that refuse a
       # plain request. Unset, nothing uses it. Never used for account pages.
       TRAWL_URL: ${TRAWL_URL:-}
@@ -197,6 +191,11 @@ services:
       # The least share of the day's search quota a normal day fills (pacing.py): a day lands somewhere from this to the
       # whole quota. Lower than the default 0.8 on purpose: a few points a day are worth less than not sitting at the cap.
       REWARDS_MIN_DAILY_FRACTION: ${REWARDS_MIN_DAILY_FRACTION:-1.0}
+      # No ramp and no light days (decided 10-08): every account does every task, every day, from its first day. A new
+      # account that skips the easy cards looks stranger than one that clicks them, and the points are real. A Member
+      # account is held to a small daily search cap by Rewards itself.
+      REWARDS_RAMP_DAYS: ${REWARDS_RAMP_DAYS:-0}
+      REWARDS_REST_DAY_CHANCE: ${REWARDS_REST_DAY_CHANCE:-0}
       # Without it the control interface does not start. At least 24 characters, in .env, never here.
       CONTROL_TOKEN: ${CONTROL_TOKEN:-}
       # How many search runs a day, and the waking-hours window (in TZ) they are placed within.

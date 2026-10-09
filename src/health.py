@@ -316,7 +316,10 @@ def check(names: list[str] | None = None, now: datetime | None = None, send=noti
 			logger.warning("[HEALTH] %s", finding.title)
 
 		# A problem that has cleared is forgotten, so it is reported again if it returns.
-		state = {k: v for k, v in state.items() if k in live}
+		# Only for the accounts this check looked at: the loops of several accounts share this file, and one that
+		# does not see an account must not erase what another has already told its owner.
+		looked_at = set(names)
+		state = {k: v for k, v in state.items() if k in live or k.split("|", 1)[0] not in looked_at}
 		_write_state(state)
 
 		return sent

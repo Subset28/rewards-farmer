@@ -355,10 +355,19 @@ class RewardsTaskUtils:
 			# must not produce.
 			raise NoSuchElementException("no Explore on Bing section in this UI variant")
 
-		for card in explore_on_bing_links:
+		lazy: set[str] = set()
+
+		for index, card in enumerate(explore_on_bing_links):
 			# A card that is already done earns nothing more, and searching for
 			# it anyway was a few extra searches on every run.
 			if self.elements.card_is_complete(card):
+				continue
+
+			# Some days a person leaves one or two of these alone: they only credit after a search.
+			if pacing.lazy_card_skipped(self.account_name, index, len(explore_on_bing_links)):
+				lazy.add(self.elements.extract_card_descriptions(card))
+				logger.info("Leaving an Explore card for another day (a lazy day).")
+
 				continue
 
 			self.search_explore_card(card)
@@ -369,7 +378,7 @@ class RewardsTaskUtils:
 		# Fresh elements: the page has changed since the cards were first read.
 		# Once only, because a card that will not credit is not a reason to keep
 		# searching.
-		still_open = self.incomplete_explore_descriptions()
+		still_open = [desc for desc in self.incomplete_explore_descriptions() if desc not in lazy]
 
 		if still_open:
 			self.switch_to_earn_page()
@@ -381,7 +390,7 @@ class RewardsTaskUtils:
 
 			_wait(self, 1, 2)
 
-		for desc in self.incomplete_explore_descriptions():
+		for desc in (d for d in self.incomplete_explore_descriptions() if d not in lazy):
 			logger.warning(
 				"Explore on Bing Card [desc=%r] is not complete after searching. Please check manually.",
 				desc

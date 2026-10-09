@@ -474,32 +474,22 @@ class TestNotify(unittest.TestCase):
 
 	HOOK = "https://discord.com/api/webhooks/123/token"
 
-	def test_an_account_uses_its_own_destination_before_the_shared_one(self):
-		env = {"NOTIFY_URL": "https://ntfy.sh/shared", "NOTIFY_URL_SECOND": "https://ntfy.sh/mine"}
-
-		with mock.patch.dict(os.environ, env), mock.patch.object(notify.urllib.request, "urlopen") as post:
+	def test_every_message_goes_to_the_one_destination_whatever_the_account(self):
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": "https://ntfy.sh/shared"}), mock.patch.object(notify.urllib.request, "urlopen") as post:
 			notify.send("t", "m", account="second")
-			self.assertEqual(post.call_args.args[0].full_url, "https://ntfy.sh/mine")
-
-			notify.send("t", "m", account="default")
 			self.assertEqual(post.call_args.args[0].full_url, "https://ntfy.sh/shared")
 
 			notify.send("t", "m")
 			self.assertEqual(post.call_args.args[0].full_url, "https://ntfy.sh/shared")
 
-	def test_the_variable_name_is_the_upper_cased_account_with_symbols_made_underscores(self):
-		self.assertEqual(notify.env_name("second"), "NOTIFY_URL_SECOND")
-		self.assertEqual(notify.env_name("my-spare.1"), "NOTIFY_URL_MY_SPARE_1")
-
-	def test_an_account_with_no_destination_of_its_own_and_no_shared_one_only_logs(self):
-		with mock.patch.dict(os.environ, {"NOTIFY_URL": "", "NOTIFY_URL_DEFAULT": self.HOOK}), \
-			mock.patch.object(notify.urllib.request, "urlopen") as post:
+	def test_with_no_destination_set_it_only_logs(self):
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": ""}), mock.patch.object(notify.urllib.request, "urlopen") as post:
 			self.assertFalse(notify.send("t", "m", account="second"))
 
 		post.assert_not_called()
 
 	def test_a_discord_webhook_gets_a_json_message(self):
-		with mock.patch.dict(os.environ, {"NOTIFY_URL_DEFAULT": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
 			self.assertTrue(notify.send("Paused", "look at it", priority="high", account="default"))
 
 		request = post.call_args.args[0]
@@ -513,7 +503,7 @@ class TestNotify(unittest.TestCase):
 		self.assertEqual(body["allowed_mentions"], {"parse": []})
 
 	def test_a_long_discord_message_is_cut_to_the_limit(self):
-		with mock.patch.dict(os.environ, {"NOTIFY_URL_DEFAULT": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": self.HOOK}), mock.patch.object(notify.urllib.request, "urlopen") as post:
 			notify.send("t", "x" * 5000, account="default")
 
 		self.assertEqual(len(json.loads(post.call_args.args[0].data)["content"]), notify.DISCORD_LIMIT)
@@ -525,20 +515,19 @@ class TestNotify(unittest.TestCase):
 		self.assertFalse(notify.is_discord("https://ntfy.sh/topic"))
 
 	def test_the_webhook_address_is_never_logged(self):
-		with mock.patch.dict(os.environ, {"NOTIFY_URL_DEFAULT": self.HOOK}), \
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": self.HOOK}), \
 			mock.patch.object(notify.urllib.request, "urlopen", side_effect=notify.urllib.error.URLError(self.HOOK)), \
 			self.assertLogs("notify", level="INFO") as logs:
 			notify.send("t", "m", account="default")
 
 		self.assertNotIn("token", "\n".join(logs.output))
 
-	def test_send_each_reaches_each_accounts_own_destination(self):
-		env = {"NOTIFY_URL": "", "NOTIFY_URL_DEFAULT": "https://ntfy.sh/a", "NOTIFY_URL_SECOND": "https://ntfy.sh/b"}
-
-		with mock.patch.dict(os.environ, env), mock.patch.object(notify.urllib.request, "urlopen") as post:
+	def test_send_each_sends_once_and_names_the_accounts(self):
+		with mock.patch.dict(os.environ, {"NOTIFY_URL": "https://ntfy.sh/a"}), mock.patch.object(notify.urllib.request, "urlopen") as post:
 			notify.send_each(["default", "second"], "t", "m")
 
-		self.assertEqual([c.args[0].full_url for c in post.call_args_list], ["https://ntfy.sh/a", "https://ntfy.sh/b"])
+		self.assertEqual(post.call_count, 1)
+		self.assertEqual(post.call_args.args[0].get_header("Title"), "default, second: t")
 
 	def test_send_each_with_no_accounts_sends_once_to_the_shared_destination(self):
 		with mock.patch.dict(os.environ, {"NOTIFY_URL": "https://ntfy.sh/shared"}), mock.patch.object(notify.urllib.request, "urlopen") as post:
