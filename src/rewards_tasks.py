@@ -1176,6 +1176,12 @@ class RewardsTaskUtils:
 			# search.
 			steps = tuple(step for step in steps if step[0] != "Required searches")
 
+		# A by-hand run of just some steps, e.g. REWARDS_ONLY_STEPS=Quests (never set by the schedulers).
+		only = [name.strip() for name in os.environ.get("REWARDS_ONLY_STEPS", "").split(",") if name.strip()]
+
+		if only:
+			steps = tuple(step for step in steps if step[0] in only)
+
 		self.brake_if_risky()
 
 		# Today's points before and after each task, so a log line says what a
