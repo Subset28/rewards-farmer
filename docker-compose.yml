@@ -151,10 +151,25 @@ services:
       - python
       - src/search_scheduler.py
       - "--"
+      - env
+      - REWARDS_ACCOUNTS=fourth
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/scheduler-fourth.log
+      - REWARDS_SKIP_SEARCHES=1
+      - REWARDS_ANCHOR_HOUR=${FOURTH_ANCHOR_HOUR:-19}
+      - python
+      - src/daily_loop.py
+      - "--"
+      - env
+      - REWARDS_ACCOUNTS=fourth
+      - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-fourth.log
+      - REWARDS_SEARCH_RUNS_PER_DAY=${FOURTH_SEARCH_RUNS_PER_DAY:-2}
+      - python
+      - src/search_scheduler.py
+      - "--"
       # The control interface (src/control_api.py): looked after separately, so it can never take the loops down.
       - optional
       - env
-      - REWARDS_ACCOUNTS=default,second,third
+      - REWARDS_ACCOUNTS=default,second,third,fourth
       - python
       - src/control_api.py
     # See the rewards-farmer service above for why cpus is left unset.
