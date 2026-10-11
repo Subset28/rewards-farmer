@@ -621,7 +621,8 @@ class TestPointsLog(unittest.TestCase):
 			self.assertEqual(points_log.target_for("default"), 750)
 			self.assertEqual(points_log.target_for("second"), 750)
 			self.assertEqual(points_log.target_for("third"), 750)
-			self.assertIsNone(points_log.target_for("fourth"))
+			self.assertEqual(points_log.target_for("fourth"), 750)
+			self.assertIsNone(points_log.target_for("fifth"))
 
 	def test_the_report_keeps_accounts_apart(self):
 		points_log.record("default", {"today": 120, "month": 710, "lifetime": 1133})
