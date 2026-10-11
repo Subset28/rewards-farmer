@@ -105,7 +105,7 @@ Light days and variable daily totals, the 7-day ramp for a new account, shuffled
 
 ## The gate: an account without a recording does not run
 
-`src/gate.py` holds an account back (and sends a Discord alert once a day) when it has no recorded profile, or when the
+`src/gate.py` holds an account back (and sends a Discord alert once a week) when it has no recorded profile, or when the
 recording's own check scored above 0.70 (0.5 = cannot be told from a person). Fix: have the owner run
 `python src/calibrate.py <account>` on a PC, copy `data-dir/behavior/<account>.json` (and `.raw.json`) to the NAS
 `data-dir/behavior/`. `python src/gate.py` lists which accounts run. Profiles recorded before 2026-10-08 carry no stored

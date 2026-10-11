@@ -17,7 +17,6 @@ import health
 import gate
 import journal
 import log_utils
-import notify
 import run_lock
 import safety
 import schedule_plan
@@ -331,9 +330,9 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 
 	outcome = "ok" if code == 0 else "failed"
 
-	# Exit 3 is the brake, which has already said so when it tripped.
+	# One failed run is not worth a message: health.py reports a run of failures, and the brake says so itself.
 	if code != 0 and code != 3:
-		notify.send_each(names, "Search run failed", f"The scheduled search run exited with code {code}. Look at data-dir/logs/ on the NAS.", priority="high")
+		logger.error("The scheduled search run exited with code %s.", code)
 
 	journal.record(owner, "search", "end", planned=planned, outcome=outcome, exit_code=code, seconds=round(time.monotonic() - started))
 
