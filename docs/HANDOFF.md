@@ -9,7 +9,7 @@ Where the project stands, what to do next, and how to operate it. No secrets her
   mother), each with a daily loop and a search loop, plus the control interface. All on the home connection (a clean
   Verizon residential address); the old VPN exit was a flagged data-centre address, so the `vpn` container was removed on 10-08.
 - **Typing and mouse personalization are always on.** There are no switches for them. `src/gate.py` stops an account that
-  has no recorded profile (or whose stored score is above 0.70) and tells its owner once a day.
+  has no recorded profile (or whose stored score is above 0.70) and tells its owner once a week.
 - **Switches left** (all off): `chains` (searching in tangents; opening result pages is off because it exhausted memory),
   `query_sessions`. Each is to be deleted once it has run cleanly on a real account.
 - **Run times:** each account searches in its own favoured times of the day (always on). The planner keeps one account's

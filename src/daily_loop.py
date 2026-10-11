@@ -15,7 +15,6 @@ import weekly
 import gate
 import journal
 import log_utils
-import notify
 import run_lock
 import safety
 import schedule_plan
@@ -134,9 +133,9 @@ def main() -> None:
 		held = code == gate.EXIT_CODE
 		journal.record(owner, "daily", "end", planned=at.isoformat(), outcome="skipped" if held else ("ok" if code == 0 else "failed"), exit_code=code, seconds=round(time.monotonic() - started))
 
-		# Exit 3 is the brake, which has already said so when it tripped; exit 5 is the gate, ditto.
+		# One failed run is not worth a message: health.py reports a run of failures, and the brake and the gate say so themselves.
 		if code not in (0, 3, gate.EXIT_CODE):
-			notify.send_each(account_names(), "Daily run failed", f"The scheduled daily run exited with code {code}. Look at data-dir/logs/ on the NAS.", priority="high")
+			logger.error("The scheduled daily run exited with code %s.", code)
 
 		mark_done(at, owner)
 

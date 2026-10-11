@@ -1,7 +1,7 @@
 """The gate: an account runs only with a recorded profile of how its owner types and moves.
 
 Without one, an account types and moves the generic way, which is the way that can be told from a person.
-So it does not run. It waits, and the owner is told once a day what to do:
+So it does not run. It waits, and the owner is told once a week what to do:
 
     python src/calibrate.py <account>
 
@@ -12,6 +12,7 @@ A profile with no stored score (an older one, or one rebuilt from the raw record
     python src/gate.py            each account: let through, or why it waits
 """
 
+import datetime
 import json
 import logging
 import os
@@ -59,12 +60,17 @@ def reason(name: str) -> str | None:
 	return None
 
 
-def _alerted_today(name: str) -> bool:
+ALERT_EVERY_DAYS = 7
+
+
+def _alerted_recently(name: str) -> bool:
 	try:
 		with open(ALERTS_FILE, encoding="utf-8") as handle:
-			return json.load(handle).get(name) == clock.today().isoformat()
-	except (OSError, ValueError, AttributeError):
+			told = datetime.date.fromisoformat(json.load(handle).get(name))
+	except (OSError, ValueError, AttributeError, TypeError):
 		return False
+
+	return (clock.today() - told).days < ALERT_EVERY_DAYS
 
 
 def _remember_alert(name: str) -> None:
@@ -84,7 +90,7 @@ def _remember_alert(name: str) -> None:
 
 
 def blocked(name: str, send=notify.send) -> str | None:
-	"""The reason this account is held back (and the owner told, once a day), or None when it may run."""
+	"""The reason this account is held back (and the owner told, once a week), or None when it may run."""
 	why = reason(name)
 
 	if why is None:
@@ -92,7 +98,7 @@ def blocked(name: str, send=notify.send) -> str | None:
 
 	logger.error("[GATE] Not running %s: %s", name, why)
 
-	if not _alerted_today(name):
+	if not _alerted_recently(name):
 		send("Calibration needed", why, priority="high", account=name)
 		_remember_alert(name)
 

@@ -16,7 +16,7 @@ What it looks for, per account:
   * a task that used to work failed its last three runs in a row (needs Claude: usually a changed page)
   * points far below the account's normal for two days running (needs Claude)
 
-Each problem is reported once a day at most while it lasts, and again if it comes back after
+Each problem is reported once every three days at most while it lasts, and again if it comes back after
 clearing. It never raises: a health check must not be the thing that breaks a run.
 """
 
@@ -41,8 +41,8 @@ STATE_FILE = os.path.join(USER_DATA_DIR, "health.json")
 NEEDS_CLAUDE = "NEEDS CLAUDE"
 NEEDS_YOU = "NEEDS YOU"
 
-REPEAT_AFTER = timedelta(hours=24)
-PAUSE_REMINDER_AFTER = timedelta(hours=12)
+REPEAT_AFTER = timedelta(days=3)
+PAUSE_REMINDER_AFTER = timedelta(days=3)
 FAILURES_TO_REPORT = 2
 TASK_FAILURES_TO_REPORT = 3     # runs in a row
 TASK_WORKED_BEFORE = 3          # times it completed among the ten runs before those

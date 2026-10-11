@@ -391,7 +391,7 @@ Real-browser checks (throwaway profile, never an account): `typing_events_probe.
 
 ## Alerts that say who has to act
 
-`src/health.py` runs at the start of each scheduler cycle and, when something is wrong, sends one message to that account's Discord channel, at most once a day while it lasts:
+`src/health.py` runs at the start of each scheduler cycle and, when something is wrong, sends one message to that account's Discord channel, at most once every three days while it lasts:
 
 - `[NEEDS YOU]` is for what only a person can do: the brake has been on for 12+ hours (finish the verification in the sign-in browser, then `python src/safety.py clear <account>`).
 - `[NEEDS CLAUDE]` is for the bot itself: two or more failed runs in a day, no points gained for two days, or no run recorded for a day and a half. The message ends with the exact sentence to say after opening Claude Code in the project folder.

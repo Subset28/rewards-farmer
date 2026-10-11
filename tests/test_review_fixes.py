@@ -216,7 +216,7 @@ class TestBusyProfile(TmpTestCase):
 	def test_a_search_run_that_found_the_profile_busy_is_deferred_not_failed(self):
 		with mock.patch.object(ss, "account_names", return_value=["default"]), \
 			mock.patch.object(ss.safety, "blocked", return_value=None), \
-			mock.patch.object(ss.notify, "send_each") as alert:
+			mock.patch("notify.send_each") as alert:
 			result = ss.launch("default", self.due(), run=lambda *a, **k: SimpleNamespace(returncode=run_lock.TIMED_OUT))
 
 		self.assertEqual(result, "deferred")
@@ -264,7 +264,6 @@ class TestBusyProfile(TmpTestCase):
 			mock.patch.object(daily_loop, "account_names", return_value=["default"]), \
 			mock.patch.object(daily_loop.log_utils, "setup_logging"), \
 			mock.patch.object(daily_loop.run_lock, "owner", return_value="default"), \
-			mock.patch.object(daily_loop.notify, "send_each"), \
 			mock.patch.object(daily_loop.time, "sleep", side_effect=sleeps.append), \
 			mock.patch.object(daily_loop.subprocess, "run", side_effect=lambda *a, **k: SimpleNamespace(returncode=next(codes))), \
 			self.assertRaises(Stop):

@@ -291,7 +291,7 @@ class TestLaunch(JournalTestCase):
 			patcher.start()
 			self.addCleanup(patcher.stop)
 
-		alert = mock.patch.object(ss.notify, "send_each")
+		alert = mock.patch("notify.send_each")
 		self.alert = alert.start()
 		self.addCleanup(alert.stop)
 
@@ -320,12 +320,12 @@ class TestLaunch(JournalTestCase):
 		self.assertEqual(self.events()[-1][1]["outcome"], "failed")
 		self.assertEqual(self.events()[-1][1]["exit_code"], 1)
 
-	def test_a_failing_run_alerts_every_account_it_covers(self):
-		ss.launch("default", self.due(), run=FakeRun(1))
+	def test_one_failing_run_is_logged_not_messaged(self):
+		with self.assertLogs(ss.logger, level="ERROR") as logs:
+			ss.launch("default", self.due(), run=FakeRun(1))
 
-		self.alert.assert_called_once()
-		self.assertEqual(self.alert.call_args.args[0], ["default"])
-		self.assertIn("code 1", self.alert.call_args.args[2])
+		self.assertIn("code 1", "\n".join(logs.output))
+		self.alert.assert_not_called()
 
 	def test_a_good_run_and_a_braked_run_send_no_failure_alert(self):
 		ss.launch("default", self.due(), run=FakeRun(0))

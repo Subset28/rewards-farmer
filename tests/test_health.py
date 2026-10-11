@@ -207,7 +207,7 @@ class TestPause(HealthCase):
 		return {"kind": "captcha", "reason": "human check", "time": (NOW - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")}
 
 	def test_a_long_pause_needs_the_person(self):
-		with mock.patch.object(health.safety, "paused_for", return_value=self.pause(20)):
+		with mock.patch.object(health.safety, "paused_for", return_value=self.pause(80)):
 			found = self.find()
 
 		self.assertEqual([f.key for f in found], ["paused"])
@@ -215,8 +215,9 @@ class TestPause(HealthCase):
 		self.assertIn("safety.py clear default", found[0].message)
 
 	def test_a_fresh_pause_has_already_alerted_so_it_is_left_alone(self):
-		with mock.patch.object(health.safety, "paused_for", return_value=self.pause(2)):
-			self.assertEqual(self.find(), [])
+		for hours in (2, 20):
+			with mock.patch.object(health.safety, "paused_for", return_value=self.pause(hours)):
+				self.assertEqual(self.find(), [])
 
 	def test_an_unreadable_pause_time_is_left_alone(self):
 		with mock.patch.object(health.safety, "paused_for", return_value={"kind": "unknown", "reason": "x", "time": ""}):
@@ -241,21 +242,22 @@ class TestSendingOnce(HealthCase):
 		self.assertEqual(self.send.call_args.kwargs["priority"], "high")
 		self.assertIn("NEEDS CLAUDE", self.send.call_args.args[0])
 
-	def test_the_same_problem_is_not_sent_again_within_a_day(self):
+	def test_the_same_problem_is_not_sent_again_within_three_days(self):
 		self.run_check(NOW)
 		self.run_check(NOW + timedelta(hours=3))
+		self.run_check(NOW + timedelta(hours=25))
 
 		self.assertEqual(self.send.call_count, 1)
 
-	def test_it_is_sent_again_a_day_later_if_still_there(self):
+	def test_it_is_sent_again_three_days_later_if_still_there(self):
 		self.run_check(NOW)
 
-		# A day later the same trouble is still happening: failures from the last few hours.
+		# Three days later the same trouble is still happening: failures from the last few hours.
 		self.rows = [
-			{**row, "t": (datetime.fromisoformat(row["t"]) + timedelta(hours=25)).isoformat(timespec="seconds")}
+			{**row, "t": (datetime.fromisoformat(row["t"]) + timedelta(hours=73)).isoformat(timespec="seconds")}
 			for row in self.rows
 		]
-		self.run_check(NOW + timedelta(hours=25))
+		self.run_check(NOW + timedelta(hours=73))
 
 		self.assertEqual(self.send.call_count, 2)
 

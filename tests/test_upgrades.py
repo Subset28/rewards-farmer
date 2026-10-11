@@ -812,7 +812,7 @@ class TestExploreRetry(unittest.TestCase):
 		return tasks
 
 	def _run(self, tasks):
-		with mock.patch.object(rewards_tasks.time, "sleep"), self.assertLogs(rewards_tasks.logger, level="INFO") as logs:
+		with mock.patch.object(rewards_tasks.time, "sleep"), mock.patch.object(rewards_tasks.pacing, "lazy_card_skipped", return_value=False), self.assertLogs(rewards_tasks.logger, level="INFO") as logs:
 			tasks.complete_explore_on_bing_tasks()
 
 		return "\n".join(logs.output)
