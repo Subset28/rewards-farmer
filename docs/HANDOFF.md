@@ -64,7 +64,7 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
 5. Read the level targets from the dashboard ("Progress towards Silver, points to go") instead of `REWARDS_LEVEL_TARGETS`.
 6. Build the weekly Discord summary and the redemption reminder (6,500 points).
 7. Housekeeping: stale rollback copies on the NAS, the old `snapshots` and `backups` folders and the BACKUP_* lines in the
-   NAS `.env`, the private `rewards-backups` GitHub repository (the owner to confirm deleting it), the upstream page fixes,
+   NAS `.env`, the old backup token (the `rewards-backups` repository was deleted by the owner on 10-10), the upstream page fixes,
    GitHub Actions on the fork, third's Discord webhook.
 
 ## Longer term (the owner's goals)
