@@ -1,6 +1,6 @@
 """Serve the in-browser typing and mouse test on the home network, and keep what comes back.
 
-    python tools/web_calibrate/serve.py [--port 8080]
+    python tools/web_calibrate/serve.py --account third [--port 8080]
 
 It prints the address to give a family member, such as http://192.168.1.20:8080/?for=third, and saves each finished
 test to data-dir/behavior/inbox/<account>-<time>.json. Then, on this computer:
@@ -119,8 +119,12 @@ def lan_address() -> str:
 def main(argv: list[str]) -> int:
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("--port", type=int, default=8080)
-	parser.add_argument("--account", default="third", help="account name put into the printed address")
+	parser.add_argument("--account", required=True, help="the account being recorded (default, second, third, fourth); it names the saved files")
 	args = parser.parse_args(argv[1:])
+
+	if not ACCOUNT.match(args.account):
+		parser.error("--account must be a plain account name such as third")
+
 	server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
 	print(f"Give this address to the person: http://{lan_address()}:{args.port}/?for={args.account}")
 	print("Results are saved to", INBOX)
