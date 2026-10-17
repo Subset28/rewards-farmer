@@ -84,7 +84,7 @@ class TestWeeklyNote(WeeklyCase):
 
 
 class TestRedemptionReminder(WeeklyCase):
-	def test_it_is_sent_once_when_an_account_passes_6500(self):
+	def test_it_is_sent_once_when_an_account_passes_6200(self):
 		self.rows["default"] = [reading(2, 6000), reading(0, 6600)]
 		weekly.run_if_due(["default"], SUNDAY_EVENING - timedelta(days=2), self.send)
 		weekly.run_if_due(["default"], SUNDAY_EVENING - timedelta(days=1), self.send)
@@ -93,7 +93,7 @@ class TestRedemptionReminder(WeeklyCase):
 		self.assertEqual(self.send.call_args.kwargs["account"], "default")
 		self.assertIn("mobile data", self.send.call_args.args[1])
 
-	def test_it_comes_again_at_the_next_6500(self):
+	def test_it_comes_again_at_the_next_6200(self):
 		self.rows["default"] = [reading(2, 6000), reading(0, 6600)]
 		weekly.run_if_due(["default"], SUNDAY_EVENING - timedelta(days=2), self.send)
 		self.rows["default"] = [reading(0, 13100)]
@@ -101,7 +101,7 @@ class TestRedemptionReminder(WeeklyCase):
 
 		self.assertEqual(self.send.call_count, 2)
 
-	def test_below_6500_nothing_is_sent(self):
+	def test_below_6200_nothing_is_sent(self):
 		weekly.run_if_due(["default"], SUNDAY_EVENING - timedelta(days=2), self.send)
 
 		self.send.assert_not_called()
