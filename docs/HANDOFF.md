@@ -22,7 +22,7 @@ Where the project stands, what to do next, and how to operate it. No secrets her
   bonus) and only its searching ramps up over 7 days (30% rising to a full day). On some days an account leaves one or two
   Explore cards alone (a "lazy day", `pacing.lazy_card_skipped`), as a person skips the ones that need a search to credit.
 - **Notifications:** ONE Discord channel (`NOTIFY_URL`, the owner's). Messages are coloured embeds with a sign per kind and
-  the account named in the title. A weekly note (Sundays after 18:00) and a "redeem now" reminder at every 6,500 lifetime
+  the account named in the title. A weekly note (Sundays after 18:00) and a "redeem now" reminder at every 6,200 lifetime
   points come from `src/weekly.py`. The brother's old separate webhook is unused.
 - **No snapshots, no backups** (the owner's decision, 10-08): the brake and git history cover mistakes. Details of a failure
   or a quest go to the log.
@@ -62,7 +62,7 @@ bash scripts/deploy.sh [ref]          deploy committed code between runs (refuse
    The mother's account has the same quest: she needs the same one-off tick. `REWARDS_ONLY_STEPS=Quests` runs just that
    step by hand (wrap `src/main.py` in `footprint.virtual_display()`; see the log lines `Get-started task`).
 5. Read the level targets from the dashboard ("Progress towards Silver, points to go") instead of `REWARDS_LEVEL_TARGETS`.
-6. Build the weekly Discord summary and the redemption reminder (6,500 points).
+6. Build the weekly Discord summary and the redemption reminder (6,200 points).
 7. Housekeeping: stale rollback copies on the NAS, the old `snapshots` and `backups` folders and the BACKUP_* lines in the
    NAS `.env`, the old backup token (the `rewards-backups` repository was deleted by the owner on 10-10), the upstream page fixes,
    GitHub Actions on the fork, third's Discord webhook.
