@@ -480,9 +480,57 @@ def reanalyze(account: str) -> int:
 	return 0
 
 
+def import_web(account: str, path: str) -> int:
+	"""Add the sitting(s) in a file saved by tools/web_calibrate (the in-browser recorder) to the account's raw
+	recording, then rebuild the profile from everything recorded so far."""
+	try:
+		with open(path, encoding="utf-8") as handle:
+			incoming = calibration.sittings_from_file(json.load(handle))
+	except (OSError, ValueError) as exc:
+		print(f"Could not read {path}: {exc}")
+
+		return 1
+
+	incoming = [s for s in incoming if s.get("typing") and s.get("mouse")]
+
+	if not incoming:
+		print(f"{path} has no complete sitting (typing and mouse) in it.")
+
+		return 1
+
+	app = App(account)
+	raw_path = app._raw_path()
+	sittings = []
+
+	try:
+		with open(raw_path, encoding="utf-8") as handle:
+			sittings = calibration.sittings_from_file(json.load(handle))
+	except (OSError, ValueError):
+		sittings = []
+
+	added = [s for s in incoming if s not in sittings]
+
+	if not added:
+		print("That file is already part of the recording.")
+
+		return 0
+
+	os.makedirs(os.path.dirname(raw_path), exist_ok=True)
+	temporary = f"{raw_path}.tmp"
+
+	with open(temporary, "w", encoding="utf-8") as handle:
+		json.dump({"sessions": sittings + added}, handle)
+
+	os.replace(temporary, raw_path)
+	print(f"Added {len(added)} sitting(s) from {path}.")
+
+	return reanalyze(account)
+
+
 def main(argv: list[str]) -> int:
 	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument("account", help="account name, as in REWARDS_ACCOUNTS")
+	parser.add_argument("--import-web", metavar="FILE", help="add a sitting saved by tools/web_calibrate and rebuild the profile")
 	parser.add_argument("--show", action="store_true", help="print the profile in use for this account and exit")
 	parser.add_argument("--reanalyze", action="store_true", help="rebuild the profile from the recordings already made, without a new sitting")
 	parser.add_argument("--fresh", action="store_true", help="ignore earlier sittings and start the account's recording over")
@@ -492,6 +540,9 @@ def main(argv: list[str]) -> int:
 		import make_behavior_profile
 
 		return make_behavior_profile.show(args.account)
+
+	if args.import_web:
+		return import_web(args.account, args.import_web)
 
 	if args.reanalyze:
 		return reanalyze(args.account)

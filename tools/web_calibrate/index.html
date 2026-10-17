@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Typing and mouse test</title>
+<style>
+	:root { --bg: #f3f3f3; --ink: #111; --muted: #555; --good: #1b7f3a; --bad: #d32f2f; --accent: #1565c0; --card: #fff; --line: #bbb; }
+	@media (prefers-color-scheme: dark) {
+		:root { --bg: #1b1b1b; --ink: #eee; --muted: #aaa; --good: #5fcf80; --bad: #ff6b6b; --accent: #7fb2ff; --card: #262626; --line: #555; }
+	}
+	* { box-sizing: border-box; }
+	html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 18px/1.5 "Segoe UI", system-ui, sans-serif; }
+	main { max-width: 760px; margin: 0 auto; padding: 8vh 16px 40px; }
+	h1 { font-size: 32px; margin: 0 0 12px; }
+	p { color: var(--muted); margin: 12px 0; }
+	button { font: inherit; padding: 12px 28px; border-radius: 8px; border: 0; background: var(--good); color: #fff; cursor: pointer; margin-top: 18px; }
+	button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+	.hint { font-size: 15px; color: var(--muted); }
+	.header { font-size: 22px; margin-bottom: 6px; }
+	.target { font: 30px/1.3 Consolas, "Courier New", monospace; margin: 16px 0 24px; word-break: break-word; }
+	.question { font-size: 28px; color: var(--accent); margin: 16px 0 24px; }
+	.box { min-height: 60px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font: 30px/1.3 Consolas, "Courier New", monospace; word-break: break-word; }
+	.ok { color: var(--good); }
+	.bad { color: var(--bad); background: rgba(211, 47, 47, 0.12); }
+	.caret { display: inline-block; width: 2px; height: 1em; background: var(--ink); vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
+	@keyframes blink { 50% { opacity: 0; } }
+	#stage { position: fixed; inset: 0; display: none; cursor: default; touch-action: none; user-select: none; }
+	#stage .count { position: absolute; top: 28px; width: 100%; text-align: center; font-size: 22px; }
+	#stage .say { position: absolute; top: 72px; width: 100%; text-align: center; color: var(--muted); font-size: 17px; }
+	#stage .say.bad { background: none; color: var(--bad); }
+	#dot { position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: #1f1f1f; }
+	@media (prefers-color-scheme: dark) { #dot { background: #eee; } }
+	#rect { position: absolute; background: #5c8dff; border: 3px solid #0d2d73; }
+	.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<main id="page"></main>
+
+<div id="stage">
+	<div class="count" id="count"></div>
+	<div class="say" id="say"></div>
+	<div id="dot" class="hidden"></div>
+	<div id="rect" class="hidden"></div>
+</div>
+
+<script>
+"use strict";
+
+// The same phrases, practice line and made-up-search questions as the desktop recorder (calibration.py).
+const PHRASES = [
+	"best hiking trails near me this weekend",
+	"how to cook salmon in an air fryer",
+	"weather forecast for the next ten days",
+	"cheap flights to lisbon in march 2026",
+	"what time does the pharmacy close tonight",
+	"easy weeknight dinner ideas for two people",
+	"how to fix a leaky kitchen faucet",
+	"who won the basketball game last night",
+	"best budget laptops for college students",
+	"how long to boil eggs for a soft yolk",
+	"used car prices for a honda civic",
+	"movies coming out next month worth watching",
+	"how to remove a red wine stain from carpet",
+	"closest grocery store open late",
+	"top rated pizza places downtown",
+	"how many calories in a banana",
+];
+const PRACTICE = "type this to warm up";
+const COMPOSE = [
+	"What is something you might search for about food or cooking?",
+	"What is something you might search for about a trip or a place?",
+	"What is something you might search for about sports or a game?",
+	"What is something you might want to buy, and would search for?",
+	"What is something you might look up about the news or the weather?",
+];
+const MOUSE_TRIALS = 30;
+const DOT_RADIUS = 18;
+const DOT_SLACK = 10;
+
+const page = document.getElementById("page");
+const stage = document.getElementById("stage");
+const dot = document.getElementById("dot");
+const rectEl = document.getElementById("rect");
+const countEl = document.getElementById("count");
+const sayEl = document.getElementById("say");
+
+// Times are seconds on the browser's own clock, the same kind of number the desktop recorder keeps.
+const now = (e) => (e && e.timeStamp ? e.timeStamp : performance.now()) / 1000;
+
+function shuffle(list) {
+	const a = list.slice();
+	for (let i = a.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[a[i], a[j]] = [a[j], a[i]];
+	}
+	return a;
+}
+
+let state = { mode: "intro" };
+const recorded = { typing: [], mouse: [] };
+
+// ---------------------------------------------------------------- screens
+
+function show(html) {
+	stage.style.display = "none";
+	page.style.display = "";
+	page.innerHTML = html;
+}
+
+function intro() {
+	state = { mode: "intro" };
+	show(`
+		<h1>Typing and mouse test</h1>
+		<p>This records how you type and move the mouse. It takes about eight minutes, and nothing is sent anywhere: it all stays on this computer until you save the file at the end.</p>
+		<p><b>Part 1, typing.</b> Two kinds of screen:</p>
+		<p>&bull; <b>Copy this</b>: type exactly the words shown.<br>
+		&bull; <b>Your own search</b> (a question in blue): do <b>not</b> copy it. Answer it by typing a search you might really make.</p>
+		<p>Type the way you normally do. Fix mistakes however you like, or leave them. Press <b>Enter</b> when you finish each one.</p>
+		<p><b>Part 2, the mouse.</b> Click a dot, then click a blue rectangle, 30 times. Use whatever you normally use: the trackpad or a mouse.</p>
+		<p class="hint">Tip: press F11 first to make the page fill the screen. There is no right speed. Esc starts over.</p>
+		<button id="go">Start</button>
+	`);
+	document.getElementById("go").onclick = startTyping;
+}
+
+function startTyping() {
+	const items = [{ text: PRACTICE, counted: false, compose: false }];
+	const order = shuffle(PHRASES).map((text) => ({ text, counted: true, compose: false }));
+	const prompts = COMPOSE.map((text) => ({ text, counted: true, compose: true }));
+	// The made-up ones are spread through the test, as in the desktop recorder.
+	prompts.forEach((p, n) => {
+		const spot = Math.min(order.length, Math.floor(((n + 1) * order.length) / (prompts.length + 1)) + n);
+		order.splice(spot, 0, p);
+	});
+	state = { mode: "typing", items: items.concat(order), position: 0, typed: "", record: null, down: new Map(), pressed: new Map() };
+	recorded.typing = [];
+	nextPhrase(performance.now() / 1000);
+}
+
+function nextPhrase(t) {
+	const s = state;
+	const item = s.items[s.position];
+	s.typed = "";
+	s.down.clear();
+	s.pressed.clear();
+	s.record = { target: item.compose ? "" : item.text, final: "", shown_at: t, compose: item.compose, events: [], holds: [] };
+	drawTyping();
+}
+
+function drawTyping() {
+	const s = state;
+	const item = s.items[s.position];
+	const real = s.items.filter((i) => i.counted);
+	const done = s.items.slice(0, s.position).filter((i) => i.counted).length;
+	const count = item.counted ? `${done + 1} of ${real.length}` : "practice, not counted";
+	let typedHtml = "";
+
+	if (item.compose) {
+		typedHtml = esc(s.typed);
+	} else {
+		let right = 0;
+		while (right < s.typed.length && right < item.text.length && s.typed[right] === item.text[right]) right++;
+		typedHtml = `<span class="ok">${esc(s.typed.slice(0, right))}</span>` + (s.typed.length > right ? `<span class="bad">${esc(s.typed.slice(right))}</span>` : "");
+	}
+
+	show(`
+		<div class="header" style="color:${item.compose ? "var(--accent)" : "inherit"}">${item.compose ? "Your own search" : "Copy this"} (${count})</div>
+		<p class="hint">${item.compose
+			? "Do not copy the question. Type a search of your own, the way you would into Bing. It can be short. Press Enter when you are done."
+			: "Type exactly these words, the way you normally would into a search box. Fix mistakes however you like, or leave them. Press Enter when you are done."}</p>
+		<div class="${item.compose ? "question" : "target"}">${esc(item.text)}</div>
+		<div class="box">${typedHtml}<span class="caret"></span></div>
+	`);
+}
+
+function esc(text) {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ---------------------------------------------------------------- keys
+
+window.addEventListener("keydown", (e) => {
+	if (e.key === "Escape" && state.mode !== "intro" && state.mode !== "done") {
+		e.preventDefault();
+		recorded.typing = [];
+		recorded.mouse = [];
+		intro();
+		return;
+	}
+
+	if (state.mode !== "typing") {
+		if (state.mode === "mouse_intro" && e.key === "Enter") startMouse();
+		return;
+	}
+
+	if (e.ctrlKey || e.metaKey || e.altKey) return;
+	if (e.key.length > 1 && e.key !== "Enter" && e.key !== "Backspace") return;   // modifiers, arrows and the like
+
+	e.preventDefault();
+
+	const s = state;
+	const t = now(e);
+	const item = s.items[s.position];
+
+	if (s.down.has(e.code) && e.repeat) return;   // a held key repeating: the first press counted
+	s.down.set(e.code, true);
+
+	const rec = s.record;
+
+	if (e.key === "Enter") {
+		if (s.typed.length < (item.compose ? 3 : Math.max(3, Math.floor(item.text.length / 2)))) return;
+		rec.events.push({ t, kind: "enter", char: "" });
+		rec.final = s.typed;
+		if (item.counted) recorded.typing.push(rec);
+		s.position += 1;
+		if (s.position >= s.items.length) { mouseIntro(); return; }
+		nextPhrase(performance.now() / 1000);
+		return;
+	}
+
+	if (e.key === "Backspace") {
+		s.typed = s.typed.slice(0, -1);
+		rec.events.push({ t, kind: "back", char: "" });
+	} else if (e.key.length === 1) {
+		s.typed += e.key;
+		rec.events.push({ t, kind: "char", char: e.key });
+		s.pressed.set(e.code, [e.key, t]);
+	}
+
+	drawTyping();
+});
+
+window.addEventListener("keyup", (e) => {
+	if (state.mode !== "typing") return;
+	state.down.delete(e.code);
+	const p = state.pressed.get(e.code);
+	state.pressed.delete(e.code);
+	const t = now(e);
+	if (p && t >= p[1]) state.record.holds.push([p[0], p[1], t]);
+});
+
+// ---------------------------------------------------------------- mouse
+
+function mouseIntro() {
+	state = { mode: "mouse_intro" };
+	show(`
+		<h1>Part 2: the mouse</h1>
+		<p>A dot will appear in the middle. Click it, and a blue rectangle appears somewhere else: click the rectangle as quickly and as accurately as you comfortably can. Then the next dot. Use the pointing device you normally use.</p>
+		<button id="go">Start</button>
+		<p class="hint">Or press Enter.</p>
+	`);
+	document.getElementById("go").onclick = startMouse;
+}
+
+function makeTargets(count, width, height) {
+	const cx = width / 2, cy = height / 2, margin = 80;
+	const longest = Math.hypot(width / 2 - margin, height / 2 - margin);
+	const targets = [];
+
+	for (let n = 0; n < count; n++) {
+		const distance = 120 + (longest - 120) * (((n * 7) % count) + Math.random()) / count;
+		const w = 30 + Math.floor(Math.random() * 151);
+		const h = 30 + Math.floor(Math.random() * 151);
+		const angle = Math.random() * 2 * Math.PI;
+		const x = Math.min(Math.max(cx + distance * Math.cos(angle) - w / 2, margin), Math.max(margin, width - w - margin));
+		const y = Math.min(Math.max(cy + distance * Math.sin(angle) - h / 2, margin), Math.max(margin, height - h - margin));
+		targets.push([x, y, w, h]);
+	}
+
+	return shuffle(targets);
+}
+
+function startMouse() {
+	const width = window.innerWidth, height = window.innerHeight;
+	state = { mode: "mouse", phase: "dot", width, height, targets: makeTargets(MOUSE_TRIALS, width, height), trial: null };
+	recorded.mouse = [];
+	page.style.display = "none";
+	stage.style.display = "block";
+	drawMouse();
+}
+
+function drawMouse() {
+	const s = state;
+	const done = recorded.mouse.length;
+	countEl.textContent = `Click ${done + 1} of ${MOUSE_TRIALS}`;
+	sayEl.className = "say";
+
+	if (s.phase === "dot") {
+		dot.style.left = s.width / 2 + "px";
+		dot.style.top = s.height / 2 + "px";
+		dot.classList.remove("hidden");
+		rectEl.classList.add("hidden");
+		sayEl.textContent = "Click the dot";
+	} else {
+		const [x, y, w, h] = s.trial.rect;
+		dot.classList.add("hidden");
+		Object.assign(rectEl.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+		rectEl.classList.remove("hidden");
+		sayEl.textContent = s.message || "Click the blue rectangle";
+		if (s.message) sayEl.className = "say bad";
+	}
+}
+
+function inside(rect, x, y) {
+	return rect[0] <= x && x <= rect[0] + rect[2] && rect[1] <= y && y <= rect[1] + rect[3];
+}
+
+stage.addEventListener("pointermove", (e) => {
+	const s = state;
+	if (s.mode !== "mouse" || s.phase !== "target") return;
+	const tr = s.trial;
+	const t = now(e);
+	const x = e.clientX, y = e.clientY;
+
+	if (!tr.samples.length && Math.max(Math.abs(x - tr.start[0]), Math.abs(y - tr.start[1])) <= 3) {
+		if (tr.early.length < 60) tr.early.push([t, x, y]);
+		return;
+	}
+
+	tr.samples.push([t, x, y]);
+});
+
+stage.addEventListener("pointerdown", (e) => {
+	const s = state;
+	if (s.mode !== "mouse") return;
+	const t = now(e);
+	const x = e.clientX, y = e.clientY;
+
+	if (s.phase === "dot") {
+		if (Math.hypot(x - s.width / 2, y - s.height / 2) <= DOT_RADIUS + DOT_SLACK) {
+			// The trial starts where the pointer is, not at the dot's exact centre.
+			s.trial = { start: [x, y], rect: s.targets[recorded.mouse.length], shown_at: t, samples: [], early: [], presses: [], release_at: null };
+			s.phase = "target";
+			s.message = "";
+			drawMouse();
+		}
+		return;
+	}
+
+	const tr = s.trial;
+	if (!tr.samples.length) return;
+	tr.presses.push([t, x, y]);
+
+	if (!inside(tr.rect, x, y)) {
+		s.message = "Missed. Click the blue rectangle.";
+		drawMouse();
+	}
+});
+
+stage.addEventListener("pointerup", (e) => {
+	const s = state;
+	if (s.mode !== "mouse" || s.phase !== "target") return;
+	const tr = s.trial;
+	const last = tr.presses[tr.presses.length - 1];
+
+	if (last && inside(tr.rect, last[1], last[2]) && tr.release_at === null) {
+		tr.release_at = now(e);
+		recorded.mouse.push(tr);
+		if (recorded.mouse.length >= MOUSE_TRIALS) { finish(); return; }
+		s.phase = "dot";
+		s.trial = null;
+		drawMouse();
+	}
+});
+
+// ---------------------------------------------------------------- the file
+
+function sitting() {
+	return {
+		when: new Date().toISOString().slice(0, 16),
+		source: "web",
+		typing: recorded.typing,
+		mouse: recorded.mouse.map((t) => ({ start: t.start, rect: t.rect, shown_at: t.shown_at, samples: t.samples, early: t.early, presses: t.presses, release_at: t.release_at })),
+	};
+}
+
+function finish() {
+	state = { mode: "done" };
+	const data = JSON.stringify({ sessions: [sitting()] });
+	const blob = new Blob([data], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	show(`
+		<h1>All done, thank you</h1>
+		<p id="sent">Sending your results&hellip;</p>
+		<a id="save" class="hidden" download="typing-mouse-test.json" href="${url}"><button type="button">Save my file instead</button></a>
+		<p class="hint">Only timings are kept: when keys were pressed and how the pointer moved, not what you typed about.</p>
+		<button class="secondary" id="again" type="button">Do it again</button>
+	`);
+	document.getElementById("again").onclick = intro;
+
+	// Straight back to the computer that served this page. If that fails (opened as a plain file, say), offer the file.
+	const account = new URLSearchParams(location.search).get("for") || "";
+	fetch("submit?for=" + encodeURIComponent(account), { method: "POST", headers: { "Content-Type": "application/json" }, body: data })
+		.then((r) => { if (!r.ok) throw new Error(r.status); document.getElementById("sent").textContent = "Your results were sent. You can close this page."; })
+		.catch(() => {
+			document.getElementById("sent").textContent = "Could not send automatically. Click the button to save your file and send it to whoever asked you.";
+			document.getElementById("save").classList.remove("hidden");
+		});
+}
+
+intro();
+</script>
+</body>
+</html>
