@@ -34,6 +34,11 @@ import trawl_client
 from constants import REPO_ROOT
 
 TRENDS_URL = "https://trends.google.com/trending/rss?geo={geo}"
+
+# Off: a script fetching Google from the home IP is the only Google contact the
+# bot has, and a household member began seeing Google's I'm-not-a-robot box about
+# when the bot started. Bing autosuggest and Wikipedia seed the pool without it.
+TRENDS_ENABLED = False
 WIKIPEDIA_URL = "https://en.wikipedia.org/api/rest_v1/feed/featured/{y}/{m:02d}/{d:02d}"
 AUTOSUGGEST_URL = "https://api.bing.com/osjson.aspx?query={query}"
 
@@ -83,6 +88,9 @@ def trending_queries(geo: str = "US") -> list[str]:
 	These are real searches rather than descriptions of searches, which is
 	exactly the shape wanted here.
 	"""
+	if not TRENDS_ENABLED:
+		return []
+
 	body = _fetch(TRENDS_URL.format(geo=urllib.parse.quote(geo)))
 
 	if not body:
