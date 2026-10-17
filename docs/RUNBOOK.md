@@ -111,6 +111,20 @@ recording's own check scored above 0.70 (0.5 = cannot be told from a person). Fi
 `data-dir/behavior/`. `python src/gate.py` lists which accounts run. Profiles recorded before 2026-10-08 carry no stored
 score and pass.
 
+## Recording someone's typing and mouse from their own laptop (no install)
+
+```sh
+python tools/web_calibrate/serve.py --account third
+```
+
+It prints an address such as `http://192.168.1.20:8080/?for=third`. The person opens it in any browser on the home network, does the test (about eight minutes), and the result lands in `data-dir/behavior/inbox/`. Then:
+
+```sh
+python src/calibrate.py third --import-web data-dir/behavior/inbox/third-<time>.json
+```
+
+Copy `data-dir/behavior/third.json` and `third.raw.json` to the NAS's `data-dir/behavior/`. Local network only: never forward a router port to it. Stop it with Ctrl+C.
+
 ## The control interface (`scripts/ctl.sh`)
 
 The `home` container serves a small JSON interface (`src/control_api.py`) on the NAS's own loopback, port 8787, behind
