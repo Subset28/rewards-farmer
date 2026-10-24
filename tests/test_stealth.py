@@ -47,6 +47,18 @@ class TestStealthPreloadScript(unittest.TestCase):
 		self.assertIn("navigator, 'webdriver'", script)
 		self.assertIn("get: () => undefined", script)
 
+	def test_preload_script_proxies_function_prototype_tostring(self):
+		script = browser.HIDE_DRIVER_MARKERS_JS
+		self.assertIn("Function.prototype.toString", script)
+		self.assertIn("nativeFunctions", script)
+		self.assertIn("[native code]", script)
+
+	def test_preload_script_defines_devicememory_and_window_dimensions(self):
+		script = browser.HIDE_DRIVER_MARKERS_JS
+		self.assertIn("navigator, 'deviceMemory'", script)
+		self.assertIn("window, 'outerWidth'", script)
+		self.assertIn("window, 'outerHeight'", script)
+
 	def test_hide_driver_markers_registers_both_cdp_and_bidi(self):
 		mock_driver = mock.Mock()
 		browser.hide_driver_markers(mock_driver, "test_account")
