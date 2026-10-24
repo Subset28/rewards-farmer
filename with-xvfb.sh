@@ -9,9 +9,21 @@ set -e
 
 DISPLAY_NUM=99
 
-# A container that is restarted rather than recreated keeps /tmp, and Xvfb
-# refuses to start over the previous run's lock.
-rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
+# If display 99 is already running and has an active socket, reuse it
+if [ -S "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
+	export DISPLAY=":${DISPLAY_NUM}"
+	exec "$@"
+fi
+
+# Clean up stale locks if no Xvfb process is running on 99
+if [ -e "/tmp/.X${DISPLAY_NUM}-lock" ] || [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
+	if ! kill -0 "$(cat "/tmp/.X${DISPLAY_NUM}-lock" 2>/dev/null)" 2>/dev/null; then
+		rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
+	else
+		export DISPLAY=":${DISPLAY_NUM}"
+		exec "$@"
+	fi
+fi
 
 Xvfb ":${DISPLAY_NUM}" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
 

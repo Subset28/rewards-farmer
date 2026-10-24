@@ -49,6 +49,7 @@ RUN --mount=type=cache,target=/var/cache/edgedriver \
 		"https://msedgedriver.microsoft.com/${EDGE_VERSION}/edgedriver_linux64.zip" \
 	&& unzip -j "$cached" msedgedriver -d /usr/local/bin \
 	&& chmod +x /usr/local/bin/msedgedriver \
+	&& python3 -c "p='/usr/local/bin/msedgedriver'; b=open(p,'rb').read(); open(p,'wb').write(b.replace(b'cdc_', b'rnd_'))" \
 	&& msedgedriver --version
 
 WORKDIR /app

@@ -934,15 +934,18 @@ class RewardsTaskUtils:
 		for i, query in enumerate(
 			queries.related_queries(count, account=self.account_name)
 		):
-			# A fresh homepage for every search, the way a person starts one, in
-			# place of typing the next query into the results page's box. The
-			# search bar is auto-focused on arrival.
-			self.driver.get("https://www.bing.com/")
-			self.tab_utils.ensure_focus()
+			current_url = (getattr(self.driver, "current_url", "") or "").lower()
+			on_serp = "bing.com/search" in current_url
+			return_to_home = (i == 0) or (not on_serp) or (random.random() < 0.15)
 
-			self.wait_for_element(self.elements.get_bing_search_bar)
-
-			_wait(self, 2.5, 5.5)
+			if return_to_home:
+				self.driver.get("https://www.bing.com/")
+				self.tab_utils.ensure_focus()
+				self.wait_for_element(self.elements.get_bing_search_bar)
+				_wait(self, 2.0, 4.5)
+			else:
+				self.tab_utils.ensure_focus()
+				_wait(self, 1.2, 3.0)
 
 			pause = breaks.before_search()
 
@@ -950,14 +953,27 @@ class RewardsTaskUtils:
 				logger.info("Pausing %.0fs between searches.", pause)
 				time.sleep(pause)
 
-			# No operator on the query: an identical suffix on every search is
-			# something no person does.
 			logger.info("Search %d/%d: %r", i + 1, count, query)
 			slip_rate, neighbor_share = self.keyboard.slip_settings(query)
-			self.keyboard.send_keys(
-				f"{search_behavior.with_typo(query, slip_rate, neighbor_share=neighbor_share, weights=self.keyboard.slip_weights(query))}{Keys.ENTER}",
-				intended=query,
+			slipped = search_behavior.with_typo(
+				query, slip_rate, neighbor_share=neighbor_share, weights=self.keyboard.slip_weights(query)
 			)
+
+			if not return_to_home:
+				try:
+					box = self.elements.get_serp_search_box()
+					self.move_to_and_click(box)
+					ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
+					_wait(self, 0.2, 0.6)
+					self.keyboard.send_keys(f"{slipped}{Keys.ENTER}", intended=query)
+				except WebDriverException as exc:
+					logger.debug("SERP search box unavailable (%s), returning to home: %r", log_utils.exception_summary(exc), query)
+					self.driver.get("https://www.bing.com/")
+					self.tab_utils.ensure_focus()
+					self.wait_for_element(self.elements.get_bing_search_bar)
+					self.keyboard.send_keys(f"{slipped}{Keys.ENTER}", intended=query)
+			else:
+				self.keyboard.send_keys(f"{slipped}{Keys.ENTER}", intended=query)
 
 			# Remembered as the query that was meant, so it is not searched
 			# again by this account for a month.

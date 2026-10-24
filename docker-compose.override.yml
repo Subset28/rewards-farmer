@@ -9,3 +9,6 @@ services:
   home:
     ports:
       - "127.0.0.1:8787:8787"
+    devices:
+      - /dev/dri/card0:/dev/dri/card0
+      - /dev/dri/renderD128:/dev/dri/renderD128
