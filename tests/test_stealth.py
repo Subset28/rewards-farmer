@@ -116,6 +116,41 @@ class SearchCadenceTestPage:
 
 
 @mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
+class TestBrowserHardwareOptions(unittest.TestCase):
+	def test_has_gpu_device_checks_dev_dri(self):
+		with mock.patch("os.path.exists", return_value=True) as mock_exists:
+			self.assertTrue(browser.has_gpu_device())
+			mock_exists.assert_called_once_with("/dev/dri")
+
+	def test_build_options_with_dri_omits_swiftshader(self):
+		mock_account = mock.Mock()
+		mock_account.user_data_dir = "/tmp/fake_user_data"
+		mock_account.profile_name = "Default"
+
+		with mock.patch.object(browser, "HEADLESS", True), \
+			mock.patch.object(browser, "VIRTUAL_DISPLAY", True), \
+			mock.patch.object(browser, "has_gpu_device", return_value=True):
+			opts = browser.build_options(mock_account)
+
+		self.assertIn("--ignore-gpu-blocklist", opts.arguments)
+		self.assertNotIn("--use-angle=swiftshader", opts.arguments)
+		self.assertNotIn("--enable-unsafe-swiftshader", opts.arguments)
+
+	def test_build_options_without_dri_uses_swiftshader_fallback(self):
+		mock_account = mock.Mock()
+		mock_account.user_data_dir = "/tmp/fake_user_data"
+		mock_account.profile_name = "Default"
+
+		with mock.patch.object(browser, "HEADLESS", True), \
+			mock.patch.object(browser, "VIRTUAL_DISPLAY", True), \
+			mock.patch.object(browser, "has_gpu_device", return_value=False):
+			opts = browser.build_options(mock_account)
+
+		self.assertIn("--ignore-gpu-blocklist", opts.arguments)
+		self.assertIn("--use-angle=swiftshader", opts.arguments)
+		self.assertIn("--enable-unsafe-swiftshader", opts.arguments)
+
+
 class TestSearchCadence(unittest.TestCase):
 	def test_subsequent_searches_use_serp_search_box_when_on_serp(self):
 		page = SearchCadenceTestPage(current_url="https://www.bing.com/search?q=test")
@@ -143,7 +178,8 @@ class TestSearchCadence(unittest.TestCase):
 
 		with mock.patch.object(rewards_tasks.features, "enabled", return_value=False), \
 			mock.patch.object(rewards_tasks.queries, "related_queries", return_value=["query1", "query2"]), \
-			mock.patch.object(rewards_tasks.random, "random", return_value=0.5):
+			mock.patch.object(rewards_tasks.random, "random", return_value=0.5), \
+			mock.patch.object(rewards_tasks.ActionChains, "perform", return_value=None):
 			page.run_search_batch = rewards_tasks.RewardsTaskUtils.run_search_batch.__get__(page)
 			page.run_search_batch(2)
 

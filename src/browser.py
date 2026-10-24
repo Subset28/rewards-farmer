@@ -113,6 +113,10 @@ EXPLANATIONS = [
 DISK_CACHE_BYTES = 64 * 1024 * 1024
 
 
+def has_gpu_device() -> bool:
+	return os.path.exists("/dev/dri")
+
+
 def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options = webdriver.EdgeOptions()
 
@@ -139,14 +143,12 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 		# the pointer code works in viewport coordinates, and the default
 		# headless window is small enough to put cards out of reach.
 		if VIRTUAL_DISPLAY:
-			# A virtual display has no GPU, and without these Edge exposes no
-			# WebGL context at all, which almost no real browser lacks. Software
-			# WebGL is present but reports SwiftShader as the renderer.
-			# (Not --use-gl=angle as well: tested on throwaway profiles against deviceandbrowserinfo.com, it
-			# alone made the browser's timer look inconsistent, and WebGL is exactly as present without it.)
-			options.add_argument("--use-angle=swiftshader")
-			options.add_argument("--enable-unsafe-swiftshader")
+			# If a GPU device is available (e.g. Intel iGPU passed through from Synology DS1019+),
+			# allow Edge to use true hardware acceleration. Otherwise fall back to SwiftShader.
 			options.add_argument("--ignore-gpu-blocklist")
+			if not has_gpu_device():
+				options.add_argument("--use-angle=swiftshader")
+				options.add_argument("--enable-unsafe-swiftshader")
 		else:
 			options.add_argument("--headless=new")
 
