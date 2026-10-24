@@ -765,6 +765,11 @@ class RewardsTaskUtils:
 	# Searches in a row that must add nothing before it is called a problem.
 	DRY_SEARCHES_TO_ALERT = 3
 
+	# 2026 Meta: Burst limits, cooldown recognition and human contemplation delays.
+	BURST_SEARCH_LIMIT = int(os.environ.get("REWARDS_BURST_SEARCH_LIMIT", "0"))
+	INTER_SEARCH_CONTEMPLATION_MIN = float(os.environ.get("REWARDS_INTER_SEARCH_MIN", "5.0"))
+	INTER_SEARCH_CONTEMPLATION_MAX = float(os.environ.get("REWARDS_INTER_SEARCH_MAX", "11.0"))
+
 	def complete_required_searches(self, max_rounds: int = 6, max_searches: int | None = None):
 		"""Search until the daily quota is filled, or `max_searches` have been made.
 
@@ -791,12 +796,17 @@ class RewardsTaskUtils:
 		points_per_search = 3.0
 		budget = max_searches
 		dry_rounds = dry_searches = 0
+		initial_points = points_earned
 
 		for round_number in range(1, max_rounds + 1):
 			if points_earned >= goal or (budget is not None and budget <= 0):
 				break
 
 			searches = search_behavior.searches_needed(goal - points_earned, points_per_search)
+
+			burst_limit = getattr(self, "BURST_SEARCH_LIMIT", 0)
+			if burst_limit and burst_limit > 0:
+				searches = min(searches, burst_limit)
 
 			if round_number == 1:
 				searches = min(searches, self.PROBE_SEARCHES)
@@ -837,6 +847,12 @@ class RewardsTaskUtils:
 				# normally, but it raised the "may be restricted" alert. Only a
 				# run of searches with no gain at all is evidence of a problem.
 				if dry_searches >= self.DRY_SEARCHES_TO_ALERT:
+					if points_earned > initial_points:
+						logger.info(
+							"Search cooldown threshold reached on %s (%d searches added nothing after gaining %d pts). Yielding to scheduler.",
+							self.account_name, dry_searches, points_earned - initial_points,
+						)
+						break
 					notify.send(
 						"Searches earned no points",
 						f"{self.account_name}: {dry_searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",
@@ -1267,6 +1283,19 @@ class RewardsTaskUtils:
 				log_utils.exception_summary(exc)
 			)
 
+	def claim_puzzle_pieces(self):
+		"""Check for and claim any ready puzzle piece or 1,000 pt puzzle reward on the dashboard."""
+		try:
+			getter = getattr(self.elements, "get_puzzle_claim_button", None)
+			if getter:
+				btn = getter()
+				if btn:
+					self.move_to_and_click(btn)
+					_wait(self, 1.5, 3.0)
+					logger.info("Claimed ready puzzle piece bonus on %s", self.account_name)
+		except Exception as exc:
+			logger.debug("Puzzle piece check: %s", log_utils.exception_summary(exc))
+
 	def claim_bonus_points(self):
 		self.switch_to_dashboard()
 
@@ -1276,6 +1305,8 @@ class RewardsTaskUtils:
 			self.wait_for_then_click(self.elements.get_claim_bonus_points_button)
 		except TimeoutException:
 			logger.warning("Could not find the 'Claim Bonus Points' button. There are likely no bonus points to claim at this time.")
+
+		self.claim_puzzle_pieces()
 
 	def complete_all_tasks(self, skip_searches: bool = False):
 		# Each task is run independently. The Rewards UI differs by market and

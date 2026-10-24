@@ -434,6 +434,35 @@ return (
 	def get_bonus_button_on_dashboard(self):
 		return self._button_containing(Labels.READY_TO_CLAIM)
 
+	def get_puzzle_claim_button(self):
+		"""Finds a puzzle piece claim button or completed puzzle reward on the Rewards dashboard."""
+		try:
+			for button in self.driver.find_elements(By.TAG_NAME, "button"):
+				try:
+					text = (button.text or "").strip().lower()
+					if ("puzzle" in text and "claim" in text) or text in ("claim piece", "claim puzzle"):
+						return button
+				except StaleElementReferenceException:
+					continue
+		except Exception:
+			pass
+
+		try:
+			puzzle_elements = self.driver.find_elements(
+				By.XPATH, "//*[contains(@id, 'puzzle') or contains(@class, 'puzzle') or contains(@aria-label, 'puzzle')]"
+			)
+			for container in puzzle_elements:
+				for btn in container.find_elements(By.TAG_NAME, "button"):
+					try:
+						if "claim" in (btn.text or "").strip().lower():
+							return btn
+					except StaleElementReferenceException:
+						continue
+		except Exception:
+			pass
+
+		return None
+
 	def get_claim_bonus_points_button(self):
 		sidebar = self.get_sidebar_section()
 		buttons = sidebar.find_elements(By.TAG_NAME, "button")
