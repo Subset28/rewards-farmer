@@ -59,16 +59,32 @@ class TestStealthPreloadScript(unittest.TestCase):
 		self.assertIn("window, 'outerWidth'", script)
 		self.assertIn("window, 'outerHeight'", script)
 
+	def test_preload_script_contains_canvas_audio_and_font_spoofing(self):
+		script = browser.HIDE_DRIVER_MARKERS_JS
+		self.assertIn("CanvasRenderingContext2D.prototype.getImageData", script)
+		self.assertIn("HTMLCanvasElement.prototype.toDataURL", script)
+		self.assertIn("AudioBuffer.prototype.getChannelData", script)
+		self.assertIn("document.fonts.check", script)
+
+	def test_make_stealth_script_generates_distinct_per_account_seeds(self):
+		s_default = browser.make_stealth_script("default")
+		s_second = browser.make_stealth_script("second")
+		s_third = browser.make_stealth_script("third")
+		self.assertNotEqual(s_default, s_second)
+		self.assertNotEqual(s_second, s_third)
+		self.assertEqual(s_default, browser.make_stealth_script("default"))
+
 	def test_hide_driver_markers_registers_both_cdp_and_bidi(self):
 		mock_driver = mock.Mock()
 		browser.hide_driver_markers(mock_driver, "test_account")
+		expected_script = browser.make_stealth_script("test_account")
 
 		# Verify BiDi pin was called
-		mock_driver.script.pin.assert_called_once_with(browser.HIDE_DRIVER_MARKERS_JS)
+		mock_driver.script.pin.assert_called_once_with(expected_script)
 		# Verify CDP addScriptToEvaluateOnNewDocument was called
 		mock_driver.execute_cdp_cmd.assert_called_once_with(
 			"Page.addScriptToEvaluateOnNewDocument",
-			{"source": browser.HIDE_DRIVER_MARKERS_JS}
+			{"source": expected_script}
 		)
 
 	def test_hide_driver_markers_degrades_gracefully_on_driver_exception(self):
@@ -116,6 +132,8 @@ class SearchCadenceTestPage:
 		self.keyboard.slip_weights.return_value = None
 		self.mouse = mock.Mock()
 		self.moves = []
+		self.ORGANIC_DWELL_RATE = 0.20
+		self.dwell_organic_result = mock.Mock()
 
 	def wait_for_element(self, getter):
 		return getter()
@@ -147,6 +165,8 @@ class TestBrowserHardwareOptions(unittest.TestCase):
 		self.assertIn("--ignore-gpu-blocklist", opts.arguments)
 		self.assertNotIn("--use-angle=swiftshader", opts.arguments)
 		self.assertNotIn("--enable-unsafe-swiftshader", opts.arguments)
+		self.assertIn("--force-webrtc-ip-handling-policy=default_public_interface_only", opts.arguments)
+		self.assertIn("--enforce-webrtc-ip-permission-check", opts.arguments)
 
 	def test_build_options_without_dri_uses_swiftshader_fallback(self):
 		mock_account = mock.Mock()
@@ -196,6 +216,24 @@ class TestSearchCadence(unittest.TestCase):
 			page.run_search_batch(2)
 
 		self.assertEqual(page.keyboard.send_keys.call_count, 2)
+
+	def test_dwell_organic_result_delegates_to_open_a_result(self):
+		page = SearchCadenceTestPage()
+		page._open_a_result = mock.Mock()
+		page.dwell_organic_result = rewards_tasks.RewardsTaskUtils.dwell_organic_result.__get__(page)
+
+		page.dwell_organic_result(speed=1.5)
+		page._open_a_result.assert_called_once_with(1.5)
+
+	def test_dwell_organic_result_handles_driver_exception(self):
+		page = SearchCadenceTestPage()
+		page._open_a_result = mock.Mock(side_effect=WebDriverException("Timeout"))
+		page.dwell_organic_result = rewards_tasks.RewardsTaskUtils.dwell_organic_result.__get__(page)
+
+		with self.assertLogs(rewards_tasks.logger, level="DEBUG") as logs:
+			page.dwell_organic_result(speed=1.0)
+
+		self.assertTrue(any("Skipped organic dwell" in line for line in logs.output))
 
 
 if __name__ == "__main__":

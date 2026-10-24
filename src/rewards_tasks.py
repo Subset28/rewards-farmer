@@ -924,6 +924,7 @@ class RewardsTaskUtils:
 	# it is not, by reading down the results.
 	RESULTS_TAB_RATE = 0.2
 	RESULTS_SCROLL_RATE = 0.75
+	ORGANIC_DWELL_RATE = 0.20
 
 	def run_search_batch(self, count: int):
 		if features.enabled("chains", self.account_name):
@@ -982,6 +983,9 @@ class RewardsTaskUtils:
 			_wait(self, 2, 4)
 
 			self.browse_results()
+
+			if random.random() < getattr(self, "ORGANIC_DWELL_RATE", 0.20) and memory_guard.can_open_a_result():
+				self.dwell_organic_result()
 
 			_wait(self, 2, 4)
 
@@ -1122,6 +1126,13 @@ class RewardsTaskUtils:
 				self._open_a_result(speed)
 		except WebDriverException as exc:
 			logger.debug("Skipped reading the results: %s", log_utils.exception_summary(exc))
+
+	def dwell_organic_result(self, speed: float = 1.0):
+		"""Occasionally open an organic search result, dwell/scroll naturally, and safely return."""
+		try:
+			self._open_a_result(speed)
+		except Exception as exc:
+			logger.debug("Skipped organic dwell: %s", log_utils.exception_summary(exc))
 
 	def _open_a_result(self, speed: float):
 		"""Open one of the top results, look at it for a while, and come back to the results."""

@@ -45,6 +45,7 @@ HIDE_DRIVER_MARKERS_JS = (
 	"  Function.prototype.toString = toStringProxy;"
 	"  nativeFunctions.add(origToString);"
 	" } catch (e) {}"
+	" const SEED = /*SEED*/0;"
 	" const FAKE_VENDOR = 'Intel Inc.';"
 	" const FAKE_RENDERER = 'Intel(R) Iris(R) Xe Graphics';"
 	" const getParameterProxyHandler = {"
@@ -63,6 +64,67 @@ HIDE_DRIVER_MARKERS_JS = (
 	"  }"
 	"  if (typeof WebGL2RenderingContext !== 'undefined') {"
 	"   WebGL2RenderingContext.prototype.getParameter = new Proxy(WebGL2RenderingContext.prototype.getParameter, getParameterProxyHandler);"
+	"  }"
+	" } catch (e) {}"
+	" try {"
+	"  if (typeof CanvasRenderingContext2D !== 'undefined') {"
+	"   const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;"
+	"   CanvasRenderingContext2D.prototype.getImageData = function(x, y, w, h) {"
+	"    const data = origGetImageData.apply(this, arguments);"
+	"    if (SEED && data && data.data && data.data.length > 32) {"
+	"     for (let i = 0; i < 4; i++) {"
+	"      const idx = ((SEED * (i + 1) * 31 + w * 7 + h) % (data.data.length / 4)) * 4;"
+	"      data.data[idx] = (data.data[idx] ^ (1 + (SEED % 3))) & 255;"
+	"     }"
+	"    }"
+	"    return data;"
+	"   };"
+	"   nativeFunctions.add(CanvasRenderingContext2D.prototype.getImageData);"
+	"  }"
+	" } catch (e) {}"
+	" try {"
+	"  if (typeof HTMLCanvasElement !== 'undefined') {"
+	"   const origToDataURL = HTMLCanvasElement.prototype.toDataURL;"
+	"   HTMLCanvasElement.prototype.toDataURL = function() {"
+	"    if (SEED && this.width > 0 && this.height > 0) {"
+	"     try {"
+	"      const ctx = this.getContext('2d');"
+	"      if (ctx) {"
+	"       ctx.fillStyle = 'rgba(' + (SEED % 5) + ',1,1,0.01)';"
+	"       ctx.fillRect(SEED % this.width, (SEED * 7) % this.height, 1, 1);"
+	"      }"
+	"     } catch (err) {}"
+	"    }"
+	"    return origToDataURL.apply(this, arguments);"
+	"   };"
+	"   nativeFunctions.add(HTMLCanvasElement.prototype.toDataURL);"
+	"  }"
+	" } catch (e) {}"
+	" try {"
+	"  if (typeof AudioBuffer !== 'undefined') {"
+	"   const origGetChannelData = AudioBuffer.prototype.getChannelData;"
+	"   AudioBuffer.prototype.getChannelData = function(channel) {"
+	"    const array = origGetChannelData.apply(this, arguments);"
+	"    if (SEED && array && array.length > 64) {"
+	"     const offset = (SEED % 10) * 1e-7;"
+	"     const step = Math.floor(array.length / 8);"
+	"     for (let i = 0; i < array.length; i += step) {"
+	"      array[i] += offset;"
+	"     }"
+	"    }"
+	"    return array;"
+	"   };"
+	"   nativeFunctions.add(AudioBuffer.prototype.getChannelData);"
+	"  }"
+	" } catch (e) {}"
+	" try {"
+	"  if (typeof document !== 'undefined' && document.fonts && document.fonts.check) {"
+	"   const origCheck = document.fonts.check;"
+	"   document.fonts.check = function(font, text) {"
+	"    if (/(Segoe UI|Calibri|Arial|Consolas|Tahoma|Verdana)/i.test(font)) return true;"
+	"    return origCheck.apply(this, arguments);"
+	"   };"
+	"   nativeFunctions.add(document.fonts.check);"
 	"  }"
 	" } catch (e) {}"
 	" try {"
@@ -158,6 +220,10 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options.add_argument(f"--disk-cache-size={DISK_CACHE_BYTES}")
 	options.add_argument(f"--media-cache-size={DISK_CACHE_BYTES}")
 
+	# WebRTC IP leak protection: prevent internal Docker or LAN IP leakage
+	options.add_argument("--force-webrtc-ip-handling-policy=default_public_interface_only")
+	options.add_argument("--enforce-webrtc-ip-permission-check")
+
 	# Needed to register a script that runs in every tab, including the ones a
 	# card opens; see hide_driver_markers.
 	options.enable_bidi = True
@@ -215,6 +281,13 @@ def explain(exc: Exception) -> list[str]:
 	return ["The driver's message is below; it did not match a known cause."]
 
 
+def make_stealth_script(account_name: str | None = None) -> str:
+	if not account_name:
+		return HIDE_DRIVER_MARKERS_JS
+	seed = sum((i + 1) * ord(c) for i, c in enumerate(account_name)) % 100000 + 1
+	return HIDE_DRIVER_MARKERS_JS.replace("/*SEED*/0", f"/*SEED*/{seed}")
+
+
 def hide_driver_markers(driver, account_name: str) -> None:
 	"""Remove the cdc_ properties msedgedriver puts on every page's window.
 
@@ -232,10 +305,11 @@ def hide_driver_markers(driver, account_name: str) -> None:
 	Best effort on purpose, and loud: a run that cannot hide them is still
 	worth doing, but must not look as though it did.
 	"""
+	script = make_stealth_script(account_name)
 	for label, register in (
-		("every new tab", lambda: driver.script.pin(HIDE_DRIVER_MARKERS_JS)),
+		("every new tab", lambda: driver.script.pin(script)),
 		("the starting tab", lambda: driver.execute_cdp_cmd(
-			"Page.addScriptToEvaluateOnNewDocument", {"source": HIDE_DRIVER_MARKERS_JS}
+			"Page.addScriptToEvaluateOnNewDocument", {"source": script}
 		)),
 	):
 		try:
