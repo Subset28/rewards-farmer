@@ -78,6 +78,9 @@ HIDE_DRIVER_MARKERS_JS = (
 	"   navigator.permissions.query = patchedQuery;"
 	"  }"
 	" } catch (e) {}"
+	" try {"
+	"  Object.defineProperty(navigator, 'webdriver', { get: () => undefined, enumerable: false, configurable: true });"
+	" } catch (e) {}"
 	"})();"
 )
 

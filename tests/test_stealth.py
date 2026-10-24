@@ -42,6 +42,11 @@ class TestStealthPreloadScript(unittest.TestCase):
 		self.assertIn("cdc_", script)
 		self.assertIn("rnd_", script)
 
+	def test_preload_script_overrides_navigator_webdriver(self):
+		script = browser.HIDE_DRIVER_MARKERS_JS
+		self.assertIn("navigator, 'webdriver'", script)
+		self.assertIn("get: () => undefined", script)
+
 	def test_hide_driver_markers_registers_both_cdp_and_bidi(self):
 		mock_driver = mock.Mock()
 		browser.hide_driver_markers(mock_driver, "test_account")
