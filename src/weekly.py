@@ -6,7 +6,7 @@ week should still say so, so the owner can see that it is running and what it ea
   * Sundays after 18:00, once: for each account, the points gained in the last seven days, the month so far, the
     way to the next level, and how many of its runs worked; plus anything health.py is complaining about and any
     pause. Sent to the shared destination.
-  * When an account's points reach another 6,200 (a $5 Amazon gift card is 6,000 points, and lifetime runs about 200 above the balance),
+  * When an account's points reach another 6,500 (a $5 Amazon gift card is 6,500 points),
     one message to that account's destination, with the reminder to redeem on mobile data.
 
 It never raises: a note must not be the thing that breaks a run. What it has sent is in data-dir/weekly.json.
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 STATE_FILE = os.path.join(USER_DATA_DIR, "weekly.json")
 SEND_WEEKDAY = 6  # Sunday
 SEND_AFTER_HOUR = 18
-REDEEM_EVERY = 6200
+REDEEM_EVERY = 6500
 
 
 def _read_state() -> dict:
@@ -160,7 +160,7 @@ def run_if_due(names: list[str] | None = None, now: datetime | None = None, send
 		for name, lifetime in reminders(names, state):
 			send(
 				f"{name}: about {lifetime:,} points",
-				"Enough for a gift card (1,200 points a dollar, $5 minimum). Redeem on mobile data, not the home connection.",
+				"Enough for a $5 Amazon Gift Card (6,500 points). Redeem on mobile data (cellular hotspot), not the home connection, to pool gift cards safely.",
 				account=name,
 			)
 			sent = True

@@ -302,6 +302,7 @@ def trip(risk: Risk, account_name: str, driver=None) -> None:
 		"\n".join(body_lines),
 		priority="high",
 		account=account_name,
+		image_path=snapshot_path,
 	)
 
 
