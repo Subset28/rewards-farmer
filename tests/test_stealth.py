@@ -16,9 +16,9 @@ SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
 if SRC not in sys.path:
 	sys.path.insert(0, SRC)
 
-import browser
-import rewards_tasks
-from selenium.common.exceptions import WebDriverException
+import browser  # noqa: E402
+import rewards_tasks  # noqa: E402
+from selenium.common.exceptions import WebDriverException  # noqa: E402
 
 
 class TestStealthPreloadScript(unittest.TestCase):
