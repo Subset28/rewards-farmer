@@ -113,21 +113,29 @@ def _unit(owner: str, salt: str) -> float:
 	return int.from_bytes(digest[:8], "big") / 2**64
 
 
-def habit_windows(owner: str, weekend: bool) -> list[tuple[float, float]]:
+def circadian_drift_minutes(owner: str, date_iso: str) -> float:
+	"""Deterministic circadian diurnal drift in [-20.0, 20.0] minutes for this owner on this date."""
+	digest = hashlib.sha256(f"circadian|{owner.lower()}|{date_iso}".encode()).digest()
+	unit = int.from_bytes(digest[:8], "big") / 2**64
+
+	return (unit - 0.5) * 20.0
+
+
+def habit_windows(owner: str, weekend: bool, date_iso: str | None = None) -> list[tuple[float, float]]:
 	"""The owner's favoured windows as (start, end) in minutes after midnight, sorted.
 
-	Depends only on the owner and whether it is a weekend, never on the date, so
-	the habit is the same every weekday and every weekend. 2 or 3 of the
-	morning/midday/evening windows are kept, chosen per owner.
+	Depends on the owner, weekend schedule, and optional day-to-day circadian drift.
+	2 or 3 of the morning/midday/evening windows are kept, chosen per owner.
 	"""
 	# Which slots this owner uses: always at least two. Of the five equal parts of
 	# the hash, three drop one slot each and two keep all three (index 3 matches none).
 	dropped = int(_unit(owner, "habit-drop") * 5)
 	slots = [slot for index, slot in enumerate(_HABIT_SLOTS) if index != dropped]
 	windows = []
+	drift = circadian_drift_minutes(owner, date_iso) if date_iso else 0.0
 
 	for name, low, high in slots:
-		centre = (low + (high - low) * _unit(owner, f"habit-centre-{name}")) * 60
+		centre = (low + (high - low) * _unit(owner, f"habit-centre-{name}")) * 60 + drift
 		width = _HABIT_WIDTH[0] + (_HABIT_WIDTH[1] - _HABIT_WIDTH[0]) * _unit(owner, f"habit-width-{name}")
 
 		if weekend:
@@ -145,7 +153,8 @@ def _habit_time(owner: str, begin: datetime, end: datetime, start: datetime) -> 
 	lo, hi = (begin - midnight).total_seconds() / 60, (end - midnight).total_seconds() / 60
 
 	# Only the part of each window still ahead can take a run.
-	windows = [(max(a, lo), min(b, hi)) for a, b in habit_windows(owner, start.weekday() >= 5)]
+	date_iso = start.date().isoformat()
+	windows = [(max(a, lo), min(b, hi)) for a, b in habit_windows(owner, start.weekday() >= 5, date_iso=date_iso)]
 	windows = [(a, b) for a, b in windows if b > a]
 
 	minute = None

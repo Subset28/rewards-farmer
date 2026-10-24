@@ -224,6 +224,10 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options.add_argument("--force-webrtc-ip-handling-policy=default_public_interface_only")
 	options.add_argument("--enforce-webrtc-ip-permission-check")
 
+	# TLS & BoringSSL cryptographic alignment with retail desktop Edge
+	options.add_argument("--ssl-version-min=tls1.2")
+	options.add_argument("--enable-features=PostQuantumKyber")
+
 	# Needed to register a script that runs in every tab, including the ones a
 	# card opens; see hide_driver_markers.
 	options.enable_bidi = True

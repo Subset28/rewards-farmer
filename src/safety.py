@@ -74,6 +74,61 @@ TEXT_RULES = (
 
 SIGN_IN_HOSTS = ("login.live.com", "login.microsoftonline.com", "login.microsoft.com")
 
+CATEGORY_ACCOUNT_LOCKED = "account_locked"
+CATEGORY_CAPTCHA_PUZZLE = "captcha_challenge"
+CATEGORY_PHONE_VERIFICATION = "phone_verification"
+CATEGORY_SESSION_LAPSED = "session_lapsed"
+CATEGORY_RESTRICTED = "earning_restricted"
+CATEGORY_UNKNOWN = "unknown_roadblock"
+
+
+def triage_roadblock(risk: Risk, url: str = "", text: str = "") -> dict[str, str]:
+	"""Categorizes a detected roadblock into an actionable diagnostic payload."""
+	lowered_url = (url or "").lower()
+	lowered_text = (text or "")[:MAX_TEXT].lower()
+	reason = (risk.reason or "").lower()
+
+	if "account.live.com/abuse" in lowered_url or any(k in lowered_text or k in reason for k in ("suspended", "locked", "blocked")):
+		return {
+			"category": CATEGORY_ACCOUNT_LOCKED,
+			"severity": "critical",
+			"action_required": "Manual account recovery via Microsoft account portal required.",
+		}
+
+	if "restricted" in lowered_text or "not eligible" in lowered_text or "unusual activity" in lowered_text or "restricted" in reason:
+		return {
+			"category": CATEGORY_RESTRICTED,
+			"severity": "critical",
+			"action_required": "Rewards program restriction applied. Wait out cooldown or submit appeal.",
+		}
+
+	if "account.live.com/proofs" in lowered_url or any(k in lowered_text or k in reason for k in ("protect your account", "verify your identity", "sms", "phone")):
+		return {
+			"category": CATEGORY_PHONE_VERIFICATION,
+			"severity": "high",
+			"action_required": "Security proof or phone SMS code verification required.",
+		}
+
+	if risk.kind == CHALLENGE or "captcha" in lowered_url or any(k in lowered_text or k in reason for k in ("puzzle", "robot", "press and hold", "verify you")):
+		return {
+			"category": CATEGORY_CAPTCHA_PUZZLE,
+			"severity": "high",
+			"action_required": "Interactive captcha challenge encountered. Solve the captcha manually in browser.",
+		}
+
+	if risk.kind == SIGNED_OUT or any(h in lowered_url for h in SIGN_IN_HOSTS) or "about" in lowered_url or "welcome" in lowered_url:
+		return {
+			"category": CATEGORY_SESSION_LAPSED,
+			"severity": "medium",
+			"action_required": "Session signed out or expired. Log into the account profile to restore credentials.",
+		}
+
+	return {
+		"category": CATEGORY_UNKNOWN,
+		"severity": "high",
+		"action_required": "Unclassified safety roadblock detected. Inspect account in browser.",
+	}
+
 
 def classify(url: str, text: str) -> Risk | None:
 	"""What, if anything, a page shows that a run must stop for. Pure.
@@ -178,20 +233,48 @@ def blocked(accounts: list[str] | None) -> dict | None:
 	return None
 
 
-def trip(risk: Risk, account_name: str) -> None:
-	"""Turn the brake on and say so. Idempotent: an existing pause is kept."""
+def trip(risk: Risk, account_name: str, driver=None) -> None:
+	"""Turn the brake on, capture roadblock snapshot/triage, and notify. Idempotent: an existing pause is kept."""
 	scope = account_name if risk.kind == SIGNED_OUT else None
 	path = _file_for(scope)
 
 	if _read(path) or _read(PAUSE_FILE):
 		return
 
+	url = ""
+	text = ""
+	snapshot_path = None
+
+	if driver is not None:
+		try:
+			url = getattr(driver, "current_url", "") or ""
+			text = driver.execute_script("return document.body ? document.body.innerText : ''") or ""
+		except Exception as exc:
+			logger.debug("Could not read page metadata during trip: %s", exc)
+
+		try:
+			if hasattr(driver, "save_screenshot"):
+				snapshots_dir = os.path.join(USER_DATA_DIR, "snapshots")
+				os.makedirs(snapshots_dir, exist_ok=True)
+				safe_time = clock.stamp().replace(":", "-").replace(" ", "_")
+				snapshot_filename = f"{account_name}_{risk.kind}_{safe_time}.png"
+				candidate_path = os.path.join(snapshots_dir, snapshot_filename)
+				if driver.save_screenshot(candidate_path):
+					snapshot_path = candidate_path
+		except Exception as exc:
+			logger.debug("Could not capture roadblock snapshot: %s", exc)
+
+	triage = triage_roadblock(risk, url=url, text=text)
+
 	record = {
 		"kind": risk.kind,
 		"reason": risk.reason,
 		"account": account_name,
 		"time": clock.stamp(),
+		"triage": triage,
 	}
+	if snapshot_path:
+		record["snapshot"] = snapshot_path
 
 	try:
 		os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -204,11 +287,19 @@ def trip(risk: Risk, account_name: str) -> None:
 	command = "python src/safety.py clear" if scope is None else f"python src/safety.py clear {scope}"
 	stops = "Runs are" if scope is None else f"Runs for {scope} are"
 
-	logger.error("[BRAKE] %s on %s: %s. %s paused until `%s`.", risk.kind, account_name, risk.reason, stops, command)
+	logger.error("[BRAKE] %s on %s: %s [%s]. %s paused until `%s`.", risk.kind, account_name, risk.reason, triage["category"], stops, command)
+
+	body_lines = [
+		f"{account_name}: {risk.kind} - {risk.reason}.",
+		f"Triage: [{triage['category']}] {triage['action_required']}",
+	]
+	if snapshot_path:
+		body_lines.append(f"Snapshot: {os.path.basename(snapshot_path)}")
+	body_lines.append(f"Look at the account, then run: {command}")
 
 	notify.send(
-		"Rewards bot paused",
-		f"{account_name}: {risk.kind} - {risk.reason}. Look at the account, then run: {command}",
+		f"Rewards bot paused [{triage['category']}]",
+		"\n".join(body_lines),
 		priority="high",
 		account=account_name,
 	)
@@ -261,7 +352,7 @@ def guard(driver, account_name: str) -> None:
 	risk = inspect(driver)
 
 	if risk:
-		trip(risk, account_name)
+		trip(risk, account_name, driver=driver)
 
 		raise AccountAtRisk(risk)
 

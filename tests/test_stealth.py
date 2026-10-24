@@ -9,6 +9,7 @@ Tests for:
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -16,8 +17,11 @@ SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
 if SRC not in sys.path:
 	sys.path.insert(0, SRC)
 
+import accounts  # noqa: E402
 import browser  # noqa: E402
 import rewards_tasks  # noqa: E402
+import safety  # noqa: E402
+import search_scheduler  # noqa: E402
 from selenium.common.exceptions import WebDriverException  # noqa: E402
 
 
@@ -234,6 +238,99 @@ class TestSearchCadence(unittest.TestCase):
 			page.dwell_organic_result(speed=1.0)
 
 		self.assertTrue(any("Skipped organic dwell" in line for line in logs.output))
+
+
+class TestTlsHardening(unittest.TestCase):
+	def test_build_options_includes_tls_and_kyber_flags(self):
+		account = accounts.Account(name="test_acc", user_data_dir="/tmp/test", profile_name="Profile 1")
+		opts = browser.build_options(account)
+		args = opts.arguments
+		self.assertIn("--ssl-version-min=tls1.2", args)
+		self.assertIn("--enable-features=PostQuantumKyber", args)
+
+
+class TestRoadblockTriageAndSnapshots(unittest.TestCase):
+	def setUp(self):
+		self.temp_dir = tempfile.TemporaryDirectory()
+		self.addCleanup(self.temp_dir.cleanup)
+		patcher1 = mock.patch.object(safety, "PAUSE_FILE", os.path.join(self.temp_dir.name, "PAUSED"))
+		patcher1.start()
+		self.addCleanup(patcher1.stop)
+		patcher2 = mock.patch.object(safety, "USER_DATA_DIR", self.temp_dir.name)
+		patcher2.start()
+		self.addCleanup(patcher2.stop)
+		self.mock_notify = mock.patch.object(safety.notify, "send").start()
+		self.addCleanup(mock.patch.stopall)
+
+	def test_triage_roadblock_account_locked(self):
+		risk = safety.Risk(safety.RESTRICTED, "account is suspended")
+		res = safety.triage_roadblock(risk, url="https://account.live.com/abuse", text="Your account is suspended")
+		self.assertEqual(res["category"], safety.CATEGORY_ACCOUNT_LOCKED)
+		self.assertEqual(res["severity"], "critical")
+
+	def test_triage_roadblock_captcha(self):
+		risk = safety.Risk(safety.CHALLENGE, "solve the puzzle")
+		res = safety.triage_roadblock(risk, url="https://www.bing.com/turing/captcha", text="Solve the puzzle to continue")
+		self.assertEqual(res["category"], safety.CATEGORY_CAPTCHA_PUZZLE)
+		self.assertEqual(res["severity"], "high")
+
+	def test_triage_roadblock_phone_verification(self):
+		risk = safety.Risk(safety.CHALLENGE, "phone verification required")
+		res = safety.triage_roadblock(risk, url="https://account.live.com/proofs/Verify", text="Help us protect your account")
+		self.assertEqual(res["category"], safety.CATEGORY_PHONE_VERIFICATION)
+		self.assertEqual(res["severity"], "high")
+
+	def test_triage_roadblock_session_lapsed(self):
+		risk = safety.Risk(safety.SIGNED_OUT, "redirected to login")
+		res = safety.triage_roadblock(risk, url="https://login.live.com/login.srf", text="")
+		self.assertEqual(res["category"], safety.CATEGORY_SESSION_LAPSED)
+		self.assertEqual(res["severity"], "medium")
+
+	def test_trip_captures_screenshot_and_includes_in_pause_record(self):
+		mock_driver = mock.Mock()
+		mock_driver.current_url = "https://www.bing.com/turing/captcha"
+		mock_driver.execute_script.return_value = "solve the puzzle"
+		mock_driver.save_screenshot.return_value = True
+
+		risk = safety.Risk(safety.CHALLENGE, "solve the puzzle")
+		safety.trip(risk, "account_a", driver=mock_driver)
+
+		record = safety.paused()
+		self.assertIsNotNone(record)
+		self.assertEqual(record["account"], "account_a")
+		self.assertEqual(record["triage"]["category"], safety.CATEGORY_CAPTCHA_PUZZLE)
+		self.assertIn("snapshot", record)
+		self.assertTrue(record["snapshot"].endswith(".png"))
+		mock_driver.save_screenshot.assert_called_once()
+
+		self.mock_notify.assert_called_once()
+		self.assertIn("captcha_challenge", self.mock_notify.call_args.args[0])
+		self.assertIn("Snapshot:", self.mock_notify.call_args.args[1])
+
+
+class TestCircadianScheduling(unittest.TestCase):
+	def test_circadian_drift_is_bounded_and_deterministic(self):
+		d1 = search_scheduler.circadian_drift_minutes("acc1", "2026-10-24")
+		d2 = search_scheduler.circadian_drift_minutes("acc1", "2026-10-24")
+		self.assertEqual(d1, d2)
+		self.assertTrue(-10.0 <= d1 <= 10.0)
+
+	def test_circadian_drift_differs_across_dates_and_owners(self):
+		d_day1 = search_scheduler.circadian_drift_minutes("acc1", "2026-10-24")
+		d_day2 = search_scheduler.circadian_drift_minutes("acc1", "2026-10-25")
+		d_other = search_scheduler.circadian_drift_minutes("acc2", "2026-10-24")
+		self.assertNotEqual(d_day1, d_day2)
+		self.assertNotEqual(d_day1, d_other)
+
+	def test_habit_windows_integrates_circadian_drift(self):
+		w_static = search_scheduler.habit_windows("acc1", False)
+		w_drift = search_scheduler.habit_windows("acc1", False, date_iso="2026-10-24")
+		drift = search_scheduler.circadian_drift_minutes("acc1", "2026-10-24")
+
+		self.assertEqual(len(w_static), len(w_drift))
+		for (s_a, s_b), (d_a, d_b) in zip(w_static, w_drift):
+			self.assertAlmostEqual(d_a - s_a, drift, places=4)
+			self.assertAlmostEqual(d_b - s_b, drift, places=4)
 
 
 if __name__ == "__main__":
