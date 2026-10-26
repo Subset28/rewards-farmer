@@ -1143,6 +1143,7 @@ class RewardsTaskUtils:
 			box = self.elements.get_serp_search_box()
 			self.move_to_and_click(box)
 			ActionChains(self.driver).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
+			_wait(self, 0.2, 0.6)
 			self._type_query(text)
 
 			return True
