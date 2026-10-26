@@ -842,7 +842,7 @@ class TestExploreRetry(unittest.TestCase):
 	def test_a_card_that_is_already_done_is_not_searched_at_all(self):
 		tasks = self._tasks({"a": True, "b": True, "c": True}, {}, already_done=("a", "c"))
 
-		with mock.patch.object(rewards_tasks.time, "sleep"):
+		with mock.patch.object(rewards_tasks.time, "sleep"), mock.patch.object(rewards_tasks.pacing, "lazy_card_skipped", return_value=False):
 			tasks.complete_explore_on_bing_tasks()
 
 		self.assertEqual(tasks.searched, [("b", 0)])

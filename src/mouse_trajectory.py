@@ -268,13 +268,20 @@ class MouseUtils:
 			self.init_driver_with_cursor_visualization()
 
 	def init_driver_with_mouse_tracking(self):
+		if self.fallback_init_pos == (0, 0):
+			try:
+				viewport = self.driver.execute_script("return [window.innerWidth || 1280, window.innerHeight || 800];")
+				vw, vh = int(viewport[0]), int(viewport[1])
+				self.fallback_init_pos = (int(vw * random.uniform(0.40, 0.60)), int(vh * random.uniform(0.35, 0.55)))
+			except Exception:
+				self.fallback_init_pos = (640, 400)
+
 		initial_pos = self.fallback_init_pos
 
 		js_tracker = f"""
 	window.cursorX = {int(initial_pos[0])};
 	window.cursorY = {int(initial_pos[1])};
 	document.addEventListener('mousemove', function(event) {{
-		console.log('Mouse moved to: ' + event.clientX + ', ' + event.clientY);
 		window.cursorX = event.clientX;
 		window.cursorY = event.clientY;
 	}});
@@ -284,7 +291,7 @@ class MouseUtils:
 	def init_driver_with_cursor_visualization(self):
 		cursor_script = """
 	var visualCursor = document.createElement('div');
-	visualCursor.id = 'selenium-visual-cursor';
+	visualCursor.id = 'ui-pointer-dot';
 	visualCursor.style.position = 'fixed';
 	visualCursor.style.zIndex = '99999';
 	visualCursor.style.width = '15px';
@@ -299,7 +306,7 @@ class MouseUtils:
 	document.body.appendChild(visualCursor);
 
 	window.moveVisualCursor = function(x, y) {
-		var cursor = document.getElementById('selenium-visual-cursor');
+		var cursor = document.getElementById('ui-pointer-dot');
 		cursor.style.left = x + 'px';
 		cursor.style.top = y + 'px';
 	};
@@ -361,6 +368,8 @@ class MouseUtils:
 			if current_time >= end_time:
 				break
 
+			time.sleep(min(0.012, max(0.004, (end_time - current_time) / 4)))
+
 
 	def wheel_scroll_element_into_view(self, element: WebElement, max_wheel_events: int = 60):
 		"""Scroll the element into the viewport with simulated wheel input.
@@ -403,6 +412,15 @@ class MouseUtils:
 			ActionChains(self.driver).scroll_by_amount(0, random.randint(180, 420)).perform()
 
 			time.sleep(random.uniform(0.5, 1.8))
+
+			if random.random() < 0.35:
+				try:
+					here = self.get_current_mouse_position()
+					drift_end = (max(5, here[0] + random.randint(-25, 25)), max(5, here[1] + random.randint(-15, 15)))
+					drift_dur = random.uniform(0.15, 0.35)
+					self.move_mouse(drift_dur, self.path_for(here, drift_end, drift_dur), False)
+				except Exception:
+					pass
 
 		if random.random() < 0.3:
 			ActionChains(self.driver).scroll_by_amount(0, -random.randint(100, 300)).perform()

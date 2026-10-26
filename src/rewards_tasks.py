@@ -342,10 +342,13 @@ class RewardsTaskUtils:
 		self.move_to_and_click(card)
 		self.tab_utils.switch_to_other_tab()
 
-		self.wait_for_element(self.elements.get_bing_search_bar)
-
-		# search bar should be auto-focused
-
+		bar = self.wait_for_element(self.elements.get_bing_search_bar)
+		if hasattr(bar, "tag_name"):
+			try:
+				self.move_to_and_click(bar)
+				_wait(self, 0.3, 0.7)
+			except Exception:
+				pass
 		self.keyboard.send_keys(f"{query}{Keys.ENTER}")
 
 		# Read the results for several seconds before closing the tab. Two
@@ -987,9 +990,22 @@ class RewardsTaskUtils:
 					logger.debug("SERP search box unavailable (%s), returning to home: %r", log_utils.exception_summary(exc), query)
 					self.driver.get("https://www.bing.com/")
 					self.tab_utils.ensure_focus()
-					self.wait_for_element(self.elements.get_bing_search_bar)
+					bar = self.wait_for_element(self.elements.get_bing_search_bar)
+					if hasattr(bar, "tag_name"):
+						try:
+							self.move_to_and_click(bar)
+							_wait(self, 0.3, 0.7)
+						except Exception:
+							pass
 					self.keyboard.send_keys(f"{slipped}{Keys.ENTER}", intended=query)
 			else:
+				bar = self.wait_for_element(self.elements.get_bing_search_bar)
+				if hasattr(bar, "tag_name"):
+					try:
+						self.move_to_and_click(bar)
+						_wait(self, 0.3, 0.7)
+					except Exception:
+						pass
 				self.keyboard.send_keys(f"{slipped}{Keys.ENTER}", intended=query)
 
 			# Remembered as the query that was meant, so it is not searched
@@ -1000,7 +1016,7 @@ class RewardsTaskUtils:
 
 			self.browse_results()
 
-			if random.random() < getattr(self, "ORGANIC_DWELL_RATE", 0.20) and memory_guard.can_open_a_result():
+			if hasattr(self, "dwell_organic_result") and random.random() < getattr(self, "ORGANIC_DWELL_RATE", 0.20) and memory_guard.can_open_a_result():
 				self.dwell_organic_result()
 
 			_wait(self, 2, 4)
@@ -1081,8 +1097,14 @@ class RewardsTaskUtils:
 		"""Start a thread: the Bing homepage, the query typed, as a person starts a new search."""
 		self.driver.get("https://www.bing.com/")
 		self.tab_utils.ensure_focus()
-		self.wait_for_element(self.elements.get_bing_search_bar)
-		_wait(self, 2.5, 5.5)
+		bar = self.wait_for_element(self.elements.get_bing_search_bar)
+		_wait(self, 1.5, 3.0)
+		if hasattr(bar, "tag_name"):
+			try:
+				self.move_to_and_click(bar)
+				_wait(self, 0.3, 0.7)
+			except Exception:
+				pass
 		self._type_query(query)
 		query_history.record(self.account_name, query)
 

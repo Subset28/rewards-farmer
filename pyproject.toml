@@ -29,3 +29,4 @@ package-mode = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-n auto --dist loadscope"

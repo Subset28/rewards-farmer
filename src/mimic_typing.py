@@ -253,7 +253,7 @@ class KeyboardUtils:
 		latency = self.measured_latency(detail, rng) if "hold_mu" in detail else _driver_latency()
 
 		if "start_mu" in detail:
-			thinking = human_model.lognormal_ms(detail["start_mu"], detail.get("start_sigma", 0.4), rng, 200, 6000) / 1000
+			thinking = min(2.5, human_model.lognormal_ms(detail["start_mu"], detail.get("start_sigma", 0.4), rng, 200, 2500) / 1000)
 		elif thinking is None:
 			thinking = rhythm_start_default(rng)
 
@@ -347,7 +347,7 @@ class KeyboardUtils:
 					hold = min(hold, gap * rng.uniform(0.5, 0.9))
 
 			# What the driver adds to a hold is taken off, so the page sees the hold that was drawn.
-			hold = max(0.015, hold - (latency if latency is not None else _driver_latency())[1])
+			hold = max(0.025, hold - (latency if latency is not None else _driver_latency())[1])
 			events.append((when, True, key))
 			events.append((when + hold, False, key))
 
