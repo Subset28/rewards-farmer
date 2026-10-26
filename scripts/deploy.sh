@@ -27,11 +27,10 @@ fi
 sha=$(git rev-parse --verify "$ref^{commit}")
 echo "deploying $(git log -1 --format='%h %s' "$sha")"
 
-# The NAS clock is a few milliseconds behind this machine's, which makes tar complain on every file.
-git archive "$sha" . | ssh synology 'cd /volume1/docker/rewards-farmer && tar -xf -' 2> >(grep -v 'in the future' >&2)
-sed 's/$//' scripts/deploy_remote.sh | ssh synology 'sh -s'
+# Using -m prevents clock skew warnings; single SSH session unpacks archive and runs deploy_remote.sh
+git archive "$sha" | ssh synology 'cd /volume1/docker/rewards-farmer && tar -m -xf - && sed -i "s/\r$//" scripts/deploy_remote.sh && sh scripts/deploy_remote.sh'
 
 tag="deploy-$(date +%Y%m%d-%H%M)"
 git tag "$tag" "$sha"
 git tag -f deployed "$sha" > /dev/null
-git push -q origin "$tag" && git push -q -f origin deployed && echo "tagged $tag (and moved 'deployed')"
+git push -q origin "$tag" -f deployed && echo "tagged $tag (and moved 'deployed')"

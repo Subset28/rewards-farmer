@@ -62,16 +62,28 @@ if [ -n "$plain" ]; then
 	$D compose --profile second --profile third up -d --force-recreate --no-deps $plain 2>&1 | tail -8
 fi
 
-sleep 20
-
 new=$($D image inspect rewards-farmer:runtime -f '{{.Id}}')
-stale=0
+
+# Poll until all target containers are recreated on the new image (fast path: ~2s)
+stale=1
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+	sleep 1
+	stale=0
+	for c in $($D ps --format '{{.Names}}' | grep '^rewards-farmer-' | grep -v signin); do
+		if [ "$($D inspect -f '{{.Image}}' "$c" 2>/dev/null)" != "$new" ]; then
+			stale=$((stale + 1))
+		fi
+	done
+	if [ "$stale" -eq 0 ]; then
+		break
+	fi
+done
+
 for c in $($D ps --format '{{.Names}}' | grep '^rewards-farmer-' | grep -v signin); do
 	if [ "$($D inspect -f '{{.Image}}' "$c")" = "$new" ]; then
 		echo "OK    $c"
 	else
 		echo "STALE $c"
-		stale=$((stale + 1))
 	fi
 done
 

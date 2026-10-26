@@ -13,3 +13,6 @@ __pycache__/
 poetry.lock
 README.md
 docs/
+tests/
+.pytest_cache/
+*.md

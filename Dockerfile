@@ -80,13 +80,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 	apt-get update \
 	&& apt-get install -y --no-install-recommends xvfb xauth
 
-COPY src/ ./src/
-COPY nouns.txt ./
-
 # The carriage return strip is for a checkout on Windows, where git may have
 # rewritten the script's line endings and left `#!/bin/sh\r` unrunnable.
+# Place static assets and scripts before src/ so code changes do not invalidate them.
 COPY with-xvfb.sh /usr/local/bin/with-xvfb
 RUN sed -i 's/\r$//' /usr/local/bin/with-xvfb && chmod +x /usr/local/bin/with-xvfb
+COPY nouns.txt ./
+
+COPY src/ ./src/
 
 # Unattended (no prompt at exit, no cursor overlay) and trends because there is
 # no model. The browser itself is headless unless REWARDS_VIRTUAL_DISPLAY is
