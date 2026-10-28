@@ -361,6 +361,7 @@ def close_driver(driver, account_name: str = "", user_data_dir: str | None = Non
 			try:
 				import run_lock
 				run_lock.kill_orphaned_browsers(user_data_dir)
+				run_lock.clear_stale_browser_locks(user_data_dir)
 			except Exception:
 				pass
 
