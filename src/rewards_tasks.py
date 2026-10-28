@@ -1185,7 +1185,11 @@ class RewardsTaskUtils:
 		results_url = self.driver.current_url
 
 		try:
-			self.driver.set_page_load_timeout(30)
+			self.driver.set_page_load_timeout(15)
+			try:
+				self.driver.set_script_timeout(10)
+			except Exception:
+				pass
 			self.move_to_and_click(link)
 			_wait(self, 3, 6)
 
@@ -1193,6 +1197,8 @@ class RewardsTaskUtils:
 				self.tab_utils.switch_to_other_tab()
 
 			self.mouse.read_page(reading.plan(chains.result_time(random, speed), random, speed))
+		except Exception as exc:
+			logger.debug("Failed during organic result reading: %s", log_utils.exception_summary(exc))
 		finally:
 			try:
 				if len(self.driver.window_handles) > 1:
@@ -1207,8 +1213,9 @@ class RewardsTaskUtils:
 				logger.debug("Could not return to the results cleanly: %s", log_utils.exception_summary(exc))
 			finally:
 				try:
-					self.driver.set_page_load_timeout(300)
-				except WebDriverException:
+					self.driver.set_page_load_timeout(120)
+					self.driver.set_script_timeout(30)
+				except Exception:
 					pass
 
 	def relieve_memory(self):

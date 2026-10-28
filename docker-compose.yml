@@ -34,7 +34,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048M
+          memory: 4096M
     environment:
       # Readable log lines that survive a rebuild (the container's own log does not).
       REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/manual.log
@@ -176,7 +176,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048M
+          memory: 4096M
     environment:
       # Readable log lines that survive a rebuild (the container's own log does not).
       REWARDS_FARMER_LOG_FILE: /app/data-dir/logs/scheduler.log

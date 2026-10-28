@@ -231,6 +231,10 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 	options.add_argument("--ssl-version-min=tls1.2")
 	options.add_argument("--enable-features=PostQuantumKyber")
 
+	# Prevent background throttling and extra crashpad processes
+	options.add_argument("--disable-renderer-backgrounding")
+	options.add_argument("--disable-breakpad")
+
 	# Needed to register a script that runs in every tab, including the ones a
 	# card opens; see hide_driver_markers.
 	options.enable_bidi = True
@@ -331,8 +335,45 @@ def hide_driver_markers(driver, account_name: str) -> None:
 			)
 
 
+def close_driver(driver, account_name: str = "", user_data_dir: str | None = None) -> None:
+	"""Safely shut down the driver and terminate any lingering browser or driver processes."""
+	if driver is None:
+		return
+
+	try:
+		driver.quit()
+	except Exception as exc:
+		logger.warning(
+			"%s: the driver did not shut down cleanly: %s",
+			account_name,
+			log_utils.exception_summary(exc),
+		)
+	finally:
+		try:
+			if hasattr(driver, "service") and getattr(driver.service, "process", None):
+				proc = driver.service.process
+				if proc and proc.poll() is None:
+					proc.kill()
+		except Exception:
+			pass
+
+		if user_data_dir:
+			try:
+				import run_lock
+				run_lock.kill_orphaned_browsers(user_data_dir)
+			except Exception:
+				pass
+
+
 def start_driver(account: accounts.Account):
 	"""An Edge driver for the account, or None after logging why it failed."""
+	try:
+		import run_lock
+		run_lock.clear_stale_browser_locks(account.user_data_dir)
+		run_lock.kill_orphaned_browsers(account.user_data_dir)
+	except Exception:
+		pass
+
 	try:
 		driver = webdriver.Edge(options=build_options(account), service=build_service())
 		hide_driver_markers(driver, account.name)

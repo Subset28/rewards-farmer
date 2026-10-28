@@ -56,8 +56,40 @@ DEFAULT_COOLDOWN_MINUTES = 15
 # Exit code for a run that gave up waiting.
 TIMED_OUT = 4
 
-STALE_PATTERNS = ("Singleton*",)
+STALE_PATTERNS = ("Singleton*", "DevToolsActivePort")
 LAST_RUN_FILE = ".run.last"
+
+
+def kill_orphaned_browsers(user_data_dir: str | None = None) -> list[int]:
+	"""Terminate any leftover msedge or msedgedriver processes holding this profile."""
+	killed = []
+	if os.path.exists("/proc"):
+		my_pid = os.getpid()
+		for pid_entry in os.listdir("/proc"):
+			if not pid_entry.isdigit():
+				continue
+			pid = int(pid_entry)
+			if pid == my_pid:
+				continue
+			try:
+				with open(f"/proc/{pid}/cmdline", "rb") as f:
+					cmdline = f.read().decode("utf-8", errors="ignore").replace("\x00", " ")
+				if "msedge" in cmdline or "msedgedriver" in cmdline:
+					if user_data_dir and user_data_dir not in cmdline:
+						continue
+					os.kill(pid, 15)  # SIGTERM
+					killed.append(pid)
+			except (OSError, IOError):
+				pass
+		if killed:
+			time.sleep(0.5)
+			for pid in killed:
+				try:
+					os.kill(pid, 9)  # SIGKILL
+				except OSError:
+					pass
+			logger.warning("Terminated %d orphaned browser process(es) holding %s.", len(killed), user_data_dir or "profile")
+	return killed
 
 
 class RunLockTimeout(RuntimeError):
@@ -172,6 +204,7 @@ def run_lock(wait_seconds: float | None = None, poll_seconds: float = 5.0, lock_
 
 		directory = os.path.dirname(lock_file)
 		removed = clear_stale_browser_locks(directory)
+		kill_orphaned_browsers(directory)
 
 		if removed:
 			logger.warning("Removed %d stale browser lock file(s) left by a run that did not exit cleanly.", len(removed))

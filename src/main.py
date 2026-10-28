@@ -59,17 +59,7 @@ def run_account(account: accounts.Account) -> bool:
 		except Exception as exc:
 			logger.warning("Could not record today's points: %s", log_utils.exception_summary(exc))
 	finally:
-		try:
-			driver.quit()
-		except Exception as exc:
-			# quit() raises when the browser is already gone. Letting it out
-			# here would replace whatever actually went wrong with the tidy-up's
-			# own error, and the process it is meant to end is dead anyway.
-			logger.warning(
-				"%s: the driver did not shut down cleanly: %s",
-				account.name,
-				log_utils.exception_summary(exc),
-			)
+		browser.close_driver(driver, account.name, account.user_data_dir)
 
 	return True
 

@@ -72,14 +72,7 @@ def run_account_searches(account: accounts.Account) -> bool:
 			exc_info=logger.isEnabledFor(logging.DEBUG)
 		)
 	finally:
-		try:
-			driver.quit()
-		except Exception as exc:
-			logger.warning(
-				"%s: the driver did not shut down cleanly: %s",
-				account.name,
-				log_utils.exception_summary(exc),
-			)
+		browser.close_driver(driver, account.name, account.user_data_dir)
 
 	return True
 
