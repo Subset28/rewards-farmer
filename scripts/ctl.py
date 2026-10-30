@@ -44,7 +44,7 @@ def main():
 			import os
 			sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 			import star_bonus
-			print(star_bonus.format_star_bonus_report())
+			print(star_bonus.format_star_bonus_report(data))
 		except Exception:
 			print(raw)
 	elif action == "runs":

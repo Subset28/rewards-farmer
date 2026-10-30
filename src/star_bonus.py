@@ -161,9 +161,10 @@ def get_all_bonus_data() -> Dict[str, Any]:
 	return result
 
 
-def format_star_bonus_report() -> str:
+def format_star_bonus_report(data: Optional[Dict[str, Any]] = None) -> str:
 	"""Generate a terminal-ready formatted report for all accounts."""
-	data = get_all_bonus_data()
+	if data is None:
+		data = get_all_bonus_data()
 	lines = []
 
 	lines.append("=" * 78)
