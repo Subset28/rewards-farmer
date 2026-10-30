@@ -199,7 +199,7 @@ class TestBrake(unittest.TestCase):
 class TestBrakeInTheTaskLoop(unittest.TestCase):
 	STEPS = [
 		"complete_bing_daily_set", "complete_explore_on_bing_tasks", "complete_visual_search",
-		"complete_misc_cards", "complete_required_searches", "claim_bonus_points", "complete_quests",
+		"complete_misc_cards", "complete_perks", "complete_required_searches", "claim_bonus_points", "complete_quests",
 	]
 
 	def _tasks(self, page, failures):
@@ -294,6 +294,7 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 
 		with mock.patch.object(main_module.safety, "blocked", return_value=None), \
 			mock.patch.object(main_module.safety, "paused_for", return_value=None), \
+			mock.patch.object(main_module.gate, "blocked", return_value=False), \
 			mock.patch.object(main_module, "run_account", side_effect=run), \
 			mock.patch.object(main_module.accounts, "configured", return_value=accounts), \
 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), \
@@ -311,6 +312,7 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 
 		with mock.patch.object(main_module.safety, "blocked", return_value=None), \
 			mock.patch.object(main_module.safety, "paused_for", return_value=None), \
+			mock.patch.object(main_module.gate, "blocked", return_value=False), \
 			mock.patch.object(main_module, "run_account", side_effect=lambda a: events.append(("run", a.name)) or True), \
 			mock.patch.object(main_module.accounts, "configured", return_value=accounts), \
 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), \

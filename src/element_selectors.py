@@ -464,32 +464,51 @@ return (
 		return None
 
 	def get_claim_bonus_points_button(self):
-		sidebar = self.get_sidebar_section()
-		buttons = sidebar.find_elements(By.TAG_NAME, "button")
+		candidates = []
+		try:
+			sidebar = self.get_sidebar_section()
+			candidates.extend(sidebar.find_elements(By.TAG_NAME, "button"))
+		except NoSuchElementException:
+			pass
+
+		dialog = self.get_visible_dialog()
+		if dialog:
+			candidates.extend(dialog.find_elements(By.TAG_NAME, "button"))
 
 		# Prefer the button whose whole label is the action. A substring match
 		# would hit the "Ready to claim" heading before the actual Claim button.
-		for button in buttons:
+		for button in candidates:
 			try:
 				if (button.text or "").strip().lower() == Labels.CLAIM:
 					return button
 			except StaleElementReferenceException:
 				continue
 
-		for button in buttons:
+		for button in candidates:
 			try:
-				if Labels.CLAIM in (button.text or "").lower():
+				text = (button.text or "").strip().lower()
+				if Labels.CLAIM in text and Labels.READY_TO_CLAIM not in text:
 					return button
 			except StaleElementReferenceException:
 				continue
 
-		if len(buttons) < 3:
-			raise NoSuchElementException("bonus sidebar has no claim button")
+		if len(candidates) >= 3:
+			return candidates[2]
 
-		return buttons[2]
+		raise NoSuchElementException("bonus sidebar has no claim button")
 
 	def get_generic_sidebar_close_button(self):
-		sidebar = self.get_sidebar_section()
+		sidebar = None
+		try:
+			sidebar = self.get_sidebar_section()
+		except NoSuchElementException:
+			pass
+
+		if sidebar is None:
+			sidebar = self.get_visible_dialog()
+
+		if sidebar is None:
+			raise NoSuchElementException("sidebar or overlay not found")
 
 		try:
 			return sidebar.find_element(By.CSS_SELECTOR, "button[aria-label*='lose']")
@@ -500,6 +519,130 @@ return (
 				raise NoSuchElementException("sidebar has no buttons")
 
 			return buttons[0]
+
+	# ------------------------------------------------------------------
+	# perks & promotional offers
+	# ------------------------------------------------------------------
+
+	def get_visible_dialog(self) -> WebElement | None:
+		"""Finds an open modal, dialog, or drawer overlay if present and visible."""
+		try:
+			overlays = self.driver.find_elements(
+				By.XPATH,
+				"//section[@role='dialog'] | //*[@role='dialog'] | //div[contains(@class, 'modal') or contains(@class, 'overlay') or contains(@class, 'drawer')]"
+			)
+			for o in overlays:
+				try:
+					if o.is_displayed():
+						return o
+				except StaleElementReferenceException:
+					continue
+		except Exception:
+			pass
+		return None
+
+	def get_dialog_activate_action(self, dialog: WebElement) -> WebElement | None:
+		"""Finds an activation link or button (e.g. 'Activate', 'Claim', 'Start now') inside an overlay dialog."""
+		try:
+			actions = dialog.find_elements(By.TAG_NAME, "a") + dialog.find_elements(By.TAG_NAME, "button")
+			for act in actions:
+				try:
+					text = (act.text or "").strip().lower()
+					if any(w in text for w in ("activate", "claim", "start", "opt in", "get started", "accept")):
+						return act
+				except StaleElementReferenceException:
+					continue
+		except Exception:
+			pass
+		return None
+
+	def get_dialog_close_button(self, dialog: WebElement) -> WebElement | None:
+		"""Finds a close button inside an overlay dialog."""
+		try:
+			for btn in dialog.find_elements(By.TAG_NAME, "button"):
+				try:
+					label = (btn.get_attribute("aria-label") or btn.text or "").strip().lower()
+					if "close" in label or label == "x":
+						return btn
+				except StaleElementReferenceException:
+					continue
+		except Exception:
+			pass
+		return None
+
+	def get_perk_cards(self) -> list[WebElement]:
+		"""Returns actionable promotional and perk cards on the Rewards dashboard.
+
+		Targets:
+		- Special multiplier promos (e.g. '2x more per day to earn more points', '2x search points')
+		- Unlocked perks ('Perk unlocked', 'Claim offer', 'Start now')
+		- Promotional partner trials (e.g. Super Duolingo, Spotify)
+
+		Excludes cards already marked as 'Completed'.
+		"""
+		cards: list[WebElement] = []
+		seen: set[str] = set()
+
+		# 1. Search under "Your perks" section heading if present
+		try:
+			perks_headings = self.driver.find_elements(
+				By.XPATH, "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'your perks')]"
+			)
+			for heading in perks_headings:
+				try:
+					container = heading.find_element(
+						By.XPATH, "./ancestor::section | ./ancestor::div[contains(@class, 'flex flex-col') or contains(@class, 'grid')][2]"
+					)
+					candidates = container.find_elements(
+						By.XPATH, ".//span[@role='link' or @data-rac] | .//div[contains(@class, 'rounded-cornerCardDefault')] | .//button"
+					)
+					for c in candidates:
+						txt = (c.text or "").strip()
+						txt_lower = txt.lower()
+						if any(w in txt_lower for w in ("claim offer", "start now", "activate", "perk unlocked", "2x")) and "completed" not in txt_lower:
+							c_id = c.get_attribute("id") or txt[:50]
+							if c_id not in seen:
+								seen.add(c_id)
+								cards.append(c)
+				except Exception:
+					continue
+		except Exception:
+			pass
+
+		# 2. Target specific promo keywords across dashboard
+		try:
+			query = (
+				"//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'perk unlocked') "
+				"or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '2x more') "
+				"or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'claim offer') "
+				"or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'double points')]"
+			)
+			for elem in self.driver.find_elements(By.XPATH, query):
+				try:
+					target = elem
+					for _ in range(4):
+						tag = target.tag_name.lower()
+						role = (target.get_attribute("role") or "").lower()
+						has_rac = target.get_attribute("data-rac") is not None
+						if tag in ("a", "button") or role in ("link", "button") or has_rac:
+							break
+						parent = target.find_element(By.XPATH, "..")
+						if parent.tag_name.lower() == "body":
+							break
+						target = parent
+
+					txt = (target.text or "").strip()
+					if "completed" not in txt.lower():
+						c_id = target.get_attribute("id") or txt[:50]
+						if c_id not in seen:
+							seen.add(c_id)
+							cards.append(target)
+				except Exception:
+					continue
+		except Exception:
+			pass
+
+		return cards
 
 	# ------------------------------------------------------------------
 	# bing search page

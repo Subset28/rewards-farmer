@@ -101,6 +101,9 @@ class StubTasks(rewards_tasks.RewardsTaskUtils):
 	def complete_misc_cards(self):
 		self._task("Misc cards")
 
+	def complete_perks(self):
+		self._task("Perks")
+
 	def complete_quests(self):
 		self._task("Quests")
 
@@ -113,7 +116,7 @@ class StubTasks(rewards_tasks.RewardsTaskUtils):
 
 ALL_TASKS = [
 	"Bing daily set", "Explore on Bing", "Visual search",
-	"Misc cards", "Required searches", "Bonus points", "Quests",
+	"Misc cards", "Perks", "Required searches", "Bonus points", "Quests",
 ]
 
 

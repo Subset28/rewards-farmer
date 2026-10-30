@@ -267,6 +267,7 @@ class TestOnboarding(unittest.TestCase):
 		self.assertIsNone(quests.pick_onboarding([("https://example.com/", "Learn more")], set()))
 
 
+@mock.patch.object(rewards_tasks.time, "sleep", lambda *_: None)
 class TestWorkQuest(unittest.TestCase):
 	def _quest(self, page_links, **kwargs):
 		page = QuestPage([Anchor("/earn/quest/q1", "0/5 tasks")], page_links=page_links, **kwargs)
@@ -327,7 +328,7 @@ class PointsPage:
 	account_name = "tester"
 	NAMES = (
 		"complete_bing_daily_set", "complete_explore_on_bing_tasks", "complete_visual_search",
-		"complete_misc_cards", "complete_required_searches", "claim_bonus_points", "complete_quests",
+		"complete_misc_cards", "complete_perks", "complete_required_searches", "claim_bonus_points", "complete_quests",
 	)
 
 	def __init__(self, readings):
@@ -366,7 +367,7 @@ class TestPerStepPoints(unittest.TestCase):
 		return page, "\n".join(logs.output)
 
 	def test_each_task_reports_what_it_paid(self):
-		page, output = self._run([100, 100, 140, 140, 150, 450, 450, 465])
+		page, output = self._run([100, 100, 140, 140, 150, 150, 450, 450, 465])
 
 		self.assertIn("[POINTS] Bing daily set: +0 (today 100)", output)
 		self.assertIn("[POINTS] Explore on Bing: +40 (today 140)", output)
@@ -374,7 +375,7 @@ class TestPerStepPoints(unittest.TestCase):
 		self.assertIn("[POINTS] Quests: +15 (today 465)", output)
 
 	def test_a_reading_that_fails_does_not_fail_the_task_or_stop_the_run(self):
-		page, output = self._run([100, WebDriverException("panel"), 120, 120, 120, 120, 120, 120])
+		page, output = self._run([100, WebDriverException("panel"), 120, 120, 120, 120, 120, 120, 120])
 
 		self.assertNotIn("[FAIL]", output)
 		self.assertEqual(page.readings, [])

@@ -189,6 +189,7 @@ class TaskLoop(unittest.TestCase):
 		("Explore on Bing", "complete_explore_on_bing_tasks"),
 		("Visual search", "complete_visual_search"),
 		("Misc cards", "complete_misc_cards"),
+		("Perks", "complete_perks"),
 		("Required searches", "complete_required_searches"),
 		("Bonus points", "claim_bonus_points"),
 		("Quests", "complete_quests"),

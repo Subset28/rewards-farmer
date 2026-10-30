@@ -27,11 +27,16 @@ def reading(hours_ago, lifetime):
 
 class HealthCase(unittest.TestCase):
 	def setUp(self):
+		self.state = {}
+		def set_state(s):
+			self.state = dict(s)
 		for patcher in (
 			mock.patch.object(health.safety, "paused_for", return_value=None),
 			mock.patch.object(health.journal, "events", return_value=[]),
 			mock.patch.object(health.points_log, "history", return_value=[]),
 			mock.patch.object(health.task_log, "history", return_value=[]),
+			mock.patch.object(health, "_read_state", side_effect=lambda: dict(self.state)),
+			mock.patch.object(health, "_write_state", side_effect=set_state),
 		):
 			patcher.start()
 			self.addCleanup(patcher.stop)

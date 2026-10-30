@@ -829,6 +829,12 @@ class RewardsTaskUtils:
 		it stops there and leaves the rest for the next one, instead of clearing
 		the whole quota in one sitting.
 		"""
+		# Automatically activate any available 2x multiplier or search perks first
+		try:
+			self.complete_perks()
+		except Exception as exc:
+			logger.debug("%s: perks check before searches: %s", self.account_name, log_utils.exception_summary(exc))
+
 		# Points per search are not fixed. Some markets award 3 rather than 5,
 		# the daily maximum itself changes (observed 15, 30 and 60 on the same
 		# account within one day, with the counter resetting), and daily set and
@@ -1375,6 +1381,85 @@ class RewardsTaskUtils:
 		except Exception as exc:
 			logger.debug("Puzzle piece check: %s", log_utils.exception_summary(exc))
 
+	def complete_perks(self):
+		"""Inspect and activate promotional perks (e.g. 2x search points, partner trials, bonus offers)."""
+		self.switch_to_dashboard()
+		_wait(self, 2, 4)
+
+		getter = getattr(self.elements, "get_perk_cards", None)
+		if getter is None:
+			return
+
+		cards = getter()
+		if not cards:
+			logger.info("No unclaimed perks found on dashboard for %s", self.account_name)
+			return
+
+		logger.info("%s: found %d perk card(s) to check", self.account_name, len(cards))
+
+		for idx in range(len(cards)):
+			try:
+				# Re-fetch cards to guard against stale elements after DOM updates
+				current_cards = self.elements.get_perk_cards()
+				if idx >= len(current_cards):
+					break
+				card = current_cards[idx]
+				card_text = (card.text or "").strip().replace("\n", " ")
+				logger.info("%s: checking perk [%d]: %s", self.account_name, idx, card_text[:80])
+
+				self.mouse.wheel_scroll_element_into_view(card)
+				_wait(self, 0.5, 1.0)
+				self.move_to_and_click(card)
+				_wait(self, 2, 4)
+
+				# Check if an overlay/dialog opened (e.g. 2x search boost activation modal)
+				dialog_getter = getattr(self.elements, "get_visible_dialog", None)
+				dialog = dialog_getter() if dialog_getter else None
+				if dialog:
+					dialog_text = (dialog.text or "").strip().replace("\n", " ")
+					logger.info("%s: perk opened dialog: %s", self.account_name, dialog_text[:100])
+
+					act_getter = getattr(self.elements, "get_dialog_activate_action", None)
+					activate_elem = act_getter(dialog) if act_getter else None
+					if activate_elem:
+						logger.info(
+							"%s: activating perk via %s (%r)",
+							self.account_name,
+							activate_elem.tag_name,
+							(activate_elem.text or "").strip()[:40],
+						)
+						self.move_to_and_click(activate_elem)
+						_wait(self, 3, 5)
+
+					# Close dialog if still open
+					close_getter = getattr(self.elements, "get_dialog_close_button", None)
+					close_btn = close_getter(dialog) if close_getter else None
+					if close_btn:
+						try:
+							self.move_to_and_click(close_btn)
+							_wait(self, 1, 2)
+						except Exception:
+							pass
+
+				# If clicking opened a new tab, dwell organically and close it
+				if len(self.driver.window_handles) > 1:
+					self.tab_utils.switch_to_other_tab()
+					_wait(self, 3, 5)
+					self.tab_utils.close_all_other_tabs(exceptions=[self.main_window])
+
+			except Exception as exc:
+				logger.warning(
+					"%s: perk [%d] interaction failed: %s",
+					self.account_name,
+					idx,
+					log_utils.exception_summary(exc),
+				)
+				self.restore_main_tab()
+				self.switch_to_dashboard()
+				continue
+
+		self.mouse.wheel_scroll_to_top()
+
 	def claim_bonus_points(self):
 		self.switch_to_dashboard()
 
@@ -1386,6 +1471,7 @@ class RewardsTaskUtils:
 			logger.warning("Could not find the 'Claim Bonus Points' button. There are likely no bonus points to claim at this time.")
 
 		self.claim_puzzle_pieces()
+		self.complete_perks()
 
 	def complete_all_tasks(self, skip_searches: bool = False):
 		# Each task is run independently. The Rewards UI differs by market and
@@ -1396,6 +1482,7 @@ class RewardsTaskUtils:
 			("Explore on Bing", self.complete_explore_on_bing_tasks),
 			("Visual search", self.complete_visual_search),
 			("Misc cards", self.complete_misc_cards),
+			("Perks", self.complete_perks),
 			("Required searches", self.complete_required_searches),
 			("Bonus points", self.claim_bonus_points),
 			# Last, so a quest that stalls the browser costs nothing else.
