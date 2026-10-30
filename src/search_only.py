@@ -24,22 +24,25 @@ HEADLESS = browser.HEADLESS
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_SEARCHES_PER_RUN = "8-14"
+
+
 def searches_this_run() -> int:
-	"""How many searches this run may make, from REWARDS_SEARCHES_PER_RUN ("5-8").
+	"""How many searches this run may make, from REWARDS_SEARCHES_PER_RUN ("8-14").
 
 	A run is one of several across the day, so it stops at a handful and leaves
 	the rest of the quota for the next one. A malformed value falls back to the
 	default rather than stopping the run over a typo.
 	"""
-	raw = os.environ.get("REWARDS_SEARCHES_PER_RUN", "5-8")
+	raw = os.environ.get("REWARDS_SEARCHES_PER_RUN", DEFAULT_SEARCHES_PER_RUN)
 
 	try:
 		low, high = (int(part) for part in raw.split("-"))
 		return random.randint(min(low, high), max(low, high))
 	except ValueError:
-		logger.warning("REWARDS_SEARCHES_PER_RUN=%r is not like '5-8', using 5-8.", raw)
-
-		return random.randint(5, 8)
+		logger.warning("REWARDS_SEARCHES_PER_RUN=%r is not like '8-14', using %s.", raw, DEFAULT_SEARCHES_PER_RUN)
+		low, high = (int(part) for part in DEFAULT_SEARCHES_PER_RUN.split("-"))
+		return random.randint(min(low, high), max(low, high))
 
 
 def run_account_searches(account: accounts.Account) -> bool:

@@ -373,14 +373,14 @@ class TestSearchesThisRun(unittest.TestCase):
 	def test_a_malformed_value_falls_back_to_the_default(self):
 		with self._with("lots"):
 			for _ in range(50):
-				self.assertIn(search_only.searches_this_run(), range(5, 9))
+				self.assertIn(search_only.searches_this_run(), range(8, 15))
 
-	def test_the_default_is_five_to_eight(self):
+	def test_the_default_is_eight_to_fourteen(self):
 		with mock.patch.dict(os.environ):
 			os.environ.pop("REWARDS_SEARCHES_PER_RUN", None)
 
 			for _ in range(50):
-				self.assertIn(search_only.searches_this_run(), range(5, 9))
+				self.assertIn(search_only.searches_this_run(), range(8, 15))
 
 
 class TestResultsTabSelector(unittest.TestCase):

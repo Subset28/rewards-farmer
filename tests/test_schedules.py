@@ -346,3 +346,42 @@ class TestPlanningTurns(unittest.TestCase):
 		cross = [(b[0] - a[0]) for a, b in zip(everyone, everyone[1:]) if a[1] != b[1]]
 
 		self.assertTrue(all(gap >= timedelta(minutes=15) for gap in cross), cross)
+
+
+class TestFollowUpRuns(PlanFileTestCase):
+	def setUp(self):
+		super().setUp()
+		self.now = datetime(2026, 10, 4, 14, 0)
+
+	def test_schedule_follow_up_run_when_quota_incomplete(self):
+		with mock.patch("journal.quota_complete", return_value=False), \
+		     mock.patch.object(search_scheduler, "account_names", return_value=["default"]):
+			follow_up = search_scheduler.schedule_follow_up_run(self.now, "default")
+			self.assertIsNotNone(follow_up)
+			self.assertGreater(follow_up, self.now)
+			saved = schedule_plan.read("search", "default")
+			self.assertIn(follow_up.isoformat(), saved.get("times", []))
+
+	def test_schedule_follow_up_run_skipped_when_quota_complete(self):
+		with mock.patch("journal.quota_complete", return_value=True), \
+		     mock.patch.object(search_scheduler, "account_names", return_value=["default"]):
+			follow_up = search_scheduler.schedule_follow_up_run(self.now, "default")
+			self.assertIsNone(follow_up)
+
+	def test_schedule_follow_up_run_skipped_past_window(self):
+		late = datetime(2026, 10, 4, 22, 50)
+		with mock.patch("journal.quota_complete", return_value=False), \
+		     mock.patch.object(search_scheduler, "account_names", return_value=["default"]):
+			follow_up = search_scheduler.schedule_follow_up_run(late, "default")
+			self.assertIsNone(follow_up)
+
+	def test_schedule_follow_up_circuit_breaker_on_zero_gain(self):
+		rows = [
+			{"event": "quota", "account": "default", "points": 50},
+			{"event": "quota", "account": "default", "points": 50},
+		]
+		with mock.patch("journal.quota_complete", return_value=False), \
+		     mock.patch("journal.events", return_value=rows), \
+		     mock.patch.object(search_scheduler, "account_names", return_value=["default"]):
+			follow_up = search_scheduler.schedule_follow_up_run(self.now, "default")
+			self.assertIsNone(follow_up)

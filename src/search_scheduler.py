@@ -348,6 +348,56 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 	return outcome
 
 
+MAX_SEARCH_RUNS_PER_DAY = int(os.environ.get("REWARDS_MAX_SEARCH_RUNS_PER_DAY", "8"))
+FOLLOW_UP_MIN_MINUTES = float(os.environ.get("REWARDS_FOLLOW_UP_MIN_MINUTES", "45.0"))
+FOLLOW_UP_MAX_MINUTES = float(os.environ.get("REWARDS_FOLLOW_UP_MAX_MINUTES", "80.0"))
+
+
+def schedule_follow_up_run(now: datetime, owner: str, rng=random) -> datetime | None:
+	"""Add an extra search run later today if quota is not yet complete and waking window is open."""
+	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
+	if end - now < MIN_WINDOW:
+		return None
+
+	names = account_names()
+	if journal.quota_complete(names, now=now):
+		return None
+
+	rows = journal.events(owner=owner, kind="search", now=now)
+	ended = [r for r in rows if r["event"] == "end" and r.get("outcome") != "deferred"]
+	if len(ended) >= MAX_SEARCH_RUNS_PER_DAY:
+		logger.info("%s: reached max search runs for today (%d/%d).", owner, len(ended), MAX_SEARCH_RUNS_PER_DAY)
+		return None
+
+	# Circuit breaker: if last 2 quota checks added 0 points, back off
+	quotas = [r for r in rows if r["event"] == "quota" and r.get("account") in (names or [])]
+	if len(quotas) >= 2 and quotas[-1].get("points") is not None and quotas[-1].get("points") == quotas[-2].get("points"):
+		logger.warning("%s: last 2 search runs gained 0 points (cooldown or restriction). Backing off for today.", owner)
+		return None
+
+	with schedule_plan.planning():
+		day = now.strftime("%Y-%m-%d")
+		saved = schedule_plan.read("search", owner)
+		existing = _parse(saved.get("times")) if saved.get("day") == day else []
+
+		avoid = other_runs_today(now, owner)
+
+		for _ in range(40):
+			candidate = now + timedelta(minutes=rng.uniform(FOLLOW_UP_MIN_MINUTES, FOLLOW_UP_MAX_MINUTES))
+			if candidate >= end - timedelta(minutes=10):
+				continue
+			if all(abs((candidate - other).total_seconds()) >= 15 * 60 for other in avoid) and all(
+				abs((candidate - other).total_seconds()) >= OWN_SPACING_MINUTES * 60 for other in existing
+			):
+				existing.append(candidate)
+				existing.sort()
+				schedule_plan.write("search", owner, {"day": day, "times": [t.isoformat() for t in existing]})
+				logger.info("%s: quota incomplete; scheduled follow-up search run at %s", owner, candidate.strftime("%H:%M"))
+				return candidate
+
+	return None
+
+
 def main() -> None:
 	log_utils.setup_logging()
 	footprint.lower_priority()
@@ -359,12 +409,16 @@ def main() -> None:
 		runs = outstanding(now, owner)
 
 		if not runs:
-			# Past today's window already (started late, or window rolled by
-			# while asleep), or everything planned has been done. Wait for
-			# tomorrow's window instead of running late.
+			names = account_names()
+			if not journal.quota_complete(names, now=now):
+				follow_up = schedule_follow_up_run(now, owner)
+				if follow_up:
+					continue
+
+			# Past today's window already, quota complete, or max runs reached.
 			tomorrow = (now + timedelta(days=1)).replace(hour=START_HOUR, minute=0, second=0, microsecond=0)
 			wait = (tomorrow - now).total_seconds()
-			logger.info("No more runs left today. Next window starts in %.1f hours", wait / 3600)
+			logger.info("No more runs left today for %s. Next window starts in %.1f hours", owner, wait / 3600)
 			time.sleep(wait)
 			continue
 
@@ -382,9 +436,14 @@ def main() -> None:
 
 			launch(owner, due)
 
-		# All of today's runs are done. Sleep past midnight so the next loop
-		# iteration picks fresh random times for tomorrow instead of finding
-		# an empty, already-past window and looping immediately.
+		# If quota is still incomplete, try to schedule a follow-up run before sleeping
+		names = account_names()
+		if not journal.quota_complete(names, now=datetime.now()):
+			follow_up = schedule_follow_up_run(datetime.now(), owner)
+			if follow_up:
+				continue
+
+		# All of today's runs are done and quota is complete or window closed.
 		tomorrow_start = (datetime.now() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 		time.sleep((tomorrow_start - datetime.now()).total_seconds())
 
