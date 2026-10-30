@@ -132,7 +132,7 @@ services:
       - env
       - REWARDS_ACCOUNTS=second
       - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-second.log
-      - REWARDS_SEARCH_RUNS_PER_DAY=${SECOND_SEARCH_RUNS_PER_DAY:-3}
+      - REWARDS_SEARCH_RUNS_PER_DAY=${SECOND_SEARCH_RUNS_PER_DAY:-5}
       - python
       - src/search_scheduler.py
       - "--"
@@ -147,7 +147,7 @@ services:
       - env
       - REWARDS_ACCOUNTS=third
       - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-third.log
-      - REWARDS_SEARCH_RUNS_PER_DAY=${THIRD_SEARCH_RUNS_PER_DAY:-2}
+      - REWARDS_SEARCH_RUNS_PER_DAY=${THIRD_SEARCH_RUNS_PER_DAY:-5}
       - python
       - src/search_scheduler.py
       - "--"
@@ -162,7 +162,7 @@ services:
       - env
       - REWARDS_ACCOUNTS=fourth
       - REWARDS_FARMER_LOG_FILE=/app/data-dir/logs/search-scheduler-fourth.log
-      - REWARDS_SEARCH_RUNS_PER_DAY=${FOURTH_SEARCH_RUNS_PER_DAY:-2}
+      - REWARDS_SEARCH_RUNS_PER_DAY=${FOURTH_SEARCH_RUNS_PER_DAY:-4}
       - python
       - src/search_scheduler.py
       - "--"
@@ -212,7 +212,8 @@ services:
       # Without it the control interface does not start. At least 24 characters, in .env, never here.
       CONTROL_TOKEN: ${CONTROL_TOKEN:-}
       # How many search runs a day, and the waking-hours window (in TZ) they are placed within.
-      REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-4}
+      REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-5}
+      REWARDS_SEARCHES_PER_RUN: ${REWARDS_SEARCHES_PER_RUN:-6-10}
       REWARDS_SEARCH_START_HOUR: ${REWARDS_SEARCH_START_HOUR:-8}
       REWARDS_SEARCH_END_HOUR: ${REWARDS_SEARCH_END_HOUR:-23}
     volumes:
