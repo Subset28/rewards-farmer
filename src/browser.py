@@ -46,8 +46,10 @@ HIDE_DRIVER_MARKERS_JS = (
 	"  nativeFunctions.add(origToString);"
 	" } catch (e) {}"
 	" const SEED = /*SEED*/0;"
-	" const FAKE_VENDOR = 'Intel Inc.';"
-	" const FAKE_RENDERER = 'Intel(R) Iris(R) Xe Graphics';"
+	" const FAKE_VENDOR = '/*VENDOR*/Intel Inc.';"
+	" const FAKE_RENDERER = '/*RENDERER*/Intel(R) Iris(R) Xe Graphics';"
+	" const FAKE_CORES = /*CORES*/8;"
+	" const FAKE_MEMORY = /*MEMORY*/8;"
 	" const getParameterProxyHandler = {"
 	"  apply: function(target, ctx, args) {"
 	"   const param = args[0];"
@@ -161,9 +163,10 @@ HIDE_DRIVER_MARKERS_JS = (
 	"  delete navigator.webdriver;"
 	" } catch (e) {}"
 	" try {"
-	"  if (!navigator.deviceMemory) {"
-	"   Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });"
-	"  }"
+	"  Object.defineProperty(navigator, 'deviceMemory', { get: () => FAKE_MEMORY, configurable: true });"
+	" } catch (e) {}"
+	" try {"
+	"  Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => FAKE_CORES, configurable: true });"
 	" } catch (e) {}"
 	" try {"
 	"  if (window.outerWidth === 0) {"
@@ -256,7 +259,9 @@ def build_options(account: accounts.Account) -> webdriver.EdgeOptions:
 		else:
 			options.add_argument("--headless=new")
 
-		options.add_argument("--window-size=1920,1080")
+		hw = get_hardware_profile(getattr(account, "name", None) if account else None)
+		window_size = os.environ.get("REWARDS_WINDOW_SIZE") or hw["window_size"]
+		options.add_argument(f"--window-size={window_size}")
 		options.add_argument("--no-sandbox")
 		options.add_argument("--disable-dev-shm-usage")
 
@@ -292,11 +297,65 @@ def explain(exc: Exception) -> list[str]:
 	return ["The driver's message is below; it did not match a known cause."]
 
 
-def make_stealth_script(account_name: str | None = None) -> str:
+
+HARDWARE_PROFILES = [
+	{
+		"vendor": "Intel Inc.",
+		"renderer": "Intel(R) UHD Graphics 770",
+		"cores": 8,
+		"memory": 16,
+		"window_size": "1920,1080",
+	},
+	{
+		"vendor": "Google Inc. (NVIDIA)",
+		"renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+		"cores": 12,
+		"memory": 16,
+		"window_size": "1920,1080",
+	},
+	{
+		"vendor": "Intel Inc.",
+		"renderer": "Intel(R) Iris(R) Xe Graphics",
+		"cores": 8,
+		"memory": 8,
+		"window_size": "1536,864",
+	},
+	{
+		"vendor": "Google Inc. (AMD)",
+		"renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+		"cores": 6,
+		"memory": 8,
+		"window_size": "1600,900",
+	},
+]
+
+ACCOUNT_HARDWARE_MAP = {
+	"default": HARDWARE_PROFILES[0],
+	"second": HARDWARE_PROFILES[1],
+	"third": HARDWARE_PROFILES[2],
+	"fourth": HARDWARE_PROFILES[3],
+}
+
+
+def get_hardware_profile(account_name: str | None = None) -> dict:
 	if not account_name:
-		return HIDE_DRIVER_MARKERS_JS
+		return HARDWARE_PROFILES[0]
+	name = account_name.strip().lower()
+	if name in ACCOUNT_HARDWARE_MAP:
+		return ACCOUNT_HARDWARE_MAP[name]
 	seed = sum((i + 1) * ord(c) for i, c in enumerate(account_name)) % 100000 + 1
-	return HIDE_DRIVER_MARKERS_JS.replace("/*SEED*/0", f"/*SEED*/{seed}")
+	return HARDWARE_PROFILES[seed % len(HARDWARE_PROFILES)]
+
+def make_stealth_script(account_name: str | None = None) -> str:
+	hw = get_hardware_profile(account_name)
+	seed = sum((i + 1) * ord(c) for i, c in enumerate(account_name or "")) % 100000 + 1 if account_name else 0
+	script = HIDE_DRIVER_MARKERS_JS
+	script = script.replace("/*SEED*/0", f"/*SEED*/{seed}")
+	script = script.replace("/*VENDOR*/Intel Inc.", hw["vendor"])
+	script = script.replace("/*RENDERER*/Intel(R) Iris(R) Xe Graphics", hw["renderer"])
+	script = script.replace("/*CORES*/8", str(hw["cores"]))
+	script = script.replace("/*MEMORY*/8", str(hw["memory"]))
+	return script
 
 
 def hide_driver_markers(driver, account_name: str) -> None:
