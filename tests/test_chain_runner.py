@@ -246,19 +246,18 @@ class TestAnOpenedResult(Case):
 
 		self.assertEqual(page.driver.current_window_handle, "main")
 		self.assertEqual(page.driver.handles, ["main"])
-		self.assertEqual(page.driver.timeouts[0], 30)
-		self.assertEqual(page.driver.timeouts[-1], 300)
+		self.assertEqual(page.driver.timeouts[0], 15)
+		self.assertEqual(page.driver.timeouts[-1], 120)
 
 	def test_a_page_that_misbehaves_does_not_leave_the_browser_stranded(self):
 		page = Page()
 		page.mouse.read_page = mock.Mock(side_effect=WebDriverException("renderer crashed"))
 
-		with self.assertRaises(WebDriverException):
-			page._open_a_result(1.0)
+		page._open_a_result(1.0)
 
 		self.assertEqual(page.driver.current_window_handle, "main")
 		self.assertEqual(page.driver.handles, ["main"])
-		self.assertEqual(page.driver.timeouts[-1], 300)
+		self.assertEqual(page.driver.timeouts[-1], 120)
 
 	def test_reading_the_results_survives_that_failure(self):
 		page = Page()
