@@ -119,8 +119,32 @@ def wikipedia_topics(days_ago: int = 1) -> list[str]:
 	except json.JSONDecodeError:
 		return []
 
-	articles = payload.get("mostread", {}).get("articles", [])
-	titles = [a.get("titles", {}).get("normalized", "") for a in articles]
+	titles = []
+
+	# 1. mostread articles (when provided by feed)
+	for a in payload.get("mostread", {}).get("articles", []):
+		t = a.get("titles", {}).get("normalized", "") or a.get("title", "")
+		if t:
+			titles.append(t)
+
+	# 2. news headlines and linked article pages
+	for item in payload.get("news", []):
+		for p in item.get("links", []) + item.get("pages", []):
+			t = p.get("normalizedtitle", "") or p.get("title", "")
+			if t:
+				titles.append(t)
+
+	# 3. on-this-day historical and cultural pages
+	for item in payload.get("onthisday", []):
+		for p in item.get("pages", []):
+			t = p.get("normalizedtitle", "") or p.get("title", "")
+			if t:
+				titles.append(t)
+
+	# 4. today's featured article
+	tfa = payload.get("tfa", {}).get("normalizedtitle", "") or payload.get("tfa", {}).get("title", "")
+	if tfa:
+		titles.append(tfa)
 
 	# Wikipedia's own chrome outranks real topics most days, and so do its list
 	# and index pages, which nobody types into a search box.
