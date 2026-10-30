@@ -369,7 +369,7 @@ class TestFollowUpRuns(PlanFileTestCase):
 			self.assertIsNone(follow_up)
 
 	def test_schedule_follow_up_run_skipped_past_window(self):
-		late = datetime(2026, 10, 4, 22, 50)
+		late = datetime(2026, 10, 4, 23, 35)
 		with mock.patch("journal.quota_complete", return_value=False), \
 		     mock.patch.object(search_scheduler, "account_names", return_value=["default"]):
 			follow_up = search_scheduler.schedule_follow_up_run(late, "default")

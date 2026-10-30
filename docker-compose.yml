@@ -213,9 +213,12 @@ services:
       CONTROL_TOKEN: ${CONTROL_TOKEN:-}
       # How many search runs a day, and the waking-hours window (in TZ) they are placed within.
       REWARDS_SEARCH_RUNS_PER_DAY: ${REWARDS_SEARCH_RUNS_PER_DAY:-5}
-      REWARDS_SEARCHES_PER_RUN: ${REWARDS_SEARCHES_PER_RUN:-6-10}
+      REWARDS_SEARCHES_PER_RUN: ${REWARDS_SEARCHES_PER_RUN:-8-14}
       REWARDS_SEARCH_START_HOUR: ${REWARDS_SEARCH_START_HOUR:-8}
       REWARDS_SEARCH_END_HOUR: ${REWARDS_SEARCH_END_HOUR:-23}
+      REWARDS_SEARCH_END_MINUTE: ${REWARDS_SEARCH_END_MINUTE:-50}
+      REWARDS_SLEEP_START_HOUR: ${REWARDS_SLEEP_START_HOUR:-2}
+      REWARDS_SLEEP_END_HOUR: ${REWARDS_SLEEP_END_HOUR:-8}
     volumes:
       - ./data-dir:/app/data-dir
       - ./visual_search.jpg:/app/visual_search.jpg:ro

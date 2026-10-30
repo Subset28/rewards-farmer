@@ -75,9 +75,9 @@ HABIT_JITTER_MINUTES = 6
 # width it may have in minutes, by time of day. Everything per account is a pick
 # inside these ranges.
 _HABIT_SLOTS = (
-	("morning", 8.5, 10.5),
-	("midday", 12.0, 15.0),
-	("evening", 18.0, 21.5),
+	("morning", 8.5, 11.0),
+	("midday", 12.0, 15.5),
+	("evening", 18.0, 22.5),
 )
 _HABIT_WIDTH = (60, 120)
 
@@ -351,11 +351,14 @@ def launch(owner: str, due: Due, run=subprocess.run) -> str:
 MAX_SEARCH_RUNS_PER_DAY = int(os.environ.get("REWARDS_MAX_SEARCH_RUNS_PER_DAY", "8"))
 FOLLOW_UP_MIN_MINUTES = float(os.environ.get("REWARDS_FOLLOW_UP_MIN_MINUTES", "45.0"))
 FOLLOW_UP_MAX_MINUTES = float(os.environ.get("REWARDS_FOLLOW_UP_MAX_MINUTES", "80.0"))
+END_MINUTE = int(os.environ.get("REWARDS_SEARCH_END_MINUTE", "50"))
+SLEEP_START_HOUR = int(os.environ.get("REWARDS_SLEEP_START_HOUR", "2"))
+SLEEP_END_HOUR = int(os.environ.get("REWARDS_SLEEP_END_HOUR", "8"))
 
 
 def schedule_follow_up_run(now: datetime, owner: str, rng=random) -> datetime | None:
 	"""Add an extra search run later today if quota is not yet complete and waking window is open."""
-	end = now.replace(hour=END_HOUR, minute=0, second=0, microsecond=0)
+	end = now.replace(hour=END_HOUR, minute=END_MINUTE, second=0, microsecond=0)
 	if end - now < MIN_WINDOW:
 		return None
 
@@ -406,6 +409,13 @@ def main() -> None:
 	while True:
 		health.check()
 		now = datetime.now()
+
+		if SLEEP_START_HOUR <= now.hour < SLEEP_END_HOUR:
+			wake_time = now.replace(hour=SLEEP_END_HOUR, minute=0, second=0, microsecond=0)
+			wait = (wake_time - now).total_seconds()
+			logger.info("Inside sleep window (%02d:00 - %02d:00). Resting until %02d:00 (%.1f hours).", SLEEP_START_HOUR, SLEEP_END_HOUR, SLEEP_END_HOUR, wait / 3600)
+			time.sleep(wait)
+			continue
 		runs = outstanding(now, owner)
 
 		if not runs:
