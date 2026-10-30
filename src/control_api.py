@@ -41,6 +41,7 @@ import points_log
 import safety
 import status
 import task_log
+import star_bonus
 from constants import USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -241,6 +242,9 @@ def handle(method: str, path: str, body: dict | None = None) -> tuple[int, objec
 	if method == "GET":
 		if route == "/status":
 			return 200, status_view()
+
+		if route in ("/star-bonus", "/bonuses"):
+			return 200, star_bonus.get_all_bonus_data()
 
 		if route == "/runs":
 			return 200, journal.events(days=max(1, min(14, _number(query, "days", 1))))

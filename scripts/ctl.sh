@@ -21,6 +21,7 @@ call() {
 
 case "${1:-status}" in
 	status) call GET /status ;;
+	star|bonuses) call GET /star-bonus ;;
 	runs) call GET "/runs?days=${2:-1}" ;;
 	tasks) call GET "/tasks?days=${2:-14}" ;;
 	settings) call GET /settings ;;
@@ -33,6 +34,6 @@ case "${1:-status}" in
 	resume)
 		account="${2:-}"; [ "$account" = "all" ] && account=""
 		call POST /resume "{\"account\": \"$account\"}" ;;
-	*) echo "usage: scripts/ctl.sh status | runs [days] | tasks [days] | settings | inspect [name] | logs [name [lines]] | pause [account] [why] | resume [account]"; exit 2 ;;
+	*) echo "usage: scripts/ctl.sh status | star | runs [days] | tasks [days] | settings | inspect [name] | logs [name [lines]] | pause [account] [why] | resume [account]"; exit 2 ;;
 esac
 echo

@@ -8,4 +8,6 @@ Todo.md
 data-dir/
 __pycache__/
 .env
-.venv*downloaded_files/
+.venv*
+downloaded_files/
+

@@ -15,6 +15,7 @@ import journal
 import pacing
 import points_log
 import safety
+import star_bonus
 
 
 def quota_line(name: str) -> str:
@@ -39,7 +40,14 @@ def bonus_line(name: str) -> str:
 	if not found:
 		return "monthly bonuses: not read yet"
 
-	return "bonuses last month: " + ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in found.items())
+	parts = []
+	for key, value in found.items():
+		if key == "bing_star":
+			eval_res = star_bonus.parse_star_score(value)
+			parts.append(f"bing star {value} [{eval_res['rating']}]")
+		else:
+			parts.append(f"{key.replace('_', ' ')} {value}")
+	return "bonuses last month: " + ", ".join(parts)
 
 
 def account_block(name: str) -> str:
