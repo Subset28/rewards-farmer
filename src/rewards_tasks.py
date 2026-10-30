@@ -215,11 +215,25 @@ class RewardsTaskUtils:
 			return None
 
 	def read_points_summary(self) -> dict[str, int]:
-		"""Today, month and lifetime points from the breakdown panel."""
+		"""Available (wallet), today, month, and lifetime points from the dashboard and breakdown panel."""
+		reading = {}
+
+		# 1. Read current available spendable wallet balance from the dashboard
+		try:
+			self.switch_to_dashboard()
+			_wait(self, 2, 4)
+			available = self._read_available_wallet_points()
+			if available is not None:
+				reading["available"] = available
+		except Exception as exc:
+			logger.debug("Could not read available wallet points from dashboard: %s", log_utils.exception_summary(exc))
+
+		# 2. Read today, month, and lifetime breakdown from earn page
 		self.switch_to_earn_page()
 		self.wait_for_then_click(self.elements.get_points_breakdown_button, timeout=30)
 
-		reading = points_log.parse_breakdown(self.elements.get_sidebar_section().text)
+		breakdown = points_log.parse_breakdown(self.elements.get_sidebar_section().text)
+		reading.update(breakdown)
 
 		try:
 			self.move_to_and_click(self.elements.get_generic_sidebar_close_button())
@@ -227,6 +241,41 @@ class RewardsTaskUtils:
 			pass
 
 		return reading
+
+	def _read_available_wallet_points(self) -> int | None:
+		"""Extract the available points balance from the dashboard."""
+		# Approach A: Target element directly adjacent to 'Available points' label
+		try:
+			nodes = self.driver.find_elements(
+				By.XPATH,
+				"//*[contains(text(), 'Available points')]/ancestor::div[contains(@class, 'flex')][1]/following-sibling::div//p",
+			)
+			for n in nodes:
+				txt = n.text.strip().replace(",", "")
+				if txt.isdigit():
+					return int(txt)
+		except Exception:
+			pass
+
+		# Approach B: Check pageHeader paragraphs for numeric value
+		try:
+			for p in self.driver.find_elements(By.CSS_SELECTOR, "p.text-pageHeader"):
+				txt = p.text.strip().replace(",", "")
+				if txt.isdigit():
+					return int(txt)
+		except Exception:
+			pass
+
+		# Approach C: Regex on body text
+		try:
+			body = self.driver.find_element(By.TAG_NAME, "body").text
+			m = re.search(r"Available points\s*[\r\n]+\s*([\d,]+)", body, re.I)
+			if m:
+				return int(m.group(1).replace(",", ""))
+		except Exception:
+			pass
+
+		return None
 
 	def read_monthly_bonuses(self) -> dict[str, str]:
 		"""What each monthly bonus paid last month (Bing Star, level-up, default search), from the dashboard."""

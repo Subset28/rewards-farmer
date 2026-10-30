@@ -95,7 +95,10 @@ def account_line(name: str, now: datetime) -> str:
 	rows = points_log.history(name)
 	last = rows[-1] if rows else {}
 	gained = gained_in_week(rows, now)
-	parts = [f"{name}: {'+%d this week' % gained if gained is not None else 'no points on record yet'}"]
+	prefix = f"{name}: "
+	if isinstance(last.get("available"), int):
+		prefix += f"{last['available']:,} available, "
+	parts = [prefix + ('+%d this week' % gained if gained is not None else 'no points on record yet')]
 
 	if isinstance(last.get("month"), int):
 		parts.append(f"{last['month']} this month")
@@ -134,12 +137,22 @@ def reminders(names: list[str], state: dict) -> list[tuple[str, int]]:
 		if not rows:
 			continue
 
-		lifetime = rows[-1]["lifetime"]
-		tier = lifetime // REDEEM_EVERY
-
-		if tier > int(told.get(name, 0)):
-			found.append((name, lifetime))
-			told[name] = tier
+		last = rows[-1]
+		# If available wallet points are recorded, use wallet points to decide if a card can be redeemed right now;
+		# otherwise fallback to lifetime points threshold.
+		if isinstance(last.get("available"), int):
+			balance = last["available"]
+			tier = balance // REDEEM_EVERY
+			# Notify whenever available wallet points reach at least REDEEM_EVERY
+			if tier >= 1 and told.get(name) != tier:
+				found.append((name, balance))
+				told[name] = tier
+		else:
+			lifetime = last["lifetime"]
+			tier = lifetime // REDEEM_EVERY
+			if tier > int(told.get(name, 0)):
+				found.append((name, lifetime))
+				told[name] = tier
 
 	return found
 

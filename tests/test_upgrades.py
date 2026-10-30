@@ -644,7 +644,16 @@ class TestPointsLog(unittest.TestCase):
 			none = points_log.digest("other", {"today": 5, "month": 5, "lifetime": 5})
 
 		self.assertEqual(text, "second: today 295, month 295, lifetime 295, 205 to the next level")
+
 		self.assertEqual(none, "other: today 5, month 5, lifetime 5")
+
+	def test_digest_and_summary_include_available_wallet_points(self):
+		text = points_log.digest("default", {"available": 2479, "today": 100, "month": 500, "lifetime": 8800})
+		self.assertIn("available 2479", text)
+
+		points_log.record("default", {"available": 2479, "today": 100, "month": 500, "lifetime": 8800})
+		summ = points_log.summary(points_log.history("default"))
+		self.assertIn("available 2479", summ)
 
 	def test_the_daily_message_says_so_when_the_target_is_reached(self):
 		with mock.patch.dict(os.environ, {points_log.LEVEL_TARGETS_ENV: "default=750"}):

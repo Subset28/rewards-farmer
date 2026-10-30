@@ -139,7 +139,9 @@ def summary(rows: list[dict], target: int | None = None) -> str:
 
 	last = rows[-1]
 	month = last.get("month")
-	parts = [f"{last['time']}  today {last.get('today', '?')}  month {month if month is not None else '?'}  lifetime {last.get('lifetime', '?')}"]
+	available = last.get("available")
+	wallet_str = f"available {available}  " if available is not None else ""
+	parts = [f"{last['time']}  {wallet_str}today {last.get('today', '?')}  month {month if month is not None else '?'}  lifetime {last.get('lifetime', '?')}"]
 
 	if month is not None and target is not None:
 		left = to_next_level(month, target)
@@ -161,7 +163,8 @@ def summary(rows: list[dict], target: int | None = None) -> str:
 
 def digest(account: str, reading: dict[str, int]) -> str:
 	"""A one-line summary of a reading, for the daily message."""
-	parts = [f"{name} {reading[name]}" for name in ("today", "month", "lifetime") if name in reading]
+	fields = ("available", "today", "month", "lifetime") if "available" in reading else ("today", "month", "lifetime")
+	parts = [f"{name} {reading[name]}" for name in fields if name in reading]
 	target = target_for(account)
 
 	if target is not None and "month" in reading:
