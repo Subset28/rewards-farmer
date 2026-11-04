@@ -299,6 +299,7 @@ class TestEntryPointsRespectTheBrake(unittest.TestCase):
 			mock.patch.object(main_module.accounts, "configured", return_value=accounts), \
 			mock.patch.object(main_module.desktop_utils, "reset_virtual_desktop_state"), \
 			mock.patch.object(main_module.desktop_utils, "cleanup_virtual_desktop"), \
+			mock.patch.object(main_module.pacing, "ordered", side_effect=lambda xs: xs), \
 			mock.patch.object(main_module, "HEADLESS", True), \
 			mock.patch.object(main_module.time, "sleep"), \
 			mock.patch.object(main_module.log_utils, "setup_logging"):

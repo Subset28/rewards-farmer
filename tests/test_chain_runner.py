@@ -108,6 +108,7 @@ class Case(unittest.TestCase):
 			mock.patch.object(rewards_tasks.time, "sleep"),
 			mock.patch.object(rewards_tasks, "_wait"),
 			mock.patch.object(rewards_tasks.memory_guard, "fraction", return_value=0.3),
+			mock.patch.object(rewards_tasks.features, "FEATURES_FILE", os.path.join(directory.name, "features.json")),
 			mock.patch.object(rewards_tasks, "ActionChains", mock.MagicMock()),
 		):
 			patcher.start()

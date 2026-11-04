@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 HIDE_DRIVER_MARKERS_JS = (
 	"(() => {"
 	" for (const k of Object.getOwnPropertyNames(window)) {"
-	"  if (/^(cdc_|rnd_)/.test(k)) { try { delete window[k]; } catch (e) {} }"
+	"  if (/^(cdc_|rnd_|app_)/.test(k)) { try { delete window[k]; } catch (e) {} }"
 	" }"
 	" const nativeFunctions = new Set();"
 	" try {"
@@ -338,7 +338,7 @@ ACCOUNT_HARDWARE_MAP = {
 
 
 def get_hardware_profile(account_name: str | None = None) -> dict:
-	if not account_name:
+	if not account_name or not isinstance(account_name, str):
 		return HARDWARE_PROFILES[0]
 	name = account_name.strip().lower()
 	if name in ACCOUNT_HARDWARE_MAP:
