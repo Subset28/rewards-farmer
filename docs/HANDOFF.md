@@ -95,10 +95,10 @@ Reach Gold on every account; keep perfecting how natural the behavior is; keep t
 - The gift-card vendor (`redeem.rewardlink.com`) challenges the home IP but not mobile data; no public list shows the IP.
   Redeem on mobile data. Not a reason to stop, and not proof of anything about the bot.
 - **Device-Specific Cellular Redemption Mapping:**
-  - `default`: Armaan's Phone (Cellular LTE/5G, Wi-Fi OFF)
-  - `second`: Armaan's iPad (Dedicated cellular line, Wi-Fi OFF)
-  - `third`: Mom's Phone (Cellular LTE/5G, Wi-Fi OFF)
-  - `fourth`: Dad's Phone (Cellular LTE/5G, Wi-Fi OFF)
+  - `default`: Armaan's Phone (Bing App, Cellular LTE/5G, Wi-Fi OFF)
+  - `second`: Brother's Phone Number (Web SMS verification, Cellular LTE/5G, Wi-Fi OFF)
+  - `third`: Mom's Phone (Bing App, Cellular LTE/5G, Wi-Fi OFF)
+  - `fourth`: Dad's Phone (Bing App, Cellular LTE/5G, Wi-Fi OFF)
   *Rationale*: Maps each family member's account to their respective physical mobile device over independent cellular IP pools during SMS 2FA and gift-card claiming, avoiding device fingerprint and IP correlation.
 
 ## Rules that came out of the work
