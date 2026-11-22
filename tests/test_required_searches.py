@@ -24,20 +24,25 @@ Tasks = rewards_tasks.RewardsTaskUtils
 
 _journal_dir = None
 _journal_patch = None
+_pacing_patch = None
 
 
 def setUpModule():
 	# complete_required_searches journals where the day's quota stands; keep that
 	# out of the real data-dir.
-	global _journal_dir, _journal_patch
+	global _journal_dir, _journal_patch, _pacing_patch
 	import journal
+	import pacing
 	_journal_dir = tempfile.TemporaryDirectory()
 	_journal_patch = mock.patch.object(journal, "JOURNAL_FILE", os.path.join(_journal_dir.name, "journal.jsonl"))
 	_journal_patch.start()
+	_pacing_patch = mock.patch.object(pacing, "search_target", side_effect=lambda acc, cap: cap)
+	_pacing_patch.start()
 
 
 def tearDownModule():
 	_journal_patch.stop()
+	_pacing_patch.stop()
 	_journal_dir.cleanup()
 
 
@@ -49,6 +54,7 @@ class Quota:
 
 	PROBE_SEARCHES = Tasks.PROBE_SEARCHES
 	DRY_SEARCHES_TO_ALERT = Tasks.DRY_SEARCHES_TO_ALERT
+	DRY_RUNS_TO_ALERT = 1
 	account_name = "tester"
 	complete_required_searches = Tasks.complete_required_searches
 
@@ -235,11 +241,31 @@ class TestNoPoints(unittest.TestCase):
 	def test_three_searches_with_nothing_to_show_do_alert(self):
 		quota = Quota(earned=0, cap=50, rate=5, dead_batches={0})
 
-		with mock.patch.object(rewards_tasks.notify, "send") as alert, 			self.assertLogs(rewards_tasks.logger, level="WARNING"):
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, \
+			self.assertLogs(rewards_tasks.logger, level="WARNING"):
 			quota.complete_required_searches()
 
 		alert.assert_called_once()
 		self.assertIn("3 searches", alert.call_args.args[1])
+
+	def test_first_dry_run_at_zero_points_yields_without_alert_when_multi_run_configured(self):
+		quota = Quota(earned=0, cap=50, rate=0)
+		quota.DRY_RUNS_TO_ALERT = 2
+
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, \
+			self.assertLogs(rewards_tasks.logger, level="INFO") as logs:
+			quota.complete_required_searches()
+
+		alert.assert_not_called()
+		self.assertTrue(any("dry run 1/2" in line for line in logs.output))
+
+		# Second dry run confirms restriction and alerts
+		with mock.patch.object(rewards_tasks.notify, "send") as alert, \
+			self.assertLogs(rewards_tasks.logger, level="WARNING") as logs:
+			quota.complete_required_searches()
+
+		alert.assert_called_once()
+		self.assertTrue(any("earned no points" in line for line in logs.output))
 
 	def test_the_second_look_waits_before_reading_again(self):
 		quota = Quota(earned=0, cap=50, rate=0)

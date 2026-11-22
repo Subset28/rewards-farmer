@@ -816,6 +816,7 @@ class RewardsTaskUtils:
 
 	# Searches in a row that must add nothing before it is called a problem.
 	DRY_SEARCHES_TO_ALERT = 3
+	DRY_RUNS_TO_ALERT = 2
 
 	# 2026 Meta: Burst limits, cooldown recognition and human contemplation delays.
 	BURST_SEARCH_LIMIT = int(os.environ.get("REWARDS_BURST_SEARCH_LIMIT", "0"))
@@ -905,12 +906,27 @@ class RewardsTaskUtils:
 				# normally, but it raised the "may be restricted" alert. Only a
 				# run of searches with no gain at all is evidence of a problem.
 				if dry_searches >= self.DRY_SEARCHES_TO_ALERT:
-					if points_earned > initial_points:
+					# If points were already earned today (or in this run), a dry round is
+					# a standard search burst cooldown. Yield cleanly to the scheduler.
+					if points_earned > 0:
 						logger.info(
-							"Search cooldown threshold reached on %s (%d searches added nothing after gaining %d pts). Yielding to scheduler.",
-							self.account_name, dry_searches, points_earned - initial_points,
+							"Search cooldown threshold reached on %s (%d searches added nothing at %d/%d pts). Yielding to scheduler.",
+							self.account_name, dry_searches, points_earned, max_pts,
 						)
 						break
+
+					# At 0 points, one dry run is often temporary cooldown or delayed credit.
+					# Yield cleanly to the scheduler on the first dry run; only alert if
+					# consecutive dry runs confirm an actual restriction.
+					prior_dry_runs = journal.prior_dry_search_runs(self.account_name)
+					dry_runs_needed = getattr(self, "DRY_RUNS_TO_ALERT", 2)
+					if prior_dry_runs < dry_runs_needed - 1:
+						logger.info(
+							"Search cooldown threshold reached on %s (%d searches added nothing at 0/%d pts, dry run %d/%d). Yielding to scheduler.",
+							self.account_name, dry_searches, max_pts, prior_dry_runs + 1, dry_runs_needed,
+						)
+						break
+
 					notify.send(
 						"Searches earned no points",
 						f"{self.account_name}: {dry_searches} searches added nothing ({points_earned}/{max_pts}). The account may be restricted.",

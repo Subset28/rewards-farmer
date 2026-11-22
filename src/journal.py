@@ -119,6 +119,20 @@ def quota_complete(accounts: list[str] | None, now: datetime | None = None) -> b
 	return all(latest.get(name) for name in accounts)
 
 
+def prior_dry_search_runs(account: str, now: datetime | None = None) -> int:
+	"""How many search runs ended with 0 points today for this account before now."""
+	count = 0
+
+	for row in events(owner=account, kind="search", now=now):
+		if row.get("event") == "quota" and row.get("account") == account:
+			if row.get("points", 0) == 0 and not row.get("complete"):
+				count += 1
+			elif row.get("points", 0) > 0:
+				count = 0
+
+	return count
+
+
 def describe(days: int = 1, now: datetime | None = None) -> str:
 	"""The journal as something a person can read."""
 	rows = events(days=days, now=now)

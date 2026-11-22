@@ -133,7 +133,9 @@ def related_queries(count: int, account: str | None = None):
 		logger.warning("No fresh query source reachable, falling back to the wordlist.")
 
 		# nouns.txt is already in the repo for exactly this kind of seed.
-		words = [w for w in query_sources.wordlist_queries(count * 3) if query_history.normalize(w) not in searched]
+		words = [w for w in query_sources.wordlist_queries(max(count * 5, 50)) if query_history.normalize(w) not in searched]
+		if not words:
+			words = query_sources.wordlist_queries(count)
 
 		return words[:count]
 

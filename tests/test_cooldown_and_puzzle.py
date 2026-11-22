@@ -61,11 +61,12 @@ class TestCooldownAndBurstPacing(unittest.TestCase):
 		mock_notify.assert_not_called()
 
 	def test_uncredited_account_from_start_still_triggers_alert(self):
-		# Account with 0 pts whose searches don't credit at all MUST still alert
+		# Account with 0 pts whose searches don't credit MUST alert when threshold reached
 		mock_instance = types.SimpleNamespace(
 			account_name="test_blocked",
 			PROBE_SEARCHES=3,
 			DRY_SEARCHES_TO_ALERT=3,
+			DRY_RUNS_TO_ALERT=1,
 			BURST_SEARCH_LIMIT=0,
 			read_search_points=mock.Mock(side_effect=[(0, 100), (0, 100), (0, 100)]),
 			run_search_batch=mock.Mock(),
